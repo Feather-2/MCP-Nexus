@@ -1,0 +1,13 @@
+# GitHub Linguist configuration to fix language statistics
+
+# Exclude large static HTML documentation pages from language stats
+mcp_remote/*.html linguist-documentation
+
+# Exclude build/generated artifacts
+dist/** linguist-generated
+generated/** linguist-generated
+
+# Ensure TypeScript files are recognized correctly (usually not needed, but explicit)
+*.ts linguist-language=TypeScript
+*.tsx linguist-language=TypeScript
+
