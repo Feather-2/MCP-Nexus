@@ -1,0 +1,25 @@
+{
+  "host": "127.0.0.1",
+  "port": 19233,
+  "authMode": "local-trusted",
+  "routingStrategy": "performance",
+  "loadBalancingStrategy": "performance-based",
+  "maxConcurrentServices": 50,
+  "logLevel": "info",
+  "enableHealthChecks": true,
+  "healthCheckInterval": 30000,
+  "requestTimeout": 30000,
+  "maxRetries": 3,
+  "enableMetrics": true,
+  "metricsRetentionDays": 7,
+  "enableCors": true,
+  "corsOrigins": [
+    "http://localhost:3000"
+  ],
+  "maxRequestSize": 10485760,
+  "rateLimiting": {
+    "enabled": false,
+    "maxRequests": 100,
+    "windowMs": 60000
+  }
+}

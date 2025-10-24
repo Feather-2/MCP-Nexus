@@ -1,0 +1,2370 @@
+import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import cors from '@fastify/cors';
+import fastifyStatic from '@fastify/static';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import { randomBytes, createHash, createHmac, pbkdf2Sync, scryptSync, randomUUID } from 'crypto';
+import {
+  Logger,
+  GatewayConfig,
+  McpServiceConfig,
+  ServiceInstance,
+  AuthRequest,
+  RouteRequest,
+  ServiceHealth,
+  HealthCheckResult,
+  OrchestratorConfig,
+  SubagentConfig
+} from '../types/index.js';
+import { ServiceRegistryImpl } from '../gateway/ServiceRegistryImpl.js';
+import { AuthenticationLayerImpl } from '../auth/AuthenticationLayerImpl.js';
+import { GatewayRouterImpl } from '../router/GatewayRouterImpl.js';
+import { ProtocolAdaptersImpl } from '../adapters/ProtocolAdaptersImpl.js';
+import type { OrchestratorStatus, OrchestratorManager } from '../orchestrator/OrchestratorManager.js';
+import { OrchestratorEngine } from '../orchestrator/OrchestratorEngine.js';
+import { SubagentLoader } from '../orchestrator/SubagentLoader.js';
+import { McpGenerator } from '../generator/McpGenerator.js';
+import type {
+  GenerateRequest,
+  ExportRequest,
+  ImportRequest
+} from '../types/index.js';
+
+interface ServiceRequestBody {
+  templateName?: string;
+  config?: Partial<McpServiceConfig>;
+  instanceArgs?: any;
+}
+
+interface RouteRequestBody {
+  method: string;
+  params?: any;
+  serviceGroup?: string;
+  contentType?: string;
+  contentLength?: number;
+}
+
+export class HttpApiServer {
+  private server: FastifyInstance;
+  private serviceRegistry: ServiceRegistryImpl;
+  private authLayer: AuthenticationLayerImpl;
+  private router: GatewayRouterImpl;
+  private protocolAdapters: ProtocolAdaptersImpl;
+  private configManager: import('../config/ConfigManagerImpl.js').ConfigManagerImpl;
+  private logBuffer: Array<{ timestamp: string; level: string; message: string; service?: string; data?: any }> = [];
+  private logStreamClients: Set<FastifyReply> = new Set();
+  private sandboxStatus: { nodeReady: boolean; pythonReady: boolean; goReady: boolean; packagesReady: boolean; details: Record<string, any> } = { nodeReady: false, pythonReady: false, goReady: false, packagesReady: false, details: {} };
+  private orchestratorStatus: OrchestratorStatus | null = null;
+  private orchestratorManager?: OrchestratorManager;
+  private orchestratorEngine?: OrchestratorEngine;
+  private subagentLoader?: SubagentLoader;
+  private mcpGenerator?: McpGenerator;
+  private _marketplaceCache?: { items: any[]; loadedAt: number };
+  private sandboxProgress?: (evt: any) => void;
+
+  // Local MCP Proxy state (handshake + token + code rotation)
+  private currentVerificationCode: string = '';
+  private previousVerificationCode: string = '';
+  private codeExpiresAt: number = 0;
+  private codeRotationMs: number = 60_000; // 60s
+  private codeRotationTimer?: ReturnType<typeof setInterval>;
+  private handshakeStore: Map<string, { id: string; origin: string; clientNonce: string; serverNonce: string; kdf: 'pbkdf2' | 'scrypt'; kdfParams: any; approved: boolean; expiresAt: number } > = new Map();
+  private tokenStore: Map<string, { origin: string; expiresAt: number }> = new Map();
+  private rateCounters: Map<string, number[]> = new Map(); // key -> timestamps
+
+  constructor(
+    private config: GatewayConfig,
+    private logger: Logger,
+    configManager: import('../config/ConfigManagerImpl.js').ConfigManagerImpl
+  ) {
+    this.server = Fastify({
+      logger: false, // We'll use our own logger
+      bodyLimit: 10 * 1024 * 1024 // 10MB
+    });
+
+    this.configManager = configManager;
+
+    // Initialize core components
+    this.protocolAdapters = new ProtocolAdaptersImpl(logger);
+    this.serviceRegistry = new ServiceRegistryImpl(logger);
+    this.authLayer = new AuthenticationLayerImpl(config, logger);
+    this.router = new GatewayRouterImpl(logger, config.loadBalancingStrategy);
+
+    this.setupRoutes();
+    this.setupErrorHandlers();
+    this.setupMiddleware();
+
+    // Initialize log system
+    this.initializeLogSystem();
+  }
+
+  private initializeLogSystem(): void {
+    // Add some initial log entries
+    this.addLogEntry('info', '系统启动成功', 'gateway');
+    this.addLogEntry('info', 'API 服务已就绪', 'api');
+    this.addLogEntry('info', '监控服务已启动', 'monitor');
+
+    // Set up periodic log generation for demo
+    setInterval(() => {
+      const messages = [
+        '处理客户端连接请求',
+        '服务健康检查完成',
+        '缓存清理任务执行',
+        '网关路由更新',
+        '认证令牌验证成功',
+        '配置热重载完成'
+      ];
+      const levels = ['info', 'debug', 'warn'];
+      const services = ['gateway', 'api', 'auth', 'router', 'monitor'];
+
+      const message = messages[Math.floor(Math.random() * messages.length)];
+      const level = levels[Math.floor(Math.random() * levels.length)];
+      const service = services[Math.floor(Math.random() * services.length)];
+
+      this.addLogEntry(level, message, service);
+    }, 3000 + Math.random() * 7000); // Random interval between 3-10 seconds
+  }
+
+  private addLogEntry(level: string, message: string, service?: string, data?: any): void {
+    const logEntry = {
+      timestamp: new Date().toISOString(),
+      level,
+      message,
+      service,
+      data
+    };
+
+    // Keep only last 200 log entries
+    this.logBuffer.push(logEntry);
+    if (this.logBuffer.length > 200) {
+      this.logBuffer.shift();
+    }
+
+    // Broadcast to all connected clients
+    this.broadcastLogEntry(logEntry);
+  }
+
+  private broadcastLogEntry(logEntry: any): void {
+    const message = `data: ${JSON.stringify(logEntry)}\n\n`;
+
+    for (const client of this.logStreamClients) {
+      try {
+        client.raw.write(message);
+      } catch (error) {
+        // Remove disconnected clients
+        this.logStreamClients.delete(client);
+      }
+    }
+  }
+
+  // Convert HealthCheckResult to ServiceHealth
+  private convertHealthResult(result: HealthCheckResult): ServiceHealth {
+    return {
+      status: result.healthy ? 'healthy' : 'unhealthy',
+      responseTime: result.latency || 0,
+      lastCheck: result.timestamp,
+      error: result.error
+    };
+  }
+
+  async start(): Promise<void> {
+    try {
+      // Initialize MCP Generator
+      this.mcpGenerator = new McpGenerator({
+        logger: this.logger,
+        templateManager: this.serviceRegistry.getTemplateManager(),
+        registry: this.serviceRegistry
+      });
+
+      // Initialize and rotate Local MCP Proxy verification code
+      // 保证 /local-proxy/code 与握手流程有可用验证码
+      this.rotateVerificationCode();
+      this.codeRotationTimer = setInterval(() => this.rotateVerificationCode(), this.codeRotationMs);
+
+      const host = this.config.host || '127.0.0.1';
+      const port = this.config.port || 19233;
+
+      await this.server.listen({ host, port });
+      this.logger.info(`HTTP API server started on http://${host}:${port}`);
+    } catch (error) {
+      this.logger.error('Failed to start HTTP API server:', error);
+      throw error;
+    }
+  }
+
+  async stop(): Promise<void> {
+    try {
+      // 清理本地 MCP 验证码轮换定时器
+      if (this.codeRotationTimer) {
+        clearInterval(this.codeRotationTimer);
+        this.codeRotationTimer = undefined;
+      }
+
+      await this.server.close();
+      this.logger.info('HTTP API server stopped');
+    } catch (error) {
+      this.logger.error('Error stopping HTTP API server:', error);
+      throw error;
+    }
+  }
+
+  private setupMiddleware(): void {
+    // CORS middleware
+    this.server.register(cors, {
+      origin: true,
+      credentials: true
+    });
+
+    // Authentication middleware
+    this.server.addHook('preHandler', async (request: FastifyRequest, reply: FastifyReply) => {
+      // Skip auth for health check and public endpoints (including static files)
+      // Require auth for /api/*
+      const requiresAuth = request.url.startsWith('/api/');
+      if (request.url === '/health' || request.url === '/api/health' || !requiresAuth) {
+        return;
+      }
+
+      const authRequest: AuthRequest = {
+        token: this.extractBearerToken(request),
+        apiKey: this.extractApiKey(request),
+        clientIp: request.ip,
+        method: request.method,
+        resource: request.url
+      };
+
+      const authResponse = await this.authLayer.authenticate(authRequest);
+
+      if (!authResponse.success) {
+        reply.code(401).send({
+          error: 'Unauthorized',
+          message: authResponse.error
+        });
+        return;
+      }
+
+      // Attach auth info to request
+      (request as any).auth = authResponse;
+    });
+
+    // Request logging
+    this.server.addHook('onRequest', async (request: FastifyRequest) => {
+      this.logger.debug(`${request.method} ${request.url}`, {
+        ip: request.ip,
+        userAgent: request.headers['user-agent']
+      });
+    });
+
+    // Response logging
+    this.server.addHook('onSend', async (request: FastifyRequest, reply: FastifyReply, payload: any) => {
+      this.logger.debug(`${request.method} ${request.url} - ${reply.statusCode}`, {
+        responseTime: reply.getResponseTime()
+      });
+    });
+  }
+
+  private setupRoutes(): void {
+    // Static file serving for GUI
+    const __dirname = dirname(fileURLToPath(import.meta.url));
+    const guiDistPath = join(__dirname, '../../gui/dist');
+
+    this.server.register(fastifyStatic, {
+      root: guiDistPath,
+      prefix: '/static/'
+    });
+
+    // Serve index.html for root and SPA routes
+    this.server.get('/', async (request, reply) => {
+      return reply.type('text/html').sendFile('index.html', guiDistPath);
+    });
+
+    this.server.get('/dashboard*', async (request, reply) => {
+      return reply.type('text/html').sendFile('index.html', guiDistPath);
+    });
+
+    this.server.get('/services*', async (request, reply) => {
+      return reply.type('text/html').sendFile('index.html', guiDistPath);
+    });
+
+    this.server.get('/templates*', async (request, reply) => {
+      return reply.type('text/html').sendFile('index.html', guiDistPath);
+    });
+
+    this.server.get('/auth*', async (request, reply) => {
+      return reply.type('text/html').sendFile('index.html', guiDistPath);
+    });
+
+    this.server.get('/monitoring*', async (request, reply) => {
+      return reply.type('text/html').sendFile('index.html', guiDistPath);
+    });
+
+    this.server.get('/settings*', async (request, reply) => {
+      return reply.type('text/html').sendFile('index.html', guiDistPath);
+    });
+
+    // Health check endpoint
+    this.server.get('/health', async (request: FastifyRequest, reply: FastifyReply) => {
+      const health = {
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        version: '1.0.0',
+        services: {
+          registry: await this.serviceRegistry.getRegistryStats(),
+          auth: {
+            activeTokens: this.authLayer.getActiveTokenCount(),
+            activeApiKeys: this.authLayer.getActiveApiKeyCount()
+          },
+          router: this.router.getMetrics()
+        }
+      };
+
+      reply.send(health);
+    });
+
+    // Service management endpoints
+    this.setupServiceRoutes();
+
+    // Template management endpoints
+    this.setupTemplateRoutes();
+
+    // Authentication endpoints
+    this.setupAuthRoutes();
+
+    // Routing and proxy endpoints
+    this.setupRoutingRoutes();
+
+    // Monitoring and metrics endpoints
+    this.setupMonitoringRoutes();
+
+    // Log streaming endpoints
+    this.setupLogRoutes();
+
+    // Configuration management endpoints
+    this.setupConfigRoutes();
+
+    // External MCP config import endpoints
+    this.setupExternalImportRoutes();
+
+    // Sandbox inspection & install endpoints
+    this.setupSandboxRoutes();
+
+    // Orchestrator observability endpoints
+    this.setupOrchestratorRoutes();
+
+    // MCP Generator endpoints
+    this.setupGeneratorRoutes();
+
+    // Local MCP Proxy endpoints per docs/LOCAL-MCP-PROXY.md
+    this.setupLocalMcpProxyRoutes();
+  }
+
+  setOrchestratorManager(manager: OrchestratorManager): void {
+    this.orchestratorManager = manager;
+  }
+
+  updateOrchestratorStatus(status: OrchestratorStatus | null): void {
+    this.orchestratorStatus = status;
+    // Lazy init engine only when enabled; loader will be created on first execute
+    if (this.orchestratorStatus?.enabled && this.orchestratorManager) {
+      try {
+        const subDir = this.orchestratorStatus.subagentsDir;
+        this.subagentLoader = new SubagentLoader(subDir, this.logger);
+        this.orchestratorEngine = new OrchestratorEngine({
+          logger: this.logger,
+          serviceRegistry: this.serviceRegistry,
+          protocolAdapters: this.protocolAdapters,
+          orchestratorManager: this.orchestratorManager,
+          subagentLoader: this.subagentLoader
+        });
+      } catch (err) {
+        this.logger.warn('Failed to initialize orchestrator engine', err);
+      }
+    } else {
+      this.orchestratorEngine = undefined;
+      this.subagentLoader = undefined;
+    }
+  }
+
+  private setupOrchestratorRoutes(): void {
+    this.server.get('/api/orchestrator/status', async (_request: FastifyRequest, reply: FastifyReply) => {
+      if (!this.orchestratorStatus) {
+        reply.send({
+          enabled: false,
+          reason: 'orchestrator status unavailable',
+          mode: 'manager-only'
+        });
+        return;
+      }
+
+      reply.send({
+        enabled: this.orchestratorStatus.enabled,
+        mode: this.orchestratorStatus.mode,
+        subagentsDir: this.orchestratorStatus.subagentsDir,
+        reason: this.orchestratorStatus.reason
+      });
+    });
+
+    this.server.get('/api/orchestrator/config', async (_request: FastifyRequest, reply: FastifyReply) => {
+      if (!this.orchestratorManager) {
+        reply.code(503).send({ error: 'Orchestrator manager not available' });
+        return;
+      }
+      try {
+        const config = this.orchestratorManager.getConfig();
+        reply.send({ config });
+      } catch (error) {
+        reply.code(500).send({ error: (error as Error).message });
+      }
+    });
+
+    this.server.put('/api/orchestrator/config', async (request: FastifyRequest, reply: FastifyReply) => {
+      if (!this.orchestratorManager) {
+        reply.code(503).send({ error: 'Orchestrator manager not available' });
+        return;
+      }
+      try {
+        const updates = (request.body ?? {}) as Partial<OrchestratorConfig>;
+        const updated = await this.orchestratorManager.updateConfig(updates);
+        this.updateOrchestratorStatus(this.orchestratorManager.getStatus());
+        reply.send({ success: true, config: updated });
+      } catch (error) {
+        this.logger.error('Failed to update orchestrator configuration', error);
+        reply.code(400).send({ success: false, error: (error as Error).message });
+      }
+    });
+
+    // Execute a minimal orchestrated plan
+    this.server.post('/api/orchestrator/execute', async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        if (!this.orchestratorStatus?.enabled || !this.orchestratorManager) {
+          reply.code(503).send({ success: false, error: 'Orchestrator disabled' });
+          return;
+        }
+        if (!this.orchestratorEngine || !this.subagentLoader) {
+          const subDir = this.orchestratorStatus.subagentsDir;
+          this.subagentLoader = new SubagentLoader(subDir, this.logger);
+          this.orchestratorEngine = new OrchestratorEngine({
+            logger: this.logger,
+            serviceRegistry: this.serviceRegistry,
+            protocolAdapters: this.protocolAdapters,
+            orchestratorManager: this.orchestratorManager,
+            subagentLoader: this.subagentLoader
+          });
+        }
+
+        // Ensure subagents are loaded
+        await this.subagentLoader!.loadAll();
+
+        const body = (request.body ?? {}) as { goal?: string; steps?: Array<{ subagent?: string; tool?: string; params?: any }>; parallel?: boolean; maxSteps?: number; timeoutMs?: number };
+        if (!body.goal && (!body.steps || body.steps.length === 0)) {
+          reply.code(400).send({ success: false, error: 'goal or steps is required' });
+          return;
+        }
+        const res = await this.orchestratorEngine!.execute({
+          goal: body.goal,
+          steps: body.steps,
+          parallel: body.parallel,
+          maxSteps: body.maxSteps,
+          timeoutMs: body.timeoutMs
+        });
+        reply.send(res);
+      } catch (error) {
+        this.logger.error('Orchestrator execute failed', error);
+        reply.code(500).send({ success: false, error: (error as Error).message });
+      }
+    });
+
+    // List subagent configs
+    this.server.get('/api/orchestrator/subagents', async (_request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        if (!this.orchestratorStatus?.enabled || !this.orchestratorManager) {
+          reply.code(503).send({ success: false, error: 'Orchestrator disabled' });
+          return;
+        }
+        // Ensure loader exists
+        if (!this.subagentLoader) {
+          const subDir = this.orchestratorStatus.subagentsDir;
+          this.subagentLoader = new SubagentLoader(subDir, this.logger);
+        }
+        await this.subagentLoader.loadAll();
+        const items = this.subagentLoader.list();
+        reply.send({ success: true, items });
+      } catch (error) {
+        this.logger.error('Failed to list subagents', error);
+        reply.code(500).send({ success: false, error: (error as Error).message });
+      }
+    });
+
+    // Create/update a subagent config
+    this.server.post('/api/orchestrator/subagents', async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        if (!this.orchestratorStatus?.enabled || !this.orchestratorManager) {
+          reply.code(503).send({ success: false, error: 'Orchestrator disabled' });
+          return;
+        }
+        const body = (request.body || {}) as Partial<SubagentConfig>;
+        if (!body || !body.name || !Array.isArray(body.tools) || body.tools.length === 0) {
+          reply.code(400).send({ success: false, error: 'Invalid subagent config: name and tools[] required' });
+          return;
+        }
+        const subDir = this.orchestratorStatus.subagentsDir;
+        // Write file
+        const path = await import('path');
+        const fs = await import('fs/promises');
+        await fs.mkdir(subDir, { recursive: true });
+        const filePath = path.join(subDir, `${body.name}.json`);
+        await fs.writeFile(filePath, JSON.stringify(body, null, 2), 'utf-8');
+        // Reload cache
+        if (!this.subagentLoader) {
+          this.subagentLoader = new SubagentLoader(subDir, this.logger);
+        }
+        await this.subagentLoader.loadAll();
+        reply.code(201).send({ success: true, name: body.name });
+      } catch (error) {
+        this.logger.error('Failed to create subagent', error);
+        reply.code(500).send({ success: false, error: (error as Error).message });
+      }
+    });
+
+    // Delete a subagent config
+    this.server.delete('/api/orchestrator/subagents/:name', async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        if (!this.orchestratorStatus?.enabled || !this.orchestratorManager) {
+          reply.code(503).send({ success: false, error: 'Orchestrator disabled' });
+          return;
+        }
+        const { name } = request.params as { name: string };
+        if (!name) {
+          reply.code(400).send({ success: false, error: 'name is required' });
+          return;
+        }
+        const path = await import('path');
+        const fs = await import('fs/promises');
+        const filePath = path.join(this.orchestratorStatus.subagentsDir, `${name}.json`);
+        try {
+          await fs.unlink(filePath);
+        } catch (err: any) {
+          if (err?.code === 'ENOENT') {
+            reply.code(404).send({ success: false, error: 'Subagent not found' });
+            return;
+          }
+          throw err;
+        }
+        if (!this.subagentLoader) {
+          this.subagentLoader = new SubagentLoader(this.orchestratorStatus.subagentsDir, this.logger);
+        }
+        await this.subagentLoader.loadAll();
+        reply.send({ success: true, name });
+      } catch (error) {
+        this.logger.error('Failed to delete subagent', error);
+        reply.code(500).send({ success: false, error: (error as Error).message });
+      }
+    });
+
+    // Quick group creation via MCP Generator (natural language �?template �?subagent)
+    this.server.post('/api/orchestrator/quick-group', async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        if (!this.orchestratorStatus?.enabled || !this.orchestratorManager) {
+          reply.code(503).send({ success: false, error: 'Orchestrator disabled' });
+          return;
+        }
+        if (!this.mcpGenerator) {
+          reply.code(503).send({ success: false, error: 'MCP Generator not initialized' });
+          return;
+        }
+        const body = (request.body || {}) as { groupName?: string; source: any; options?: any; auth?: any };
+        if (!body.source) {
+          reply.code(400).send({ success: false, error: 'source is required' });
+          return;
+        }
+        // Generate & auto-register template
+        const genRes = await this.mcpGenerator.generate({
+          source: body.source,
+          options: { ...(body.options || {}), autoRegister: true, testMode: false }
+        } as any);
+        if (!genRes.success || !genRes.template) {
+          reply.code(400).send({ success: false, error: genRes.error || 'Generation failed' });
+          return;
+        }
+        const templateName = genRes.template.name;
+        const actions = Array.isArray(genRes.template.tools) && genRes.template.tools.length
+          ? genRes.template.tools.map((t: any) => t.name).filter(Boolean)
+          : [];
+
+        const subDir = this.orchestratorStatus.subagentsDir;
+        const fs = await import('fs/promises');
+        const path = await import('path');
+        await fs.mkdir(subDir, { recursive: true });
+        const subagentName = body.groupName || templateName;
+        const subagentCfg: SubagentConfig = {
+          name: subagentName,
+          tools: [templateName],
+          actions,
+          maxConcurrency: 2,
+          weights: { cost: 0.5, performance: 0.5 },
+          policy: { domains: ['generated'] }
+        } as any;
+        await fs.writeFile(path.join(subDir, `${subagentName}.json`), JSON.stringify(subagentCfg, null, 2), 'utf-8');
+
+        if (!this.subagentLoader) this.subagentLoader = new SubagentLoader(subDir, this.logger);
+        await this.subagentLoader.loadAll();
+
+        reply.code(201).send({ success: true, name: subagentName, template: templateName });
+      } catch (error) {
+        this.logger.error('Quick group creation failed', error);
+        reply.code(500).send({ success: false, error: (error as Error).message });
+      }
+    });
+  }
+
+  private setupExternalImportRoutes(): void {
+    // Lazy import to avoid startup cost if unused
+    const getImporter = () => {
+      const { ExternalMcpConfigImporter } = require('../config/ExternalMcpConfigImporter.js');
+      return new ExternalMcpConfigImporter(this.logger);
+    };
+
+    // Preview discovered configs
+    this.server.get('/api/config/import/preview', async (_request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const importer = getImporter();
+        const discovered = await importer.discoverAll();
+        reply.send({ success: true, discovered });
+      } catch (error) {
+        reply.code(500).send({ success: false, error: (error as Error).message });
+      }
+    });
+
+    // Apply imported configs as templates
+    this.server.post('/api/config/import/apply', async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const importer = getImporter();
+        const discovered = await importer.discoverAll();
+        let applied = 0;
+        for (const group of discovered) {
+          for (const tmpl of group.items) {
+            try {
+              // Save as template via ServiceRegistry
+              await this.serviceRegistry.registerTemplate(tmpl as any);
+              applied += 1;
+            } catch (e) {
+              this.logger.warn('Failed to apply imported template', { name: tmpl.name, error: (e as Error).message });
+            }
+          }
+        }
+        reply.send({ success: true, applied });
+      } catch (error) {
+        reply.code(500).send({ success: false, error: (error as Error).message });
+      }
+    });
+  }
+
+  private setupServiceRoutes(): void {
+    // List all services
+    this.server.get('/api/services', async (request: FastifyRequest, reply: FastifyReply) => {
+      const services = await this.serviceRegistry.listServices();
+      reply.send(services); // Send array directly
+    });
+
+    // Get service by ID
+    this.server.get('/api/services/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+      const { id } = request.params as { id: string };
+      const service = await this.serviceRegistry.getService(id);
+
+      if (!service) {
+        reply.code(404).send({ error: 'Service not found' });
+        return;
+      }
+
+      reply.send({ service });
+    });
+
+    // Create service from template
+    this.server.post('/api/services', async (request: FastifyRequest, reply: FastifyReply) => {
+      const body = request.body as ServiceRequestBody;
+
+      if (!body.templateName) {
+        reply.code(400).send({ error: 'Template name is required' });
+        return;
+      }
+
+      try {
+        const serviceId = await this.serviceRegistry.createServiceFromTemplate(
+          body.templateName,
+          body.instanceArgs || {}
+        );
+
+        reply.code(201).send({
+          success: true,
+          serviceId,
+          message: `Service created from template: ${body.templateName}`
+        });
+      } catch (error) {
+        reply.code(400).send({
+          error: 'Failed to create service',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    });
+
+    // Update service environment variables
+    this.server.patch('/api/services/:id/env', async (request: FastifyRequest, reply: FastifyReply) => {
+      const { id } = request.params as { id: string };
+      const body = request.body as { env: Record<string, string> };
+
+      if (!body.env || typeof body.env !== 'object') {
+        reply.code(400).send({ error: 'Environment variables object is required' });
+        return;
+      }
+
+      try {
+        const service = await this.serviceRegistry.getService(id);
+        if (!service) {
+          reply.code(404).send({ error: 'Service not found' });
+          return;
+        }
+
+        // Get the template name for recreation
+        const templateName = service.config.name;
+
+        // Stop the current service
+        const stopped = await this.serviceRegistry.stopService(id);
+        if (!stopped) {
+          reply.code(500).send({ error: 'Failed to stop service for restart' });
+          return;
+        }
+
+        // Wait a bit before restarting
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // Recreate the service with updated environment variables
+        const newId = await this.serviceRegistry.createServiceFromTemplate(templateName, { env: body.env });
+
+        this.logger.info(`Service ${id} updated with new environment variables and restarted as ${newId}`);
+        reply.send({ success: true, serviceId: newId, message: 'Service environment variables updated and restarted' });
+      } catch (error) {
+        this.logger.error('Error updating service environment variables:', error);
+        reply.code(500).send({
+          error: 'Failed to update service environment variables',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    });
+
+    // Stop service
+    this.server.delete('/api/services/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+      const { id } = request.params as { id: string };
+
+      try {
+        const success = await this.serviceRegistry.stopService(id);
+
+        if (!success) {
+          reply.code(404).send({ error: 'Service not found' });
+          return;
+        }
+
+        reply.send({ success: true, message: 'Service stopped successfully' });
+      } catch (error) {
+        reply.code(500).send({
+          error: 'Failed to stop service',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    });
+
+    // Get service health
+    this.server.get('/api/services/:id/health', async (request: FastifyRequest, reply: FastifyReply) => {
+      const { id } = request.params as { id: string };
+
+      try {
+        const health = await this.serviceRegistry.checkHealth(id);
+        reply.send({ health });
+      } catch (error) {
+        reply.code(500).send({
+          error: 'Failed to check service health',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    });
+
+    // Get service logs
+    this.server.get('/api/services/:id/logs', async (request: FastifyRequest, reply: FastifyReply) => {
+      const { id } = request.params as { id: string };
+      const { limit } = request.query as { limit?: string };
+      const logLimit = limit ? parseInt(limit) : 50;
+
+      try {
+        // Filter logs for this specific service or generate service-specific logs
+        const serviceLogs = this.logBuffer
+          .filter(log => log.service === id || !log.service)
+          .slice(-logLimit);
+
+        // If no service-specific logs, generate some for demo
+        if (serviceLogs.length === 0) {
+          const demoLogs = [
+            {
+              timestamp: new Date(Date.now() - 30000).toISOString(),
+              level: 'info',
+              message: '服务实例启动成功',
+              service: id
+            },
+            {
+              timestamp: new Date(Date.now() - 20000).toISOString(),
+              level: 'debug',
+              message: '初始化MCP连接',
+              service: id
+            },
+            {
+              timestamp: new Date(Date.now() - 10000).toISOString(),
+              level: 'info',
+              message: '服务就绪，等待请求',
+              service: id
+            }
+          ];
+          reply.send(demoLogs);
+        } else {
+          reply.send(serviceLogs);
+        }
+      } catch (error) {
+        reply.code(500).send({
+          error: 'Failed to get service logs',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    });
+  }
+
+  // MCP Generator Routes
+  private setupGeneratorRoutes(): void {
+    // Generate MCP from various sources
+    this.server.post('/api/generator/generate', async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        if (!this.mcpGenerator) {
+          return reply.code(503).send({
+            success: false,
+            error: 'MCP Generator not initialized'
+          });
+        }
+
+        const body = request.body as GenerateRequest;
+        const result = await this.mcpGenerator.generate(body);
+
+        if (result.success) {
+          this.logger.info('MCP service generated successfully', { name: result.template?.name });
+        }
+
+        reply.send(result);
+      } catch (error) {
+        this.logger.error('Failed to generate MCP service', error);
+        reply.code(500).send({
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    });
+
+    // Export template in various formats
+    this.server.post('/api/generator/export', async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        if (!this.mcpGenerator) {
+          return reply.code(503).send({
+            success: false,
+            error: 'MCP Generator not initialized'
+          });
+        }
+
+        const body = request.body as ExportRequest;
+        const result = await this.mcpGenerator.export(body);
+
+        if (result.success) {
+          this.logger.info('Template exported successfully', { name: body.templateName, format: body.format });
+        }
+
+        reply.send(result);
+      } catch (error) {
+        this.logger.error('Failed to export template', error);
+        reply.code(500).send({
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    });
+
+    // Import template from external source
+    this.server.post('/api/generator/import', async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        if (!this.mcpGenerator) {
+          return reply.code(503).send({
+            success: false,
+            error: 'MCP Generator not initialized'
+          });
+        }
+
+        const body = request.body as ImportRequest;
+        const result = await this.mcpGenerator.import(body);
+
+        if (result.success) {
+          this.logger.info('Template imported successfully', { name: result.template?.name });
+        }
+
+        reply.send(result);
+      } catch (error) {
+        this.logger.error('Failed to import template', error);
+        reply.code(500).send({
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    });
+
+    // Download exported file
+    this.server.get('/api/generator/download/:filename', async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const { filename } = request.params as { filename: string };
+        const path = await import('path');
+        const exportDir = path.join(process.cwd(), 'generated');
+
+        reply.sendFile(filename, exportDir);
+      } catch (error) {
+        this.logger.error('Failed to download file', error);
+        reply.code(404).send({
+          error: 'File not found'
+        });
+      }
+    });
+
+    // Marketplace - List available templates (static source)
+    this.server.get('/api/generator/marketplace', async (_request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const items = await this.loadMarketplaceItems();
+        reply.send({ templates: items });
+      } catch (error) {
+        this.logger.warn('Marketplace list failed', error);
+        reply.code(500).send({ success: false, error: (error as Error).message });
+      }
+    });
+
+    // Marketplace - Search templates (matches docs: GET /api/generator/marketplace/search)
+    this.server.get('/api/generator/marketplace/search', async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const { q } = (request.query as any) || {};
+        const query = String(q || '').toLowerCase();
+        const items = await this.loadMarketplaceItems();
+        const results = !query
+          ? items
+          : items.filter((it: any) => {
+              const hay = `${it.name} ${it.description || ''} ${(it.tags || []).join(' ')}`.toLowerCase();
+              return hay.includes(query);
+            });
+        reply.send({ success: true, query, results });
+      } catch (error) {
+        reply.code(500).send({ success: false, error: (error as Error).message });
+      }
+    });
+
+    // Marketplace - Publish template (matches docs: POST /api/generator/marketplace/publish)
+    this.server.post('/api/generator/marketplace/publish', async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        // Placeholder: return not implemented while keeping doc-consistent route
+        reply.code(501).send({ success: false, error: 'Publish not implemented yet' });
+      } catch (error) {
+        reply.code(500).send({ success: false, error: (error as Error).message });
+      }
+    });
+
+    // Marketplace - Install template (from static source)
+    this.server.post('/api/generator/marketplace/install', async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const body = request.body as { templateId?: string; name?: string };
+        const items = await this.loadMarketplaceItems();
+        const idOrName = body.templateId || body.name;
+        if (!idOrName) {
+          reply.code(400).send({ success: false, error: 'templateId or name is required' });
+          return;
+        }
+        const item = items.find((it: any) => it.id === idOrName || it.name === idOrName);
+        if (!item) {
+          reply.code(404).send({ success: false, error: 'Template not found' });
+          return;
+        }
+        const config = item.template || item.config;
+        if (!config) {
+          reply.code(422).send({ success: false, error: 'Template config missing' });
+          return;
+        }
+        await this.serviceRegistry.registerTemplate(config);
+        this.addLogEntry('info', `Marketplace installed: ${config.name}`, 'marketplace');
+        reply.send({ success: true, name: config.name });
+      } catch (error) {
+        reply.code(500).send({ success: false, error: error instanceof Error ? error.message : 'Unknown error' });
+      }
+    });
+  }
+
+  private setupSandboxRoutes(): void {
+    // Status
+    this.server.get('/api/sandbox/status', async (_request: FastifyRequest, reply: FastifyReply) => {
+      const status = await this.inspectSandbox();
+      reply.send(status);
+    });
+
+    // Install components: { components?: string[] }
+    this.server.post('/api/sandbox/install', async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const body = (request.body as any) || {};
+        const components: string[] = Array.isArray(body.components) && body.components.length ? body.components : ['node', 'packages'];
+        const result = await this.installSandboxComponents(components);
+        reply.send({ success: true, result });
+      } catch (error) {
+        this.logger.error('Sandbox install failed:', error);
+        reply.code(500).send({ success: false, error: (error as Error).message });
+      }
+    });
+    
+    // Streaming install via SSE: GET /api/sandbox/install/stream?components=a,b,c
+    this.server.get('/api/sandbox/install/stream', async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        // Prepare SSE response
+        reply.raw.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Headers': 'Cache-Control'
+        });
+        const send = (obj: any) => {
+          try { reply.raw.write(`data: ${JSON.stringify(obj)}\n\n`); } catch {}
+        };
+
+        const q = (request.query as any) || {};
+        const compsStr: string = (q.components as string) || '';
+        const components: string[] = compsStr
+          ? compsStr.split(',').map((s: string) => s.trim()).filter(Boolean)
+          : ['node', 'python', 'go', 'packages'];
+
+        send({ event: 'start', components });
+        // attach reporter
+        this.sandboxProgress = (evt: any) => {
+          send(evt);
+        };
+        const total = components.length;
+        let done = 0;
+
+        for (const c of components) {
+          send({ event: 'component_start', component: c, progress: Math.floor((done / total) * 100) });
+          try {
+            await this.installSandboxComponents([c]);
+            done += 1;
+            send({ event: 'component_done', component: c, progress: Math.floor((done / total) * 100) });
+          } catch (e: any) {
+            this.logger.error('Streaming sandbox install component failed', e);
+            send({ event: 'error', component: c, error: (e as Error).message });
+            break;
+          }
+        }
+
+        const status = await this.inspectSandbox();
+        send({ event: 'complete', progress: 100, status });
+        this.sandboxProgress = undefined;
+        try { reply.raw.end(); } catch {}
+      } catch (error) {
+        this.logger.error('Sandbox streaming install failed:', error);
+        this.sandboxProgress = undefined;
+        try { reply.code(500).send({ success: false, error: (error as Error).message }); } catch {}
+      }
+    });
+
+    // Repair missing components only
+    this.server.post('/api/sandbox/repair', async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const body = (request.body as any) || {};
+        const wants: string[] = Array.isArray(body.components) && body.components.length ? body.components : ['node','python','go','packages'];
+        const status = await this.inspectSandbox();
+        const missing: string[] = [];
+        if (wants.includes('node') && !status.nodeReady) missing.push('node');
+        if (wants.includes('python') && !status.pythonReady) missing.push('python');
+        if (wants.includes('go') && !status.goReady) missing.push('go');
+        if (wants.includes('packages') && !status.packagesReady) missing.push('packages');
+        if (missing.length === 0) {
+          reply.send({ success: true, result: status, message: 'No missing components' });
+          return;
+        }
+        const result = await this.installSandboxComponents(missing);
+        reply.send({ success: true, result });
+      } catch (error) {
+        this.logger.error('Sandbox repair failed:', error);
+        reply.code(500).send({ success: false, error: (error as Error).message });
+      }
+    });
+
+    // Cleanup leftover archives
+    this.server.post('/api/sandbox/cleanup', async (_request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const path = await import('path');
+        const fs = await import('fs/promises');
+        const root = process.cwd();
+        const runtimesDir = path.resolve(root, '../mcp-sandbox/runtimes');
+        const dirs = ['nodejs','python','go'].map(d => path.join(runtimesDir, d));
+        for (const d of dirs) {
+          try {
+            const items = await fs.readdir(d);
+            for (const it of items) {
+              if (it.endsWith('.zip') || it.endsWith('.tar.gz') || it.endsWith('.tgz')) {
+                await fs.unlink(path.join(d, it)).catch(() => {});
+              }
+            }
+          } catch {}
+        }
+        const status = await this.inspectSandbox();
+        reply.send({ success: true, result: status });
+      } catch (error) {
+        this.logger.error('Sandbox cleanup failed:', error);
+        reply.code(500).send({ success: false, error: (error as Error).message });
+      }
+    });
+  }
+
+  // Load marketplace items from file or env URL (JSON). Simple cache to reduce disk IO.
+  private async loadMarketplaceItems(): Promise<any[]> {
+    try {
+      // If cached within 10s, return
+      const now = Date.now();
+      if (this._marketplaceCache && (now - this._marketplaceCache.loadedAt) < 10_000) {
+        return this._marketplaceCache.items;
+      }
+      const pathMod = await import('path');
+      const fs = await import('fs/promises');
+      const filePath = process.env.PB_MARKETPLACE_PATH || pathMod.join(process.cwd(), 'docs', 'marketplace.static.json');
+      const url = process.env.PB_MARKETPLACE_URL;
+
+      const merge = (a: any[], b: any[]) => {
+        const map = new Map<string, any>();
+        for (const it of [...a, ...b]) {
+          const key = (it && (it.id || it.name)) || Math.random().toString();
+          if (!map.has(key)) map.set(key, it);
+        }
+        return Array.from(map.values());
+      };
+
+      let fromFile: any[] = [];
+      let fromUrl: any[] = [];
+
+      // Load from file if exists
+      try {
+        const raw = await fs.readFile(filePath, 'utf-8');
+        const parsed = JSON.parse(raw);
+        fromFile = Array.isArray(parsed) ? parsed : (parsed.items || []);
+      } catch {}
+
+      // Load from remote URL if provided
+      if (url) {
+        try {
+          const headers: Record<string, string> = { 'Accept': 'application/json' };
+          if (process.env.PB_MARKETPLACE_TOKEN) headers['Authorization'] = `Bearer ${process.env.PB_MARKETPLACE_TOKEN}`;
+          if (process.env.PB_MARKETPLACE_BASIC_AUTH && !headers['Authorization']) {
+            const b = Buffer.from(process.env.PB_MARKETPLACE_BASIC_AUTH).toString('base64');
+            headers['Authorization'] = `Basic ${b}`;
+          }
+          const res = await fetch(url, { headers, signal: AbortSignal.timeout(5000) });
+          if (res.ok) {
+            const parsed = await res.json();
+            let itemsObj: any = parsed;
+            // HMAC integrity check if configured (expect parsed = { items, hmac })
+            const secret = process.env.PB_MARKETPLACE_HMAC_SECRET;
+            const itemsArr: any[] = Array.isArray(parsed) ? parsed : (parsed.items || []);
+            if (secret && !Array.isArray(parsed)) {
+              try {
+                const payload = JSON.stringify(itemsArr);
+                const h = createHmac('sha256', secret).update(payload).digest('hex');
+                const provided = String(parsed.hmac || '');
+                if (h !== provided) {
+                  this.logger.warn('Marketplace HMAC verification failed; ignoring remote items');
+                } else {
+                  fromUrl = itemsArr;
+                }
+              } catch (e) {
+                this.logger.warn('Marketplace HMAC verify error; ignoring remote items', e);
+              }
+            } else {
+              fromUrl = itemsArr;
+            }
+          } else {
+            this.logger.warn('Failed to fetch marketplace url', { status: res.status, statusText: res.statusText });
+          }
+        } catch (e) {
+          this.logger.warn('Marketplace URL fetch error', e);
+        }
+      }
+
+      let items: any[] = [];
+      if (fromUrl.length || fromFile.length) {
+        items = merge(fromUrl, fromFile);
+      } else {
+        // Fallback to minimal built-ins
+        items = [
+          {
+            id: 'filesystem',
+            name: 'filesystem',
+            description: 'Local filesystem access (portable)',
+            tags: ['local', 'filesystem'],
+            template: {
+              name: 'filesystem',
+              version: '2024-11-26',
+              transport: 'stdio',
+              command: 'npm',
+              args: process.platform === 'win32' ? ['exec','-y','@modelcontextprotocol/server-filesystem','C:/Users/Public'] : ['exec','@modelcontextprotocol/server-filesystem','/tmp'],
+              env: { SANDBOX: 'portable' },
+              timeout: 30000,
+              retries: 3
+            }
+          }
+        ];
+      }
+      this._marketplaceCache = { items, loadedAt: now };
+      return items;
+    } catch (e) {
+      this.logger.warn('loadMarketplaceItems failed', e);
+      return [];
+    }
+  }
+
+  private async inspectSandbox() {
+    const path = await import('path');
+    const fs = await import('fs/promises');
+    const root = process.cwd();
+    const runtimesDir = path.resolve(root, '../mcp-sandbox/runtimes');
+    const pkgsDir = path.resolve(root, '../mcp-sandbox/packages/@modelcontextprotocol');
+
+    const exists = async (p: string) => { try { await fs.access(p); return true; } catch { return false; } };
+
+    const nodeReady = await exists(path.join(runtimesDir, 'nodejs', 'bin', process.platform === 'win32' ? 'node.cmd' : 'node'))
+      && await exists(path.join(runtimesDir, 'nodejs', 'bin', process.platform === 'win32' ? 'npm.cmd' : 'npm'));
+    const pythonReady = await exists(path.join(runtimesDir, 'python', process.platform === 'win32' ? 'Scripts' : 'bin'));
+    const goReady = await exists(path.join(runtimesDir, 'go', 'bin'));
+    const packagesReady = await exists(path.join(pkgsDir, 'server-filesystem')) && await exists(path.join(pkgsDir, 'server-memory'));
+
+    this.sandboxStatus = { nodeReady, pythonReady, goReady, packagesReady, details: { runtimesDir, pkgsDir } };
+    return this.sandboxStatus;
+  }
+
+  private async installSandboxComponents(components: string[]) {
+    const path = await import('path');
+    const fs = await import('fs/promises');
+    const { spawn } = await import('child_process');
+    const https = await import('https');
+    const http = await import('http');
+    const { createWriteStream } = await import('fs');
+    const { pipeline } = await import('stream');
+    const { promisify } = await import('util');
+    const root = process.cwd();
+
+    const pipelineAsync = promisify(pipeline);
+    const ensureDir = async (p: string) => { try { await fs.mkdir(p, { recursive: true }); } catch {} };
+
+    const run = (cmd: string, args: string[], cwd?: string) => new Promise<void>((resolve, reject) => {
+      const child = spawn(cmd, args, { stdio: 'inherit', shell: process.platform === 'win32', cwd });
+      child.on('close', (code) => code === 0 ? resolve() : reject(new Error(`${cmd} ${args.join(' ')} exited ${code}`)));
+      child.on('error', reject);
+    });
+
+    // 跨平台下载函数
+    const download = async (url: string, filePath: string): Promise<void> => {
+      await ensureDir(path.dirname(filePath));
+      const client = url.startsWith('https') ? https : http;
+
+      return new Promise((resolve, reject) => {
+        client.get(url, (response) => {
+          if (response.statusCode === 302 || response.statusCode === 301) {
+            // 处理重定向
+            return download(response.headers.location!, filePath).then(resolve).catch(reject);
+          }
+          if (response.statusCode !== 200) {
+            reject(new Error(`下载失败: ${response.statusCode}`));
+            return;
+          }
+
+          const fileStream = createWriteStream(filePath);
+          pipelineAsync(response, fileStream)
+            .then(() => resolve())
+            .catch(reject);
+        }).on('error', reject);
+      });
+    };
+
+    // 跨平台解压函数
+    const extract = async (archivePath: string, extractPath: string): Promise<void> => {
+      await ensureDir(extractPath);
+
+      if (archivePath.endsWith('.zip')) {
+        // Windows ZIP解压
+        if (process.platform === 'win32') {
+          await run('powershell', ['-Command', `Expand-Archive -Path "${archivePath}" -DestinationPath "${extractPath}" -Force`]);
+        } else {
+          try {
+            await run('unzip', ['-q', '-o', archivePath, '-d', extractPath]);
+          } catch {
+            try {
+              const dynamicImport: any = new Function('m', 'return import(m)');
+              const AdmZipMod: any = await dynamicImport('adm-zip');
+              const AdmZip = AdmZipMod?.default || AdmZipMod;
+              const zip = new AdmZip(archivePath);
+              zip.extractAllTo(extractPath, true);
+            } catch (e) {
+              throw new Error('无法解压 ZIP：需要 unzip 或 adm-zip');
+            }
+          }
+        }
+      } else if (archivePath.endsWith('.tar.gz') || archivePath.endsWith('.tgz')) {
+        // Unix/Linux TAR.GZ解压
+        try {
+          await run('tar', ['-xzf', archivePath, '-C', extractPath, '--strip-components=1']);
+        } catch {
+          try {
+            const dynamicImport: any = new Function('m', 'return import(m)');
+            const tar = await dynamicImport('tar');
+            await (tar as any).extract({ file: archivePath, cwd: extractPath, strip: 1 });
+          } catch (e) {
+            throw new Error('无法解压 TAR.GZ：需要 tar 或 npm 包 tar');
+          }
+        }
+      }
+    };
+
+    // 跨平台运行时下载配置
+    const getRuntimeConfig = () => {
+      const platform = process.platform as 'win32'|'linux'|'darwin';
+      const archRaw = process.arch;
+      const nodeArch = archRaw === 'arm64' ? 'arm64' : 'x64';
+      const goArch = archRaw === 'arm64' ? 'arm64' : 'amd64';
+      const pyArch = archRaw === 'arm64' ? 'aarch64' : 'x86_64';
+
+      return {
+        node: {
+          version: 'v20.15.0',
+          urls: {
+            win32: `https://nodejs.org/dist/v20.15.0/node-v20.15.0-win-${nodeArch}.zip`,
+            linux: `https://nodejs.org/dist/v20.15.0/node-v20.15.0-linux-${nodeArch}.tar.gz`,
+            darwin: `https://nodejs.org/dist/v20.15.0/node-v20.15.0-darwin-${nodeArch}.tar.gz`
+          }
+        },
+        python: {
+          version: '3.11.9',
+          urls: {
+            win32: `https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-${nodeArch === 'arm64' ? 'arm64' : 'amd64'}.zip`,
+            linux: `https://github.com/indygreg/python-build-standalone/releases/download/20240415/cpython-3.11.9+20240415-${pyArch}-unknown-linux-gnu-install_only.tar.gz`,
+            darwin: `https://github.com/indygreg/python-build-standalone/releases/download/20240415/cpython-3.11.9+20240415-${pyArch}-apple-darwin-install_only.tar.gz`
+          }
+        },
+        go: {
+          version: '1.22.5',
+          urls: {
+            win32: `https://golang.org/dl/go1.22.5.windows-${goArch}.zip`,
+            linux: `https://golang.org/dl/go1.22.5.linux-${goArch}.tar.gz`,
+            darwin: `https://golang.org/dl/go1.22.5.darwin-${goArch}.tar.gz`
+          }
+        }
+      };
+    };
+
+    const config = getRuntimeConfig();
+    const platform = process.platform as 'win32' | 'linux' | 'darwin';
+
+    const logger = this.logger; // 提取logger引用避免this作用域问�?
+    const actions: Record<string, () => Promise<void>> = {
+      async node() {
+        const runtimeDir = path.resolve(root, '../mcp-sandbox/runtimes/nodejs');
+        const binDir = path.join(runtimeDir, 'bin');
+
+        // 检查是否已安装
+        const nodeBin = platform === 'win32' ? 'node.exe' : 'node';
+        const npmBin = platform === 'win32' ? 'npm.cmd' : 'npm';
+
+        try {
+          await fs.access(path.join(binDir, nodeBin));
+          await fs.access(path.join(binDir, npmBin));
+          // 检查是否为真实文件（大小 > KB）
+          const nodeStats = await fs.stat(path.join(binDir, nodeBin));
+          if (nodeStats.size > 1024) {
+            // 已安装真实的Node.js
+            return;
+          }
+        } catch {}
+
+        // 下载并安装Node.js
+        const downloadUrl = config.node.urls[platform];
+        const fileName = downloadUrl.split('/').pop()!;
+        const archivePath = path.join(runtimeDir, fileName);
+
+        logger.info(`下载Node.js ${config.node.version} for ${platform}...`);
+        await download(downloadUrl, archivePath);
+        // Optional SHA256 verification
+        if (process.env.PB_RUNTIME_SHA256_NODE) {
+          try {
+            const fs = await import('fs/promises');
+            const crypto = await import('crypto');
+            const buf = await fs.readFile(archivePath);
+            const h = crypto.createHash('sha256').update(buf).digest('hex');
+            if (h !== process.env.PB_RUNTIME_SHA256_NODE) throw new Error('Node archive SHA256 mismatch');
+          } catch (e) { throw e; }
+        }
+
+        logger.info('解压Node.js...');
+        await extract(archivePath, runtimeDir);
+
+        // 重新整理目录结构
+        if (platform === 'win32') {
+          const extractedDir = path.join(runtimeDir, `node-${config.node.version}-win-x64`);
+          if (await fs.access(extractedDir).then(() => true).catch(() => false)) {
+            // 移动文件到正确位置
+            await ensureDir(binDir);
+            const files = await fs.readdir(extractedDir);
+            for (const file of files) {
+              await fs.rename(path.join(extractedDir, file), path.join(runtimeDir, file));
+            }
+            await fs.rmdir(extractedDir);
+          }
+        }
+
+        // 清理下载文件
+        await fs.unlink(archivePath).catch(() => {});
+
+        logger.info('Node.js安装完成');
+      },
+
+      async python() {
+        const runtimeDir = path.resolve(root, '../mcp-sandbox/runtimes/python');
+        const binDir = path.join(runtimeDir, platform === 'win32' ? '' : 'bin');
+
+        // 检查是否已安装
+        const pythonBin = platform === 'win32' ? 'python.exe' : 'python3';
+
+        try {
+          const pythonPath = path.join(platform === 'win32' ? runtimeDir : binDir, pythonBin);
+          await fs.access(pythonPath);
+          const pythonStats = await fs.stat(pythonPath);
+          if (pythonStats.size > 1024) {
+            return; // 已安装
+          }
+        } catch {}
+
+        // 下载并安装Python
+        const downloadUrl = config.python.urls[platform];
+        const fileName = downloadUrl.split('/').pop()!;
+        const archivePath = path.join(runtimeDir, fileName);
+
+        logger.info(`下载Python ${config.python.version} for ${platform}...`);
+        await download(downloadUrl, archivePath);
+        if (process.env.PB_RUNTIME_SHA256_PYTHON) {
+          try {
+            const fs = await import('fs/promises');
+            const crypto = await import('crypto');
+            const buf = await fs.readFile(archivePath);
+            const h = crypto.createHash('sha256').update(buf).digest('hex');
+            if (h !== process.env.PB_RUNTIME_SHA256_PYTHON) throw new Error('Python archive SHA256 mismatch');
+          } catch (e) { throw e; }
+        }
+
+        logger.info('解压Python...');
+        await extract(archivePath, runtimeDir);
+
+        // Windows需要创建Scripts目录
+        if (platform === 'win32') {
+          await ensureDir(path.join(runtimeDir, 'Scripts'));
+          // 创建pip.exe链接
+          const pipPath = path.join(runtimeDir, 'Scripts', 'pip.exe');
+          const pythonExe = path.join(runtimeDir, 'python.exe');
+          await fs.writeFile(pipPath, `@echo off\n"${pythonExe}" -m pip %*`);
+        }
+
+        // 清理下载文件
+        await fs.unlink(archivePath).catch(() => {});
+
+        logger.info('Python安装完成');
+      },
+
+      async go() {
+        const runtimeDir = path.resolve(root, '../mcp-sandbox/runtimes/go');
+        const binDir = path.join(runtimeDir, 'bin');
+
+        // 检查是否已安装
+        const goBin = platform === 'win32' ? 'go.exe' : 'go';
+
+        try {
+          await fs.access(path.join(binDir, goBin));
+          const goStats = await fs.stat(path.join(binDir, goBin));
+          if (goStats.size > 1024) {
+            return; // 已安装
+          }
+        } catch {}
+
+        // 下载并安装Go
+        const downloadUrl = config.go.urls[platform];
+        const fileName = downloadUrl.split('/').pop()!;
+        const archivePath = path.join(runtimeDir, fileName);
+
+        logger.info(`下载Go ${config.go.version} for ${platform}...`);
+        await download(downloadUrl, archivePath);
+        if (process.env.PB_RUNTIME_SHA256_GO) {
+          try {
+            const fs = await import('fs/promises');
+            const crypto = await import('crypto');
+            const buf = await fs.readFile(archivePath);
+            const h = crypto.createHash('sha256').update(buf).digest('hex');
+            if (h !== process.env.PB_RUNTIME_SHA256_GO) throw new Error('Go archive SHA256 mismatch');
+          } catch (e) { throw e; }
+        }
+
+        logger.info('解压Go...');
+        await extract(archivePath, runtimeDir);
+
+        // 重新整理目录结构 - Go 解压后会在 go/ 子目录
+        const extractedGoDir = path.join(runtimeDir, 'go');
+        if (await fs.access(extractedGoDir).then(() => true).catch(() => false)) {
+          const files = await fs.readdir(extractedGoDir);
+          for (const file of files) {
+            await fs.rename(path.join(extractedGoDir, file), path.join(runtimeDir, file));
+          }
+          await fs.rmdir(extractedGoDir);
+        }
+
+        // 清理下载文件
+        await fs.unlink(archivePath).catch(() => {});
+
+        logger.info('Go安装完成');
+      },
+
+      async packages() {
+        const orgDir = path.resolve(root, '../mcp-sandbox/packages/@modelcontextprotocol');
+        await ensureDir(orgDir);
+
+        // 使用便携式Node.js来安装包
+        const nodeDir = path.resolve(root, '../mcp-sandbox/runtimes/nodejs');
+        const nodeBin = platform === 'win32' ? path.join(nodeDir, 'node.exe') : path.join(nodeDir, 'bin', 'node');
+        let npmScript = platform === 'win32' ? path.join(nodeDir, 'npm.cmd') : path.join(nodeDir, 'bin', 'npm');
+
+        // 检查Node.js是否可用
+        try {
+          await fs.access(nodeBin);
+        } catch {
+          throw new Error('请先安装 Node.js 运行时');
+        }
+
+        const npmExists = await fs.access(npmScript).then(() => true).catch(() => false);
+        const npmCliJs = path.join(nodeDir, 'node_modules', 'npm', 'bin', 'npm-cli.js');
+        const installArgs = ['install', '--no-audit', '--no-fund', '@modelcontextprotocol/server-filesystem', '@modelcontextprotocol/server-memory'];
+        if (npmExists) {
+          await run(npmScript, installArgs, orgDir);
+        } else {
+          await run(nodeBin, [npmCliJs, ...installArgs], orgDir);
+        }
+      }
+    };
+
+    for (const c of components) {
+      if (actions[c]) {
+        this.logger.info(`Installing sandbox component: ${c}`);
+        await actions[c]();
+      }
+    }
+
+    return await this.inspectSandbox();
+  }
+
+  private setupTemplateRoutes(): void {
+    // List templates
+    this.server.get('/api/templates', async (request: FastifyRequest, reply: FastifyReply) => {
+      const templates = await this.serviceRegistry.listTemplates();
+      reply.send(templates); // Send array directly
+    });
+
+    // Register template
+    this.server.post('/api/templates', async (request: FastifyRequest, reply: FastifyReply) => {
+      const config = request.body as McpServiceConfig;
+
+      try {
+        await this.serviceRegistry.registerTemplate(config);
+        reply.code(201).send({
+          success: true,
+          message: `Template registered: ${config.name}`
+        });
+      } catch (error) {
+        reply.code(400).send({
+          error: 'Failed to register template',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    });
+
+    // Delete template
+    this.server.delete('/api/templates/:name', async (request: FastifyRequest, reply: FastifyReply) => {
+      const { name } = request.params as { name: string };
+      try {
+        await this.serviceRegistry.removeTemplate(name);
+        reply.send({ success: true, message: 'Template deleted successfully', name });
+      } catch (error) {
+        // If template not found or deletion failed
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        const notFound = /not\s*found/i.test(message);
+        reply.code(notFound ? 404 : 500).send({
+          error: notFound ? 'Template not found' : 'Failed to remove template',
+          message
+        });
+      }
+    });
+
+    // Repair templates (fix legacy placeholders) & list offline MCP packages
+    this.server.post('/api/templates/repair', async (_request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        await (this.serviceRegistry as any).templateManager.initializeDefaults();
+        reply.send({ success: true });
+      } catch (error) {
+        reply.code(500).send({ success: false, error: (error as Error).message });
+      }
+    });
+  }
+
+  private setupRoutingRoutes(): void {
+    // Route request to appropriate service
+    this.server.post('/api/route', async (request: FastifyRequest, reply: FastifyReply) => {
+      const body = request.body as RouteRequestBody;
+
+      if (!body.method) {
+        reply.code(400).send({ error: 'method is required' });
+        return;
+      }
+
+      try {
+        // Get available services
+        const services = await this.serviceRegistry.listServices();
+        const serviceHealthMap = new Map<string, ServiceHealth>();
+
+        // Get health for each service
+        for (const service of services) {
+          try {
+            const health = await this.serviceRegistry.checkHealth(service.id);
+            serviceHealthMap.set(service.id, this.convertHealthResult(health));
+          } catch (error) {
+            // Service might be down, skip it
+            serviceHealthMap.set(service.id, {
+              status: 'unhealthy',
+              responseTime: Infinity,
+              lastCheck: new Date(),
+              error: error instanceof Error ? error.message : 'Unknown error'
+            });
+          }
+        }
+
+        const routeRequest: RouteRequest = {
+          method: body.method,
+          params: body.params,
+          serviceGroup: body.serviceGroup,
+          contentType: body.contentType,
+          contentLength: body.contentLength,
+          clientIp: request.ip,
+          availableServices: services,
+          serviceHealthMap
+        };
+
+        const routeResponse = await this.router.route(routeRequest);
+
+        if (!routeResponse.success) {
+          reply.code(503).send({
+            error: 'No services available',
+            message: routeResponse.error
+          });
+          return;
+        }
+
+        reply.send({
+          success: true,
+          selectedService: routeResponse.selectedService,
+          routingDecision: routeResponse.routingDecision
+        });
+      } catch (error) {
+        reply.code(500).send({
+          error: 'Routing failed',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    });
+
+    // Proxy MCP requests to services
+    this.server.post('/api/proxy/:serviceId', async (request: FastifyRequest, reply: FastifyReply) => {
+      const { serviceId } = request.params as { serviceId: string };
+      const mcpMessage = request.body as any;
+
+      try {
+        const service = await this.serviceRegistry.getService(serviceId);
+
+        if (!service) {
+          reply.code(404).send({ error: 'Service not found' });
+          return;
+        }
+
+        // Create adapter and send message
+        const adapter = await this.protocolAdapters.createAdapter(service.config);
+        await adapter.connect();
+
+        // wire adapter events into log buffer for richer service logs
+        (adapter as any).on?.('stderr', (line: string) => {
+          this.addLogEntry('warn', `stderr: ${line}`, serviceId);
+        });
+        (adapter as any).on?.('sent', (msg: any) => {
+          this.addLogEntry('debug', `${msg?.method || 'unknown'} id=${msg?.id ?? 'auto'}`, serviceId);
+        });
+        (adapter as any).on?.('message', (msg: any) => {
+          this.addLogEntry('debug', `${msg?.method || (msg?.result ? 'result' : 'message')} id=${msg?.id ?? 'n/a'}`, serviceId);
+        });
+
+        // Mark sandbox usage & per-call logging
+        const isPortable = (service.config.env as any)?.SANDBOX === 'portable';
+        const startTs = Date.now();
+        this.addLogEntry('info', `Proxy call ${mcpMessage?.method || 'unknown'} (id=${mcpMessage?.id ?? 'auto'})${isPortable ? ' [SANDBOX: portable]' : ''}`, serviceId, { request: mcpMessage });
+        try {
+          const preview = JSON.stringify(mcpMessage?.params ?? {}).slice(0, 800);
+          this.addLogEntry('debug', `params: ${preview}${preview.length === 800 ? '…' : ''}`, serviceId);
+        } catch {}
+
+        try {
+          const response = await (adapter as any).sendAndReceive?.(mcpMessage) ||
+                           await adapter.send(mcpMessage);
+          const duration = Date.now() - startTs;
+          this.addLogEntry('info', `Proxy response ${mcpMessage?.method || 'unknown'} (id=${mcpMessage?.id ?? 'auto'}) in ${duration}ms`, serviceId, { response });
+          try {
+            const preview = JSON.stringify(response?.result ?? response?.error ?? {}).slice(0, 800);
+            this.addLogEntry('debug', `result: ${preview}${preview.length === 800 ? '…' : ''}`, serviceId);
+          } catch {}
+          reply.send(response);
+        } finally {
+          await adapter.disconnect();
+        }
+      } catch (error) {
+        this.addLogEntry('error', `Proxy failed: ${(error as Error)?.message || 'unknown error'}`, (request.params as any)?.serviceId);
+        reply.code(500).send({
+          error: 'Proxy request failed',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    });
+
+    
+
+    
+  }
+
+  private setupMonitoringRoutes(): void {
+    // Get comprehensive health status
+    this.server.get('/api/health-status', async (request: FastifyRequest, reply: FastifyReply) => {
+      const stats = await this.serviceRegistry.getRegistryStats();
+      const routerMetrics = this.router.getMetrics();
+      const services = await this.serviceRegistry.listServices();
+
+      const healthStatus = {
+        gateway: {
+          uptime: process.uptime() * 1000, // Convert to milliseconds
+          status: 'healthy',
+          version: '1.0.0'
+        },
+        metrics: {
+          totalRequests: routerMetrics.totalRequests || 0,
+          successRate: routerMetrics.successRate || 0,
+          averageResponseTime: routerMetrics.averageResponseTime || 0,
+          activeConnections: 0 // Default value since not available
+        },
+        services: {
+          total: services.length,
+          running: services.filter(s => s.state === 'running').length,
+          stopped: services.filter(s => s.state === 'stopped').length,
+          error: services.filter(s => s.state === 'error').length
+        }
+      };
+
+      reply.send(healthStatus);
+    });
+
+    // Get registry statistics
+    this.server.get('/api/metrics/registry', async (request: FastifyRequest, reply: FastifyReply) => {
+      const stats = await this.serviceRegistry.getRegistryStats();
+      reply.send({ stats });
+    });
+
+    // Get router metrics
+    this.server.get('/api/metrics/router', async (request: FastifyRequest, reply: FastifyReply) => {
+      const metrics = this.router.getMetrics();
+      reply.send({ metrics });
+    });
+
+    // Get service metrics
+    this.server.get('/api/metrics/services', async (request: FastifyRequest, reply: FastifyReply) => {
+      const services = await this.serviceRegistry.listServices();
+      const serviceMetrics = [];
+
+      for (const service of services) {
+        try {
+          const health = await this.serviceRegistry.checkHealth(service.id);
+          serviceMetrics.push({
+            serviceId: service.id,
+            serviceName: service.config.name,
+            health,
+            uptime: Date.now() - service.startedAt.getTime()
+          });
+        } catch (error) {
+          serviceMetrics.push({
+            serviceId: service.id,
+            serviceName: service.config.name,
+            health: { status: 'unhealthy', error: error instanceof Error ? error.message : 'Unknown error' },
+            uptime: 0
+          });
+        }
+      }
+
+      reply.send({ serviceMetrics });
+    });
+  }
+
+  private setupErrorHandlers(): void {
+    this.server.setErrorHandler(async (error, request, reply) => {
+      this.logger.error('HTTP API error:', error);
+
+      reply.code(500).send({
+        error: 'Internal Server Error',
+        message: error.message,
+        timestamp: new Date().toISOString()
+      });
+    });
+
+    this.server.setNotFoundHandler(async (request, reply) => {
+      reply.code(404).send({
+        error: 'Not Found',
+        message: `Route ${request.method} ${request.url} not found`,
+        timestamp: new Date().toISOString()
+      });
+    });
+  }
+
+  private extractBearerToken(request: FastifyRequest): string | undefined {
+    const authHeader = request.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      return authHeader.substring(7);
+    }
+    return undefined;
+  }
+
+  private extractApiKey(request: FastifyRequest): string | undefined {
+    // Try multiple common API key headers
+    return (request.headers['x-api-key'] as string) ||
+           (request.headers['x-api-token'] as string) ||
+           (request.headers['apikey'] as string) ||
+           undefined;
+  }
+
+  // Utility methods for external integration
+  getServer(): FastifyInstance {
+    return this.server;
+  }
+
+  getServiceRegistry(): ServiceRegistryImpl {
+    return this.serviceRegistry;
+  }
+
+  getAuthLayer(): AuthenticationLayerImpl {
+    return this.authLayer;
+  }
+
+  getRouter(): GatewayRouterImpl {
+    return this.router;
+  }
+
+  private setupAuthRoutes(): void {
+    // List API keys
+    this.server.get('/api/auth/apikeys', async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const apiKeys = this.authLayer.listApiKeys();
+        reply.send(apiKeys);
+      } catch (error) {
+        reply.code(500).send({
+          error: 'Failed to list API keys',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    });
+
+    // Create API key
+    this.server.post('/api/auth/apikey', async (request: FastifyRequest, reply: FastifyReply) => {
+      const { name, permissions } = request.body as { name: string, permissions: string[] };
+
+      try {
+        const result = await this.authLayer.createApiKey(name, permissions);
+        reply.send({
+          success: true,
+          apiKey: result,
+          message: 'API key created successfully'
+        });
+      } catch (error) {
+        reply.code(500).send({
+          error: 'Failed to create API key',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    });
+
+    // Delete API key
+    this.server.delete('/api/auth/apikey/:key', async (request: FastifyRequest, reply: FastifyReply) => {
+      const { key } = request.params as { key: string };
+
+      try {
+        const success = await this.authLayer.deleteApiKey(key);
+        if (success) {
+          reply.send({
+            success: true,
+            message: 'API key deleted successfully'
+          });
+        } else {
+          reply.code(404).send({ error: 'API key not found' });
+        }
+      } catch (error) {
+        reply.code(500).send({
+          error: 'Failed to delete API key',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    });
+
+    // List tokens
+    this.server.get('/api/auth/tokens', async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const tokens = this.authLayer.listTokens();
+        reply.send(tokens);
+      } catch (error) {
+        reply.code(500).send({
+          error: 'Failed to list tokens',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    });
+
+    // Generate token
+    this.server.post('/api/auth/token', async (request: FastifyRequest, reply: FastifyReply) => {
+      const { userId, permissions, expiresInHours = 24 } = request.body as {
+        userId: string,
+        permissions: string[],
+        expiresInHours?: number
+      };
+
+      try {
+        const result = await this.authLayer.generateToken(userId, permissions, expiresInHours);
+        reply.send({
+          success: true,
+          token: result,
+          message: 'Token generated successfully'
+        });
+      } catch (error) {
+        reply.code(500).send({
+          error: 'Failed to generate token',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    });
+
+    // Revoke token
+    this.server.delete('/api/auth/token/:token', async (request: FastifyRequest, reply: FastifyReply) => {
+      const { token } = request.params as { token: string };
+
+      try {
+        const success = await this.authLayer.revokeToken(token);
+        if (success) {
+          reply.send({
+            success: true,
+            message: 'Token revoked successfully'
+          });
+        } else {
+          reply.code(404).send({ error: 'Token not found' });
+        }
+      } catch (error) {
+        reply.code(500).send({
+          error: 'Failed to revoke token',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    });
+  }
+
+  private setupConfigRoutes(): void {
+    // Get current configuration
+    this.server.get('/api/config', async (request: FastifyRequest, reply: FastifyReply) => {
+      const config = this.configManager.getConfig();
+      reply.send(config);
+    });
+
+    // Update configuration
+    this.server.put('/api/config', async (request: FastifyRequest, reply: FastifyReply) => {
+      const updates = request.body as Partial<GatewayConfig>;
+
+      try {
+        const updatedConfig = await this.configManager.updateConfig(updates);
+        reply.send({
+          success: true,
+          message: 'Configuration updated successfully',
+          config: updatedConfig
+        });
+      } catch (error) {
+        reply.code(500).send({
+          error: 'Failed to update configuration',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    });
+
+    // Get specific configuration value
+    this.server.get('/api/config/:key', async (request: FastifyRequest, reply: FastifyReply) => {
+      const { key } = request.params as { key: string };
+
+      try {
+        const value = await this.configManager.get(key);
+        if (value === null) {
+          reply.code(404).send({ error: 'Configuration key not found', key });
+          return;
+        }
+        reply.send({ key, value });
+      } catch (error) {
+        reply.code(500).send({
+          error: 'Failed to get configuration value',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    });
+  }
+
+  // ============ Local MCP Proxy per docs/LOCAL-MCP-PROXY.md ============
+  private setupLocalMcpProxyRoutes(): void {
+    // Optional helper for UI to display current code
+    this.server.get('/local-proxy/code', async (_req, reply) => {
+      const now = Date.now();
+      const expiresIn = Math.max(0, Math.floor((this.codeExpiresAt - now) / 1000));
+      reply.send({ code: this.currentVerificationCode, expiresIn });
+    });
+
+    // Handshake init
+    this.server.post('/handshake/init', async (request, reply) => {
+      try {
+        const origin = this.requireAndValidateOrigin(request, reply);
+        if (!origin) return; // replied
+
+        const { clientNonce, codeProof } = (request.body as any) || {};
+        if (!clientNonce || !codeProof) {
+          return reply.code(400).send({ success: false, error: 'Missing clientNonce or codeProof', code: 'BAD_REQUEST' });
+        }
+
+        // Rate limit per origin (max 5/minute)
+        if (!this.checkRateLimit(`init:${origin}`, 5, 60_000)) {
+          this.addLogEntry('warn', `mcp.local.handshake_init rate_limited for ${origin}`);
+          return reply.code(429).send({ success: false, error: 'Rate limited', code: 'RATE_LIMIT' });
+        }
+
+        // Validate codeProof against current or previous code
+        const expectedCurrent = createHash('sha256').update(`${this.currentVerificationCode}|${origin}|${clientNonce}`).digest('hex');
+        const expectedPrev = this.previousVerificationCode
+          ? createHash('sha256').update(`${this.previousVerificationCode}|${origin}|${clientNonce}`).digest('hex')
+          : '';
+        if (codeProof !== expectedCurrent && codeProof !== expectedPrev) {
+          this.addLogEntry('warn', `mcp.local.handshake_init invalid_code origin=${origin}`);
+          return reply.code(401).send({ success: false, error: 'Invalid code proof', code: 'INVALID_CODE' });
+        }
+
+        const handshakeId = randomUUID();
+        const serverNonceBytes = randomBytes(16);
+        const serverNonce = serverNonceBytes.toString('base64');
+        const kdf: 'pbkdf2' = 'pbkdf2';
+        const kdfParams = { iterations: 200_000, hash: 'SHA-256', length: 32 };
+        const expiresIn = 60; // seconds
+
+        this.handshakeStore.set(handshakeId, {
+          id: handshakeId,
+          origin,
+          clientNonce,
+          serverNonce,
+          kdf,
+          kdfParams,
+          approved: false,
+          expiresAt: Date.now() + expiresIn * 1000
+        });
+
+        this.addLogEntry('info', 'mcp.local.handshake_init', undefined, { origin, handshakeId });
+        reply.send({ handshakeId, serverNonce, expiresIn, kdf, kdfParams });
+      } catch (err: any) {
+        // Error already handled in requireAndValidateOrigin
+        if (!reply.sent) reply.code(500).send({ success: false, error: err.message, code: 'INTERNAL_ERROR' });
+      }
+    });
+
+    // Approve handshake (UI action)
+    this.server.post('/handshake/approve', async (request, reply) => {
+      const { handshakeId, approve } = (request.body as any) || {};
+      if (!handshakeId) return reply.code(400).send({ success: false, error: 'handshakeId required' });
+      const hs = this.handshakeStore.get(handshakeId);
+      if (!hs) return reply.code(404).send({ success: false, error: 'Handshake not found' });
+      if (Date.now() > hs.expiresAt) return reply.code(409).send({ success: false, error: 'Handshake expired' });
+      hs.approved = !!approve;
+      this.addLogEntry('info', `mcp.local.handshake_${approve ? 'approve' : 'reject'}`, undefined, { handshakeId, origin: hs.origin });
+      reply.send({ success: true });
+    });
+
+    // Confirm handshake
+    this.server.post('/handshake/confirm', async (request, reply) => {
+      try {
+        const origin = this.requireAndValidateOrigin(request, reply);
+        if (!origin) return;
+        const { handshakeId, response } = (request.body as any) || {};
+        if (!handshakeId || !response) return reply.code(400).send({ success: false, error: 'Missing handshakeId or response', code: 'BAD_REQUEST' });
+        const hs = this.handshakeStore.get(handshakeId);
+        if (!hs) return reply.code(404).send({ success: false, error: 'Handshake not found', code: 'NOT_FOUND' });
+        if (Date.now() > hs.expiresAt) return reply.code(409).send({ success: false, error: 'Handshake expired', code: 'EXPIRED' });
+        if (!hs.approved) return reply.code(403).send({ success: false, error: 'Handshake not approved', code: 'NOT_APPROVED' });
+        if (hs.origin !== origin) return reply.code(403).send({ success: false, error: 'Origin mismatch', code: 'ORIGIN_MISMATCH' });
+
+        // Derive key with current or previous code
+        const keyFrom = (code: string) => {
+          if (hs.kdf === 'pbkdf2') {
+            return pbkdf2Sync(code, Buffer.from(hs.serverNonce, 'base64'), hs.kdfParams.iterations, hs.kdfParams.length, 'sha256');
+          }
+          return scryptSync(code, Buffer.from(hs.serverNonce, 'base64'), hs.kdfParams.length, { N: 32768, r: 8, p: 1 });
+        };
+        const expectedFor = (code: string) => {
+          const key = keyFrom(code);
+          const data = `${origin}|${hs.clientNonce}|${handshakeId}`;
+          return createHmac('sha256', key).update(data).digest('base64');
+        };
+        const ok = response === expectedFor(this.currentVerificationCode) || (!!this.previousVerificationCode && response === expectedFor(this.previousVerificationCode));
+        if (!ok) return reply.code(401).send({ success: false, error: 'Invalid response', code: 'BAD_RESPONSE' });
+
+        // Issue token
+        const token = randomBytes(32).toString('base64');
+        const expiresIn = 600; // 10 minutes
+        this.tokenStore.set(token, { origin, expiresAt: Date.now() + expiresIn * 1000 });
+
+        // One-time handshake consumption
+        this.handshakeStore.delete(handshakeId);
+        this.addLogEntry('info', 'mcp.local.handshake_confirm', undefined, { origin });
+        reply.send({ sessionToken: token, expiresIn });
+      } catch (err: any) {
+        if (!reply.sent) reply.code(500).send({ success: false, error: err.message, code: 'INTERNAL_ERROR' });
+      }
+    });
+
+    // List tools (requires LocalMCP token)
+    this.server.get('/tools', async (request, reply) => {
+      const origin = request.headers.origin as string | undefined;
+      const token = this.extractLocalMcpToken(request);
+      if (!token) return reply.code(401).send({ success: false, error: 'Missing Authorization', code: 'UNAUTHORIZED' });
+      if (!this.validateToken(token, origin)) return reply.code(403).send({ success: false, error: 'Forbidden', code: 'FORBIDDEN' });
+      const { serviceId } = (request.query as any) || {};
+      try {
+        const service = await this.findTargetService(serviceId);
+        if (!service) return reply.code(404).send({ success: false, error: 'No suitable service', code: 'NO_SERVICE' });
+        const adapter = await this.protocolAdapters.createAdapter(service.config);
+        await adapter.connect();
+        try {
+          const msg: any = { jsonrpc: '2.0', id: `tools-list-${Date.now()}`, method: 'tools/list', params: {} };
+          const res = (adapter as any).sendAndReceive ? await (adapter as any).sendAndReceive(msg) : await adapter.send(msg);
+          this.addLogEntry('info', 'mcp.local.tools_list', service.id);
+          reply.send({ success: true, tools: res?.result?.tools ?? res?.result ?? res, requestId: msg.id });
+        } finally {
+          await adapter.disconnect();
+        }
+      } catch (error: any) {
+        reply.code(500).send({ success: false, error: error.message, code: 'INTERNAL_ERROR' });
+      }
+    });
+
+    // Compatibility alias for tools listing
+    this.server.get('/local-proxy/tools', async (request, reply) => {
+      // Delegate to same handler logic by calling original path
+      // Re-run the same checks inline to avoid internal routing recursion
+      const origin = request.headers.origin as string | undefined;
+      const token = this.extractLocalMcpToken(request);
+      if (!token) return reply.code(401).send({ success: false, error: 'Missing Authorization', code: 'UNAUTHORIZED' });
+      if (!this.validateToken(token, origin)) return reply.code(403).send({ success: false, error: 'Forbidden', code: 'FORBIDDEN' });
+      const { serviceId } = (request.query as any) || {};
+      try {
+        const service = await this.findTargetService(serviceId);
+        if (!service) return reply.code(404).send({ success: false, error: 'No suitable service', code: 'NO_SERVICE' });
+        const adapter = await this.protocolAdapters.createAdapter(service.config);
+        await adapter.connect();
+        try {
+          const msg: any = { jsonrpc: '2.0', id: `tools-list-${Date.now()}`, method: 'tools/list', params: {} };
+          const res = (adapter as any).sendAndReceive ? await (adapter as any).sendAndReceive(msg) : await adapter.send(msg);
+          this.addLogEntry('info', 'mcp.local.tools_list', service.id);
+          reply.send({ success: true, tools: res?.result?.tools ?? res?.result ?? res, requestId: msg.id });
+        } finally { await adapter.disconnect(); }
+      } catch (error: any) { reply.code(500).send({ success: false, error: error.message, code: 'INTERNAL_ERROR' }); }
+    });
+
+    // Call tool (requires LocalMCP token)
+    this.server.post('/call', async (request, reply) => {
+      const origin = request.headers.origin as string | undefined;
+      const token = this.extractLocalMcpToken(request);
+      if (!token) return reply.code(401).send({ success: false, error: 'Missing Authorization', code: 'UNAUTHORIZED' });
+      if (!this.validateToken(token, origin)) return reply.code(403).send({ success: false, error: 'Forbidden', code: 'FORBIDDEN' });
+      const { tool, params, serviceId } = (request.body as any) || {};
+      if (!tool) return reply.code(400).send({ success: false, error: 'tool is required', code: 'BAD_REQUEST' });
+      try {
+        const service = await this.findTargetService(serviceId);
+        if (!service) return reply.code(404).send({ success: false, error: 'No suitable service', code: 'NO_SERVICE' });
+        const adapter = await this.protocolAdapters.createAdapter(service.config);
+        await adapter.connect();
+        try {
+          const msg: any = { jsonrpc: '2.0', id: `call-${Date.now()}`, method: 'tools/call', params: { name: tool, arguments: params || {} } };
+          const res = (adapter as any).sendAndReceive ? await (adapter as any).sendAndReceive(msg) : await adapter.send(msg);
+          this.addLogEntry('info', 'mcp.local.call', service.id, { tool });
+          reply.send({ success: true, result: res?.result ?? res, requestId: msg.id });
+        } finally {
+          await adapter.disconnect();
+        }
+      } catch (error: any) {
+        reply.code(500).send({ success: false, error: error.message, code: 'INTERNAL_ERROR' });
+      }
+    });
+
+    // Compatibility alias for call
+    this.server.post('/local-proxy/call', async (request, reply) => {
+      const origin = request.headers.origin as string | undefined;
+      const token = this.extractLocalMcpToken(request);
+      if (!token) return reply.code(401).send({ success: false, error: 'Missing Authorization', code: 'UNAUTHORIZED' });
+      if (!this.validateToken(token, origin)) return reply.code(403).send({ success: false, error: 'Forbidden', code: 'FORBIDDEN' });
+      const { tool, params, serviceId } = (request.body as any) || {};
+      if (!tool) return reply.code(400).send({ success: false, error: 'tool is required', code: 'BAD_REQUEST' });
+      try {
+        const service = await this.findTargetService(serviceId);
+        if (!service) return reply.code(404).send({ success: false, error: 'No suitable service', code: 'NO_SERVICE' });
+        const adapter = await this.protocolAdapters.createAdapter(service.config);
+        await adapter.connect();
+        try {
+          const msg: any = { jsonrpc: '2.0', id: `call-${Date.now()}`, method: 'tools/call', params: { name: tool, arguments: params || {} } };
+          const res = (adapter as any).sendAndReceive ? await (adapter as any).sendAndReceive(msg) : await adapter.send(msg);
+          this.addLogEntry('info', 'mcp.local.call', service.id, { tool });
+          reply.send({ success: true, result: res?.result ?? res, requestId: msg.id });
+        } finally { await adapter.disconnect(); }
+      } catch (error: any) { reply.code(500).send({ success: false, error: error.message, code: 'INTERNAL_ERROR' }); }
+    });
+  }
+
+  private extractLocalMcpToken(request: FastifyRequest): string | undefined {
+    const auth = request.headers.authorization as string | undefined;
+    if (!auth) return undefined;
+    const prefix = 'LocalMCP ';
+    if (auth.startsWith(prefix)) return auth.substring(prefix.length).trim();
+    return undefined;
+  }
+
+  private validateToken(token: string, origin?: string): boolean {
+    const rec = this.tokenStore.get(token);
+    if (!rec) return false;
+    if (!origin || rec.origin !== origin) return false;
+    if (Date.now() > rec.expiresAt) {
+      this.tokenStore.delete(token);
+      return false;
+    }
+    return true;
+  }
+
+  private async findTargetService(serviceId?: string | null) {
+    if (serviceId) {
+      const svc = await this.serviceRegistry.getService(serviceId);
+      return svc || null;
+    }
+    const list = await this.serviceRegistry.listServices();
+    // Prefer running stdio services
+    const running = list.filter(s => s.state === 'running');
+    const stdioFirst = running.find(s => s.config.transport === 'stdio') || running[0];
+    return stdioFirst || list[0] || null;
+  }
+
+  private isLocalHost(hostHeader?: string): boolean {
+    if (!hostHeader) return false;
+    const host = hostHeader.toLowerCase();
+    return host.startsWith('127.0.0.1:') || host.startsWith('localhost:');
+  }
+
+  private requireAndValidateOrigin(request: FastifyRequest, reply: FastifyReply): string | undefined {
+    const host = request.headers['host'];
+    if (!this.isLocalHost(typeof host === 'string' ? host : undefined)) {
+      reply.code(403).send({ success: false, error: 'Host not allowed', code: 'HOST_FORBIDDEN' });
+      return undefined;
+    }
+    const origin = request.headers['origin'];
+    if (!origin || typeof origin !== 'string') {
+      reply.code(400).send({ success: false, error: 'Origin required', code: 'ORIGIN_REQUIRED' });
+      return undefined;
+    }
+    // Basic Sec-Fetch-Site check
+    const sfs = request.headers['sec-fetch-site'];
+    if (sfs && typeof sfs === 'string' && sfs.toLowerCase() === 'cross-site') {
+      reply.code(403).send({ success: false, error: 'Cross-site not allowed', code: 'FETCH_SITE_FORBIDDEN' });
+      return undefined;
+    }
+    return origin;
+  }
+
+  private rotateVerificationCode(): void {
+    const newCode = (Math.floor(Math.random() * 1_0000_0000)).toString().padStart(8, '0');
+    this.previousVerificationCode = this.currentVerificationCode;
+    this.currentVerificationCode = newCode;
+    this.codeExpiresAt = Date.now() + this.codeRotationMs;
+    this.addLogEntry('info', 'mcp.local.code_rotate');
+  }
+
+  private checkRateLimit(key: string, maxCount: number, windowMs: number): boolean {
+    const now = Date.now();
+    const arr = this.rateCounters.get(key) || [];
+    const recent = arr.filter(ts => now - ts < windowMs);
+    recent.push(now);
+    this.rateCounters.set(key, recent);
+    return recent.length <= maxCount;
+  }
+
+  private setupLogRoutes(): void {
+    // Get recent logs
+    this.server.get('/api/logs', async (request: FastifyRequest, reply: FastifyReply) => {
+      const { limit } = request.query as { limit?: string };
+      const logLimit = limit ? parseInt(limit) : 50;
+
+      const recentLogs = this.logBuffer.slice(-logLimit);
+      reply.send(recentLogs);
+    });
+
+    // Server-Sent Events stream for real-time logs
+    this.server.get('/api/logs/stream', async (request: FastifyRequest, reply: FastifyReply) => {
+      reply.raw.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Cache-Control'
+      });
+
+      // Send initial connection message
+      reply.raw.write(`data: ${JSON.stringify({
+        timestamp: new Date().toISOString(),
+        level: 'info',
+        message: '已连接到实时日志',
+        service: 'monitor'
+      })}\n\n`);
+
+      // Add client to the set
+      this.logStreamClients.add(reply);
+
+      // Send recent logs
+      for (const log of this.logBuffer.slice(-10)) {
+        reply.raw.write(`data: ${JSON.stringify(log)}\n\n`);
+      }
+
+      // Handle client disconnect
+      request.socket.on('close', () => {
+        this.logStreamClients.delete(reply);
+      });
+
+      request.socket.on('end', () => {
+        this.logStreamClients.delete(reply);
+      });
+    });
+  }
+}

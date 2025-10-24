@@ -1,0 +1,15 @@
+{
+  "name": "weather-api",
+  "version": "2024-11-26",
+  "transport": "stdio",
+  "command": "node",
+  "args": [
+    "./generated/weather-api/index.js"
+  ],
+  "env": {
+    "API_URL": "/v1/current.json",
+    "WEATHER-API_API_KEY": "${API_KEY}"
+  },
+  "timeout": 30000,
+  "retries": 3
+}

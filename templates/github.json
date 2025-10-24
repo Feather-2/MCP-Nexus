@@ -1,0 +1,14 @@
+{
+  "name": "github",
+  "version": "2024-11-26",
+  "transport": "stdio",
+  "command": "npx",
+  "args": [
+    "@modelcontextprotocol/server-github"
+  ],
+  "env": {
+    "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+  },
+  "timeout": 60000,
+  "retries": 3
+}

@@ -1,0 +1,16 @@
+node_modules
+dist
+dist-simple
+.git
+.github
+gui
+mcp-sandbox
+generated
+templates
+config/*.backup*
+*.log
+*.tgz
+*.zip
+.DS_Store
+coverage
+vitest*.json

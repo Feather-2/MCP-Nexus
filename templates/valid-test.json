@@ -1,0 +1,11 @@
+{
+  "name": "valid-test",
+  "version": "2024-11-26",
+  "transport": "stdio",
+  "command": "node",
+  "args": [
+    "-v"
+  ],
+  "timeout": 10000,
+  "retries": 2
+}

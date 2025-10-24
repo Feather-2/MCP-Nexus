@@ -1,0 +1,15 @@
+{
+  "name": "filesystem",
+  "version": "2024-11-26",
+  "transport": "stdio",
+  "command": "npx",
+  "args": [
+    "@modelcontextprotocol/server-filesystem",
+    "/tmp"
+  ],
+  "env": {
+    "ALLOWED_DIRECTORY": "/tmp"
+  },
+  "timeout": 30000,
+  "retries": 3
+}

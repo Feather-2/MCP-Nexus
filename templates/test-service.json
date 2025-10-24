@@ -1,0 +1,11 @@
+{
+  "name": "test-service",
+  "version": "2024-11-26",
+  "transport": "stdio",
+  "command": "echo",
+  "args": [
+    "hello"
+  ],
+  "timeout": 5000,
+  "retries": 1
+}

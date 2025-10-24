@@ -1,0 +1,12 @@
+{
+  "name": "scrapegraph",
+  "version": "2024-11-26",
+  "transport": "http",
+  "command": "https://api.scrapegraphai.com/mcp",
+  "env": {
+    "MCP_SERVER_URL": "https://api.scrapegraphai.com/mcp",
+    "HTTP_HEADERS": "{}"
+  },
+  "timeout": 30000,
+  "retries": 3
+}

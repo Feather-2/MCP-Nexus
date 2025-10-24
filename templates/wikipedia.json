@@ -1,0 +1,11 @@
+{
+  "name": "wikipedia",
+  "version": "2024-11-26",
+  "transport": "http",
+  "command": "https://wikipedia.example/mcp",
+  "env": {
+    "MCP_SERVER_URL": "https://wikipedia.example/mcp"
+  },
+  "timeout": 30000,
+  "retries": 3
+}

@@ -1,0 +1,7 @@
+{
+  "name": "",
+  "version": "2024-11-26",
+  "transport": "stdio",
+  "timeout": 30000,
+  "retries": 3
+}

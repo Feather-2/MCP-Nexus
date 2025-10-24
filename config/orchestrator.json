@@ -1,0 +1,38 @@
+{
+  "enabled": true,
+  "mode": "auto",
+  "planner": {
+    "provider": "local",
+    "model": "local-planner",
+    "maxSteps": 8,
+    "fallbackRemote": true
+  },
+  "vectorStore": {
+    "provider": "pgvector",
+    "conn": "postgres://user:pass@localhost:5432/db",
+    "table": "docs",
+    "embeddingModel": "bge-m3",
+    "dim": 1024
+  },
+  "reranker": {
+    "provider": "bge-reranker",
+    "model": "bge-reranker-base"
+  },
+  "budget": {
+    "maxTokens": 200000,
+    "maxTimeMs": 300000,
+    "maxCostUsd": 1.5,
+    "concurrency": {
+      "global": 8,
+      "perSubagent": 2
+    }
+  },
+  "routing": {
+    "preferLocal": true,
+    "switchThreshold": {
+      "planDepth": 6,
+      "failRate": 0.3
+    }
+  },
+  "subagentsDir": "./subagents"
+}
