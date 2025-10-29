@@ -43,6 +43,15 @@ const Templates: React.FC = () => {
   const [sandboxEnabled, setSandboxEnabled] = useState<boolean>(true);
   const [sandboxNodeDir, setSandboxNodeDir] = useState<string>('');
   const [sandboxPythonDir, setSandboxPythonDir] = useState<string>('');
+  // Container sandbox (optional)
+  const [containerEnabled, setContainerEnabled] = useState<boolean>(false);
+  const [containerImage, setContainerImage] = useState<string>('');
+  const [containerWorkdir, setContainerWorkdir] = useState<string>('');
+  const [containerNetwork, setContainerNetwork] = useState<string>('none');
+  const [containerReadonly, setContainerReadonly] = useState<boolean>(true);
+  const [containerCpus, setContainerCpus] = useState<string>('1');
+  const [containerMemory, setContainerMemory] = useState<string>('512m');
+  const [containerVolumesText, setContainerVolumesText] = useState<string>('');
   const [selectedTemplates, setSelectedTemplates] = useState<Set<string>>(new Set());
 
   const loadTemplates = async () => {
@@ -68,9 +77,13 @@ const Templates: React.FC = () => {
       showError('输入验证失败', '请填写模板名称和命令');
       return;
     }
+    if (containerEnabled && !containerImage) {
+      showError('输入验证失败', '容器模式需要提供镜像');
+      return;
+    }
 
     try {
-      const templateData = {
+      const templateData: any = {
         name: newTemplate.name,
         description: newTemplate.description,
         transport: newTemplate.transport,
@@ -84,7 +97,23 @@ const Templates: React.FC = () => {
         } : {}
       };
 
-      const result = await apiClient.addTemplate(templateData);
+      if (containerEnabled) {
+        templateData.env = { ...(templateData.env || {}), SANDBOX: 'container' };
+        const volumes = (containerVolumesText || '').split(/\n+/).map(l => l.trim()).filter(Boolean).map(l => {
+          const [hp, cp, ro] = l.split(':');
+          return { hostPath: hp, containerPath: cp, readOnly: (ro === 'ro') };
+        }).filter(v => v.hostPath && v.containerPath);
+        templateData.container = {
+          image: containerImage,
+          workdir: containerWorkdir || undefined,
+          network: containerNetwork || undefined,
+          readonlyRootfs: containerReadonly,
+          resources: { cpus: containerCpus || undefined, memory: containerMemory || undefined },
+          volumes: volumes.length ? volumes : undefined
+        };
+      }
+
+      const result = await apiClient.addTemplate(templateData as any);
 
       if (result.ok) {
         success('模板添加成功', `模板 "${newTemplate.name}" 已成功创建`);
@@ -129,6 +158,18 @@ const Templates: React.FC = () => {
     setSandboxEnabled(env.SANDBOX === 'portable');
     setSandboxNodeDir(env.SANDBOX_NODE_DIR || '');
     setSandboxPythonDir(env.SANDBOX_PYTHON_DIR || '');
+    // Initialize container block
+    const container = (template as any).container || {};
+    const isContainer = env.SANDBOX === 'container' || !!container.image;
+    setContainerEnabled(isContainer);
+    setContainerImage(container.image || '');
+    setContainerWorkdir(container.workdir || '');
+    setContainerNetwork(container.network || 'none');
+    setContainerReadonly(Boolean(container.readonlyRootfs ?? true));
+    setContainerCpus(String(container.resources?.cpus || '1'));
+    setContainerMemory(String(container.resources?.memory || '512m'));
+    const volumesText = Array.isArray(container.volumes) ? container.volumes.map((v: any) => `${v.hostPath}:${v.containerPath}${v.readOnly ? ':ro' : ''}`).join('\n') : '';
+    setContainerVolumesText(volumesText);
     setShowEditModal(true);
   };
 
@@ -141,6 +182,10 @@ const Templates: React.FC = () => {
       showError('输入验证失败', `${newTemplate.transport === 'stdio' ? '命令' : '服务 URL'}为必填`);
       return;
     }
+    if (containerEnabled && !containerImage) {
+      showError('输入验证失败', '容器模式需要提供镜像');
+      return;
+    }
 
     try {
       // 先删除旧模板
@@ -151,7 +196,7 @@ const Templates: React.FC = () => {
       }
 
       // 然后添加新模板
-      const templateData = {
+      const templateData: any = {
         name: newTemplate.name,
         description: newTemplate.description,
         transport: newTemplate.transport,
@@ -165,7 +210,23 @@ const Templates: React.FC = () => {
         } : ((editingTemplate as any).env || {})
       };
 
-      const result = await apiClient.addTemplate(templateData);
+      if (containerEnabled) {
+        templateData.env = { ...(templateData.env || {}), SANDBOX: 'container' };
+        const volumes = (containerVolumesText || '').split(/\n+/).map(l => l.trim()).filter(Boolean).map(l => {
+          const [hp, cp, ro] = l.split(':');
+          return { hostPath: hp, containerPath: cp, readOnly: (ro === 'ro') };
+        }).filter(v => v.hostPath && v.containerPath);
+        templateData.container = {
+          image: containerImage,
+          workdir: containerWorkdir || undefined,
+          network: containerNetwork || undefined,
+          readonlyRootfs: containerReadonly,
+          resources: { cpus: containerCpus || undefined, memory: containerMemory || undefined },
+          volumes: volumes.length ? volumes : undefined
+        };
+      }
+
+      const result = await apiClient.addTemplate(templateData as any);
 
       if (result.ok) {
         success('模板更新成功', `模板 "${newTemplate.name}" 已成功更新`);
@@ -394,6 +455,45 @@ const Templates: React.FC = () => {
                       </div>
                     </div>
                   )}
+                  {/* Container sandbox */}
+                  <div className="mt-3">
+                    <div className="flex items-center gap-3 mb-2">
+                      <input id="ct" type="checkbox" className="h-4 w-4" checked={containerEnabled} onChange={(e) => setContainerEnabled(e.target.checked)} />
+                      <label htmlFor="ct" className="text-sm">{t('tpl.container.enable')}</label>
+                    </div>
+                    {containerEnabled && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-sm">{t('tpl.container.image')} *</label>
+                          <Input value={containerImage} onChange={(e) => setContainerImage(e.target.value)} placeholder="node:20-alpine 或自定义镜像" />
+                        </div>
+                        <div>
+                          <label className="text-sm">{t('tpl.container.workdir')}</label>
+                          <Input value={containerWorkdir} onChange={(e) => setContainerWorkdir(e.target.value)} placeholder="容器内工作目录（可选）" />
+                        </div>
+                        <div>
+                          <label className="text-sm">{t('tpl.container.network')}</label>
+                          <Input value={containerNetwork} onChange={(e) => setContainerNetwork(e.target.value)} placeholder="none/bridge/自定义网络" />
+                        </div>
+                        <div className="flex items-center gap-2 mt-6">
+                          <input id="ct-ro" type="checkbox" className="h-4 w-4" checked={containerReadonly} onChange={(e) => setContainerReadonly(e.target.checked)} />
+                          <label htmlFor="ct-ro" className="text-sm">{t('tpl.container.readonly')}</label>
+                        </div>
+                        <div>
+                          <label className="text-sm">{t('tpl.container.cpus')}</label>
+                          <Input value={containerCpus} onChange={(e) => setContainerCpus(e.target.value)} placeholder="1/2/0.5 等" />
+                        </div>
+                        <div>
+                          <label className="text-sm">{t('tpl.container.memory')}</label>
+                          <Input value={containerMemory} onChange={(e) => setContainerMemory(e.target.value)} placeholder="512m/1g 等" />
+                        </div>
+                        <div className="md:col-span-2">
+                          <label className="text-sm">{t('tpl.container.volumes')}</label>
+                          <textarea className="w-full min-h-20 p-2 rounded border text-xs font-mono" placeholder={t('tpl.container.volumesPh') || ''} value={containerVolumesText} onChange={(e) => setContainerVolumesText(e.target.value)} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div className="flex justify-end gap-2">
                   <Button variant="outline" onClick={() => {
@@ -624,6 +724,45 @@ const Templates: React.FC = () => {
                   </div>
                 </div>
               )}
+              {/* Container sandbox (edit) */}
+              <div className="mt-3">
+                  <div className="flex items-center gap-3 mb-2">
+                    <input id="ct-edit" type="checkbox" className="h-4 w-4" checked={containerEnabled} onChange={(e) => setContainerEnabled(e.target.checked)} />
+                    <label htmlFor="ct-edit" className="text-sm">{t('tpl.container.enable')}</label>
+                  </div>
+                  {containerEnabled && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-sm">{t('tpl.container.image')} *</label>
+                      <Input value={containerImage} onChange={(e) => setContainerImage(e.target.value)} placeholder="node:20-alpine 或自定义镜像" />
+                    </div>
+                    <div>
+                      <label className="text-sm">{t('tpl.container.workdir')}</label>
+                      <Input value={containerWorkdir} onChange={(e) => setContainerWorkdir(e.target.value)} placeholder="容器内工作目录（可选）" />
+                    </div>
+                    <div>
+                      <label className="text-sm">{t('tpl.container.network')}</label>
+                      <Input value={containerNetwork} onChange={(e) => setContainerNetwork(e.target.value)} placeholder="none/bridge/自定义网络" />
+                    </div>
+                    <div className="flex items-center gap-2 mt-6">
+                      <input id="ct-ro-edit" type="checkbox" className="h-4 w-4" checked={containerReadonly} onChange={(e) => setContainerReadonly(e.target.checked)} />
+                      <label htmlFor="ct-ro-edit" className="text-sm">{t('tpl.container.readonly')}</label>
+                    </div>
+                    <div>
+                      <label className="text-sm">{t('tpl.container.cpus')}</label>
+                      <Input value={containerCpus} onChange={(e) => setContainerCpus(e.target.value)} placeholder="1/2/0.5 等" />
+                    </div>
+                    <div>
+                      <label className="text-sm">{t('tpl.container.memory')}</label>
+                      <Input value={containerMemory} onChange={(e) => setContainerMemory(e.target.value)} placeholder="512m/1g 等" />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="text-sm">{t('tpl.container.volumes')}</label>
+                      <textarea className="w-full min-h-20 p-2 rounded border text-xs font-mono" placeholder={t('tpl.container.volumesPh') || ''} value={containerVolumesText} onChange={(e) => setContainerVolumesText(e.target.value)} />
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => {

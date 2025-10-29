@@ -35,21 +35,49 @@ export class ExternalMcpConfigImporter {
 
   // ========== Individual discoverers ==========
   private async discoverVSCode(): Promise<DiscoveredTemplate[]> {
-    const base = process.env.APPDATA || process.env.HOME || '';
-    const target = join(base, 'Code', 'User', 'settings.json');
-    return this.discoverFromSettingsFile('VSCode', target, ['mcp.servers']);
+    const home = process.env.HOME || process.env.USERPROFILE || '';
+    const appdata = process.env.APPDATA || '';
+    const platform = process.platform;
+    const candidates: string[] = [];
+    // Windows
+    if (appdata) candidates.push(join(appdata, 'Code', 'User', 'settings.json'));
+    // macOS
+    if (home) candidates.push(join(home, 'Library', 'Application Support', 'Code', 'User', 'settings.json'));
+    // Linux
+    if (home) candidates.push(join(home, '.config', 'Code', 'User', 'settings.json'));
+    for (const target of candidates) {
+      const res = await this.discoverFromSettingsFile('VSCode', target, ['mcp.servers']).catch(() => []);
+      if (res.length) return res;
+    }
+    return [];
   }
 
   private async discoverCursor(): Promise<DiscoveredTemplate[]> {
-    const base = process.env.APPDATA || process.env.HOME || '';
-    const target = join(base, 'Cursor', 'User', 'settings.json');
-    return this.discoverFromSettingsFile('Cursor', target, ['mcp.servers']);
+    const home = process.env.HOME || process.env.USERPROFILE || '';
+    const appdata = process.env.APPDATA || '';
+    const candidates: string[] = [];
+    if (appdata) candidates.push(join(appdata, 'Cursor', 'User', 'settings.json'));
+    if (home) candidates.push(join(home, 'Library', 'Application Support', 'Cursor', 'User', 'settings.json'));
+    if (home) candidates.push(join(home, '.config', 'Cursor', 'User', 'settings.json'));
+    for (const target of candidates) {
+      const res = await this.discoverFromSettingsFile('Cursor', target, ['mcp.servers']).catch(() => []);
+      if (res.length) return res;
+    }
+    return [];
   }
 
   private async discoverWindsurf(): Promise<DiscoveredTemplate[]> {
-    const base = process.env.APPDATA || process.env.HOME || '';
-    const target = join(base, 'Windsurf', 'User', 'settings.json');
-    return this.discoverFromSettingsFile('Windsurf', target, ['mcp.servers']);
+    const home = process.env.HOME || process.env.USERPROFILE || '';
+    const appdata = process.env.APPDATA || '';
+    const candidates: string[] = [];
+    if (appdata) candidates.push(join(appdata, 'Windsurf', 'User', 'settings.json'));
+    if (home) candidates.push(join(home, 'Library', 'Application Support', 'Windsurf', 'User', 'settings.json'));
+    if (home) candidates.push(join(home, '.config', 'Windsurf', 'User', 'settings.json'));
+    for (const target of candidates) {
+      const res = await this.discoverFromSettingsFile('Windsurf', target, ['mcp.servers']).catch(() => []);
+      if (res.length) return res;
+    }
+    return [];
   }
 
   private async discoverClaude(): Promise<DiscoveredTemplate[]> {

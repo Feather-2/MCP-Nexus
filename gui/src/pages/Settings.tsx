@@ -77,14 +77,28 @@ const Settings: React.FC = () => {
   const [orchestratorConfig, setOrchestratorConfig] = useState<OrchestratorConfig | null>(null);
   const [orchestratorError, setOrchestratorError] = useState<string | null>(null);
   const [orchestratorSaving, setOrchestratorSaving] = useState(false);
+  // AI provider config (non-secret)
+  const [aiConfig, setAiConfig] = useState<{ provider: string; model?: string; endpoint?: string; timeoutMs?: number; streaming?: boolean }>(
+    { provider: 'none', model: '', endpoint: '', timeoutMs: 30000, streaming: true }
+  );
+  const [aiSaving, setAiSaving] = useState(false);
+  const [aiTesting, setAiTesting] = useState(false);
+  // Client auth (API Key / Bearer) for GUI→API
+  const [apiKey, setApiKey] = useState<string>(() => {
+    try { return localStorage.getItem('pb_api_key') || '' } catch { return '' }
+  });
+  const [bearer, setBearer] = useState<string>(() => {
+    try { return localStorage.getItem('pb_bearer_token') || '' } catch { return '' }
+  });
 
   // Load configuration from server
   useEffect(() => {
     const loadConfig = async () => {
       try {
-        const [configResult, orchestratorResult] = await Promise.all([
+        const [configResult, orchestratorResult, aiResult] = await Promise.all([
           apiClient.getConfig(),
-          apiClient.getOrchestratorConfig()
+          apiClient.getOrchestratorConfig(),
+          apiClient.getAiConfig()
         ]);
         if (configResult.ok) {
           // Map server config to UI settings structure
@@ -147,6 +161,17 @@ const Settings: React.FC = () => {
         } else {
           setOrchestratorError(orchestratorResult.error || t('settings.orch.loadFail'));
         }
+
+        if (aiResult.ok && (aiResult.data as any)?.config) {
+          const aic = (aiResult.data as any).config || {};
+          setAiConfig({
+            provider: aic.provider || 'none',
+            model: aic.model || '',
+            endpoint: aic.endpoint || '',
+            timeoutMs: typeof aic.timeoutMs === 'number' ? aic.timeoutMs : 30000,
+            streaming: aic.streaming !== false
+          });
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : t('settings.loadFail'));
         setOrchestratorError(t('settings.orch.loadFail'));
@@ -160,6 +185,40 @@ const Settings: React.FC = () => {
 
   const handleOrchestratorToggle = (value: boolean) => {
     setOrchestratorConfig((prev) => prev ? { ...prev, enabled: value } : { enabled: value, mode: 'manager-only', subagentsDir: './config/subagents' });
+  };
+
+  const handleAiSave = async () => {
+    try {
+      setAiSaving(true);
+      const res = await apiClient.updateAiConfig(aiConfig);
+      if (res.ok) {
+        success(t('settings.ai.saveSuccess'));
+      } else {
+        showError(t('settings.ai.saveFail'), res.error || t('common.unknownError'));
+      }
+    } catch (err) {
+      showError(t('settings.ai.saveFail'), err instanceof Error ? err.message : t('common.unknownError'));
+    } finally {
+      setAiSaving(false);
+    }
+  };
+
+  const handleAiTest = async (mode: 'env-only' | 'ping' = 'env-only') => {
+    try {
+      setAiTesting(true);
+      const res = await apiClient.testAiConnectivity({ provider: aiConfig.provider, endpoint: aiConfig.endpoint, model: aiConfig.model, mode });
+      if (res.ok && (res.data as any)?.success) {
+        success(t('settings.ai.testOk'));
+      } else {
+        const data: any = res.data || {};
+        const missing = data.env?.missing?.join(', ');
+        showError(t('settings.ai.testFail'), missing ? `${t('settings.ai.missing')}: ${missing}` : (res.error || ''));
+      }
+    } catch (err) {
+      showError(t('settings.ai.testFail'), err instanceof Error ? err.message : t('common.unknownError'));
+    } finally {
+      setAiTesting(false);
+    }
   };
 
   const handleOrchestratorMode = (value: string) => {
@@ -214,6 +273,9 @@ const Settings: React.FC = () => {
     setError(null);
 
     try {
+      // Save GUI auth first
+      apiClient.setAuth({ apiKey: apiKey || null, bearerToken: bearer || null });
+
       // Map UI settings back to server config structure
       const configUpdates = {
         port: settings.server.port,
@@ -325,6 +387,54 @@ const Settings: React.FC = () => {
           </CardContent>
         </Card>
       )}
+
+      {/* AI Provider Settings */}
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('settings.ai.title')}</CardTitle>
+          <CardDescription>{t('settings.ai.desc')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label>{t('settings.ai.provider')}</Label>
+              <Select value={aiConfig.provider} onValueChange={(v) => setAiConfig({ ...aiConfig, provider: v })}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">none</SelectItem>
+                  <SelectItem value="openai">openai</SelectItem>
+                  <SelectItem value="anthropic">anthropic</SelectItem>
+                  <SelectItem value="azure-openai">azure-openai</SelectItem>
+                  <SelectItem value="ollama">ollama</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>{t('settings.ai.model')}</Label>
+              <Input className="mt-1" value={aiConfig.model || ''} onChange={(e) => setAiConfig({ ...aiConfig, model: e.target.value })} placeholder="gpt-4o-mini / claude-3-haiku / ..." />
+            </div>
+            <div>
+              <Label>{t('settings.ai.endpoint')}</Label>
+              <Input className="mt-1" value={aiConfig.endpoint || ''} onChange={(e) => setAiConfig({ ...aiConfig, endpoint: e.target.value })} placeholder="可选：自定义 Endpoint 或本地 Ollama 地址" />
+            </div>
+            <div>
+              <Label>{t('settings.ai.timeout')}</Label>
+              <Input className="mt-1" type="number" value={aiConfig.timeoutMs || 30000} onChange={(e) => setAiConfig({ ...aiConfig, timeoutMs: parseInt(e.target.value || '0', 10) || 30000 })} />
+            </div>
+            <div className="flex items-center space-x-3">
+              <Switch checked={aiConfig.streaming !== false} onCheckedChange={(v) => setAiConfig({ ...aiConfig, streaming: !!v })} />
+              <Label>{t('settings.ai.streaming')}</Label>
+            </div>
+          </div>
+          <div className="mt-4 flex gap-3">
+            <Button onClick={handleAiSave} disabled={aiSaving}>{t('settings.ai.save')}</Button>
+            <Button variant="outline" onClick={() => handleAiTest('env-only')} disabled={aiTesting}>{t('settings.ai.envOnly')}</Button>
+            <Button variant="outline" onClick={() => handleAiTest('ping')} disabled={aiTesting}>{t('settings.ai.ping')}</Button>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -602,6 +712,25 @@ const Settings: React.FC = () => {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* GUI Authentication (for API calls) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="text-sm font-medium">API Key (X-API-Key)</label>
+              <Input
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="pbk_xxx..."
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Bearer Token (Authorization)</label>
+              <Input
+                value={bearer}
+                onChange={(e) => setBearer(e.target.value)}
+                placeholder="eyJhbGci... (可留空)"
+              />
+            </div>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="text-sm font-medium">{t('settings.security.enableAuth')}</label>

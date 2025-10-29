@@ -657,6 +657,14 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
         enabled: false,
         maxRequests: 100,
         windowMs: 60000 // 1 minute
+      },
+      // Non-secret AI defaults; secrets (API keys) are provided via env only
+      ai: {
+        provider: 'none',
+        model: '',
+        endpoint: '',
+        timeoutMs: 30000,
+        streaming: true
       }
     };
   }

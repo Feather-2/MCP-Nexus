@@ -27,6 +27,19 @@ export type LoadBalancingStrategy = typeof LOAD_BALANCING_STRATEGIES[number];
 export const ORCHESTRATOR_MODES = ['manager-only', 'auto', 'wrapper-prefer'] as const;
 export type OrchestratorMode = typeof ORCHESTRATOR_MODES[number];
 
+// ===== AI Provider Config =====
+export const AI_PROVIDERS = ['none', 'openai', 'anthropic', 'azure-openai', 'ollama'] as const;
+export type AiProvider = typeof AI_PROVIDERS[number];
+
+export const AiConfigSchema = z.object({
+  provider: z.enum(AI_PROVIDERS).default('none'),
+  model: z.string().optional().default(''),
+  endpoint: z.string().optional().default(''),
+  timeoutMs: z.number().optional().default(30000),
+  streaming: z.boolean().optional().default(true)
+}).partial();
+export type AiConfig = z.infer<typeof AiConfigSchema>;
+
 const PlannerConfigSchema = z.object({
   provider: z.enum(['local', 'remote']).default('local'),
   model: z.string().default('local-planner'),
@@ -107,6 +120,23 @@ export const McpServiceConfigSchema = z.object({
   workingDirectory: z.string().optional(),
   timeout: z.number().default(30000),
   retries: z.number().default(3),
+  // Optional container sandbox settings (when transport === 'stdio')
+  container: z.object({
+    runtime: z.enum(['docker', 'podman']).optional(),
+    image: z.string().optional(),
+    workdir: z.string().optional(),
+    network: z.string().optional(),
+    readonlyRootfs: z.boolean().optional(),
+    volumes: z.array(z.object({
+      hostPath: z.string(),
+      containerPath: z.string(),
+      readOnly: z.boolean().optional()
+    })).optional(),
+    resources: z.object({
+      cpus: z.union([z.number(), z.string()]).optional(),
+      memory: z.string().optional()
+    }).optional()
+  }).optional(),
   healthCheck: z.object({
     enabled: z.boolean().default(true),
     interval: z.number().default(5000),
@@ -135,7 +165,9 @@ export const GatewayConfigSchema = z.object({
     maxRequests: z.number().default(100),
     windowMs: z.number().default(60000)
   }).default({}),
-  logLevel: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('info')
+  logLevel: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('info'),
+  // Non-secret AI configuration (keys read from environment variables)
+  ai: AiConfigSchema.optional()
 });
 
 // Core Types

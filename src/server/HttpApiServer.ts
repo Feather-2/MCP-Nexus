@@ -96,6 +96,30 @@ export class HttpApiServer {
 
     // Initialize log system
     this.initializeLogSystem();
+
+    // Wire health probe into ServiceRegistry's HealthChecker (centralized)
+    try {
+      this.serviceRegistry.setHealthProbe(async (serviceId: string) => {
+        const service = await this.serviceRegistry.getService(serviceId);
+        if (!service) {
+          return { healthy: false, error: 'Service not found', timestamp: new Date() } as any;
+        }
+        const start = Date.now();
+        try {
+          const adapter = await this.protocolAdapters.createAdapter(service.config);
+          await adapter.connect();
+          try {
+            const msg: any = { jsonrpc: '2.0', id: `health-${Date.now()}`, method: 'tools/list', params: {} };
+            const res = (adapter as any).sendAndReceive ? await (adapter as any).sendAndReceive(msg) : await adapter.send(msg as any);
+            const latency = Date.now() - start;
+            const ok = !!(res && (res as any).result);
+            return { healthy: ok, latency, timestamp: new Date() };
+          } finally { await adapter.disconnect(); }
+        } catch (e: any) {
+          return { healthy: false, error: e?.message || 'probe failed', latency: Date.now() - start, timestamp: new Date() } as any;
+        }
+      });
+    } catch {}
   }
 
   private initializeLogSystem(): void {
@@ -341,6 +365,9 @@ export class HttpApiServer {
     // Configuration management endpoints
     this.setupConfigRoutes();
 
+    // AI provider configuration & test endpoints
+    this.setupAiRoutes();
+
     // External MCP config import endpoints
     this.setupExternalImportRoutes();
 
@@ -355,6 +382,468 @@ export class HttpApiServer {
 
     // Local MCP Proxy endpoints per docs/LOCAL-MCP-PROXY.md
     this.setupLocalMcpProxyRoutes();
+  }
+
+  // Unified error response helper
+  private respondError(reply: FastifyReply, status: number, message: string, opts?: { code?: string; recoverable?: boolean; meta?: any }) {
+    const payload = {
+      success: false,
+      error: {
+        message,
+        code: opts?.code || 'INTERNAL_ERROR',
+        recoverable: opts?.recoverable ?? false,
+        meta: opts?.meta
+      }
+    };
+    try { this.logger.error(message, { ...(opts || {}), httpStatus: status }); } catch {}
+    return reply.code(status).send(payload as any);
+  }
+
+  private setupAiRoutes(): void {
+    // Get current AI config (non-secret)
+    this.server.get('/api/ai/config', async (_request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const cfg = await this.configManager.get('ai');
+        reply.send({ config: cfg || { provider: 'none' } });
+      } catch (error) {
+        reply.code(500).send({ error: (error as Error).message });
+      }
+    });
+
+    // Update AI config (non-secret). Secrets must be provided via environment variables
+    this.server.put('/api/ai/config', async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const body = (request.body as any) || {};
+        const allowed: any = {};
+        if (typeof body.provider === 'string') allowed.provider = body.provider;
+        if (typeof body.model === 'string') allowed.model = body.model;
+        if (typeof body.endpoint === 'string') allowed.endpoint = body.endpoint;
+        if (typeof body.timeoutMs === 'number') allowed.timeoutMs = body.timeoutMs;
+        if (typeof body.streaming === 'boolean') allowed.streaming = body.streaming;
+
+        const updated = await this.configManager.updateConfig({ ai: { ...(await this.configManager.get('ai')), ...allowed } as any });
+        reply.send({ success: true, config: (updated as any).ai });
+      } catch (error) {
+        reply.code(500).send({ success: false, error: (error as Error).message });
+      }
+    });
+
+    // Test AI connectivity/settings without persisting secrets
+    this.server.post('/api/ai/test', async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const body = (request.body as any) || {};
+        const provider = String(body.provider || (await this.configManager.get<any>('ai'))?.provider || 'none');
+        const endpoint = String(body.endpoint || (await this.configManager.get<any>('ai'))?.endpoint || '');
+        const model = String(body.model || (await this.configManager.get<any>('ai'))?.model || '');
+        const mode = (body.mode as string) || 'env-only';
+
+        const envStatus = this.checkAiEnv(provider);
+
+        // By default do not attempt outbound network calls; allow explicit opt-in via mode='ping'
+        let pingResult: { ok: boolean; note?: string } | undefined;
+        if (mode === 'ping') {
+          try {
+            // Minimal safe probe: only for local providers (ollama) or when endpoint is localhost
+            const isLocal = endpoint.includes('127.0.0.1') || endpoint.includes('localhost') || provider === 'ollama';
+            if (!isLocal) {
+              pingResult = { ok: false, note: 'Skipping non-local endpoint probe in sandbox' };
+            } else {
+              const fetch = (await import('node-fetch')).default as any;
+              const url = provider === 'ollama' ? (endpoint || 'http://127.0.0.1:11434') + '/api/tags' : endpoint;
+              const res = await fetch(url, { method: 'GET' });
+              pingResult = { ok: res.ok, note: `HTTP ${res.status}` };
+            }
+          } catch (e: any) {
+            pingResult = { ok: false, note: e?.message || 'probe failed' };
+          }
+        }
+
+        reply.send({
+          success: envStatus.ok && (pingResult ? pingResult.ok : true),
+          provider,
+          model,
+          endpoint,
+          env: envStatus,
+          ping: pingResult
+        });
+      } catch (error) {
+        reply.code(500).send({ success: false, error: (error as Error).message });
+      }
+    });
+
+    // Simple chat endpoint (non-streaming). If provider/env not configured, returns a heuristic assistant reply.
+    this.server.post('/api/ai/chat', async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const body = (request.body as any) || {};
+        const messages: Array<{ role: string; content: string }> = Array.isArray(body.messages) ? body.messages : [];
+        const ai = (await this.configManager.get<any>('ai')) || {};
+        const provider = String(ai.provider || 'none');
+
+        // If provider configured and env is present, attempt real call
+        const envCheck = this.checkAiEnv(provider);
+        if (provider !== 'none' && envCheck.ok) {
+          const result = await this.nonStreamingAiCall(provider, ai, messages);
+          reply.send({ success: true, message: { role: 'assistant', content: result }, provider });
+          return;
+        }
+
+        // Fallback: heuristic plan builder
+        const assistant = this.buildHeuristicPlan(messages);
+        reply.send({ success: true, message: { role: 'assistant', content: assistant }, provider });
+      } catch (error) {
+        return this.respondError(reply, 500, (error as Error).message || 'AI chat error', { code: 'AI_ERROR' });
+      }
+    });
+
+    // Streaming chat (SSE): GET /api/ai/chat/stream?q=...
+    this.server.get('/api/ai/chat/stream', async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const { q } = (request.query as any) || {};
+        const user = String(q || '');
+        const ai = (await this.configManager.get<any>('ai')) || {};
+        const provider = String(ai.provider || 'none');
+
+        // Prepare SSE response headers
+        reply.raw.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive'
+        });
+
+        const send = (obj: any) => {
+          try { reply.raw.write(`data: ${JSON.stringify(obj)}\n\n`); } catch {}
+        };
+        send({ event: 'start' });
+
+        // If provider configured and env ok, attempt real streaming call
+        const envCheck = this.checkAiEnv(provider);
+        if (provider !== 'none' && envCheck.ok) {
+          try {
+            await this.streamingAiCall(provider, ai, user, (delta) => send({ event: 'delta', delta }), () => {
+              send({ event: 'done' });
+              try { reply.raw.end(); } catch {}
+            });
+            return;
+          } catch (e: any) {
+            send({ event: 'error', error: e?.message || 'stream failed' });
+            try { reply.raw.end(); } catch {}
+            return;
+          }
+        }
+
+        // Fallback: heuristic stream
+        const lines = this.buildHeuristicPlanLines(user);
+        let idx = 0;
+        const timer = setInterval(() => {
+          if (idx < lines.length) {
+            send({ event: 'delta', delta: (idx ? '\n' : '') + lines[idx] });
+            idx++;
+          } else {
+            clearInterval(timer);
+            send({ event: 'done' });
+            try { reply.raw.end(); } catch {}
+          }
+        }, 120);
+      } catch (error) {
+        try {
+          reply.raw.write(`data: ${JSON.stringify({ event: 'error', error: (error as Error).message })}\n\n`);
+        } catch {}
+        try { reply.raw.end(); } catch {}
+      }
+    });
+  }
+
+  private buildHeuristicPlan(messages: Array<{ role: string; content: string }>): string {
+    const last = messages.length ? messages[messages.length - 1] : undefined;
+    const userContent = last?.role === 'user' ? String(last.content || '') : '';
+    const lines = this.buildHeuristicPlanLines(userContent);
+    return lines.join('\n');
+  }
+
+  private buildHeuristicPlanLines(user: string): string[] {
+    const urlMatch = user.match(/https?:\/\/[^\s)]+/i);
+    const url = urlMatch ? urlMatch[0] : 'https://api.example.com/v1/echo';
+    const method = /\b(post|put|patch|delete|get)\b/i.exec(user)?.[0]?.toUpperCase?.() || 'GET';
+    const needApiKey = /api[-_ ]?key|token/i.test(user);
+    return [
+      `已理解你的需求。建议基于以下接口生成 MCP 模板：`,
+      '',
+      `# Service Plan`,
+      `Base URL: ${new URL(url).origin}`,
+      '',
+      `Endpoint: ${method} ${new URL(url).pathname}`,
+      needApiKey ? `Auth: API Key header: X-API-Key` : `Auth: none`,
+      `Parameters:`,
+      `- q: string (optional)`
+    ];
+  }
+
+  private async nonStreamingAiCall(provider: string, aiCfg: any, messages: Array<{ role: string; content: string }>): Promise<string> {
+    switch (provider) {
+      case 'openai':
+        return await this.callOpenAI(aiCfg, messages);
+      case 'anthropic':
+        return await this.callAnthropic(aiCfg, messages);
+      case 'azure-openai':
+        return await this.callAzureOpenAI(aiCfg, messages);
+      case 'ollama':
+        return await this.callOllama(aiCfg, messages);
+      default:
+        return this.buildHeuristicPlan(messages);
+    }
+  }
+
+  private async streamingAiCall(provider: string, aiCfg: any, prompt: string, onDelta: (t: string) => void, onDone: () => void): Promise<void> {
+    switch (provider) {
+      case 'openai':
+        await this.streamOpenAI(aiCfg, prompt, onDelta, onDone);
+        return;
+      case 'azure-openai':
+        await this.streamAzureOpenAI(aiCfg, prompt, onDelta, onDone);
+        return;
+      case 'anthropic':
+        await this.streamAnthropic(aiCfg, prompt, onDelta, onDone);
+        return;
+      case 'ollama':
+        await this.streamOllama(aiCfg, prompt, onDelta, onDone);
+        return;
+      // Anthropic streaming can be added similarly; fallback to non-stream call
+      default: {
+        const text = await this.nonStreamingAiCall(provider, aiCfg, [{ role: 'user', content: prompt }]);
+        onDelta(text);
+        onDone();
+      }
+    }
+  }
+
+  // ===== Provider calls (best-effort; rely on env, network may be restricted) =====
+  private async callOpenAI(aiCfg: any, messages: any[]): Promise<string> {
+    const apiKey = process.env.OPENAI_API_KEY as string;
+    const model = aiCfg.model || 'gpt-4o-mini';
+    const endpoint = aiCfg.endpoint || 'https://api.openai.com/v1/chat/completions';
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({ model, messages, stream: false })
+    });
+    const json = await resp.json();
+    return json?.choices?.[0]?.message?.content || '';
+  }
+
+  private async streamOpenAI(aiCfg: any, prompt: string, onDelta: (t: string) => void, onDone: () => void): Promise<void> {
+    const apiKey = process.env.OPENAI_API_KEY as string;
+    const model = aiCfg.model || 'gpt-4o-mini';
+    const endpoint = aiCfg.endpoint || 'https://api.openai.com/v1/chat/completions';
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }], stream: true })
+    } as any);
+    const reader = (res as any).body?.getReader?.();
+    if (!reader) { onDone(); return; }
+    const decoder = new TextDecoder();
+    let done = false;
+    while (!done) {
+      const { value, done: d } = await reader.read();
+      done = d;
+      if (value) {
+        const chunk = decoder.decode(value, { stream: true });
+        // OpenAI SSE: lines starting with data:
+        const lines = chunk.split(/\n/).map(s => s.trim()).filter(Boolean);
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue;
+          const payload = line.slice(5).trim();
+          if (payload === '[DONE]') continue;
+          try {
+            const obj = JSON.parse(payload);
+            const delta = obj?.choices?.[0]?.delta?.content;
+            if (typeof delta === 'string') onDelta(delta);
+          } catch {}
+        }
+      }
+    }
+    onDone();
+  }
+
+  private async callAnthropic(aiCfg: any, messages: any[]): Promise<string> {
+    const apiKey = process.env.ANTHROPIC_API_KEY as string;
+    const model = aiCfg.model || 'claude-3-haiku-20240307';
+    const endpoint = aiCfg.endpoint || 'https://api.anthropic.com/v1/messages';
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({ model, max_tokens: 1024, messages })
+    } as any);
+    const json = await resp.json();
+    // Extract text content blocks
+    const parts = (json?.content || []).map((b: any) => b?.text).filter(Boolean);
+    return parts.join('');
+  }
+
+  private async callAzureOpenAI(aiCfg: any, messages: any[]): Promise<string> {
+    const apiKey = process.env.AZURE_OPENAI_API_KEY as string;
+    const base = process.env.AZURE_OPENAI_ENDPOINT as string; // like https://res.openai.azure.com
+    const deployment = aiCfg.model || 'gpt-4o-mini';
+    const apiVersion = '2024-08-01-preview';
+    const endpoint = `${base.replace(/\/$/, '')}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`;
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+      body: JSON.stringify({ messages, stream: false })
+    } as any);
+    const json = await resp.json();
+    return json?.choices?.[0]?.message?.content || '';
+  }
+
+  private async streamAzureOpenAI(aiCfg: any, prompt: string, onDelta: (t: string) => void, onDone: () => void): Promise<void> {
+    const apiKey = process.env.AZURE_OPENAI_API_KEY as string;
+    const base = process.env.AZURE_OPENAI_ENDPOINT as string;
+    const deployment = aiCfg.model || 'gpt-4o-mini';
+    const apiVersion = '2024-08-01-preview';
+    const endpoint = `${base.replace(/\/$/, '')}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`;
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+      body: JSON.stringify({ stream: true, messages: [{ role: 'user', content: prompt }] })
+    } as any);
+    const reader = (res as any).body?.getReader?.();
+    if (!reader) { onDone(); return; }
+    const decoder = new TextDecoder();
+    let done = false;
+    while (!done) {
+      const { value, done: d } = await reader.read();
+      done = d;
+      if (value) {
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split(/\n/).map(s => s.trim()).filter(Boolean);
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue;
+          const payload = line.slice(5).trim();
+          if (payload === '[DONE]') continue;
+          try {
+            const obj = JSON.parse(payload);
+            const delta = obj?.choices?.[0]?.delta?.content;
+            if (typeof delta === 'string') onDelta(delta);
+          } catch {}
+        }
+      }
+    }
+    onDone();
+  }
+
+  private async streamAnthropic(aiCfg: any, prompt: string, onDelta: (t: string) => void, onDone: () => void): Promise<void> {
+    const apiKey = process.env.ANTHROPIC_API_KEY as string;
+    const model = aiCfg.model || 'claude-3-haiku-20240307';
+    const endpoint = aiCfg.endpoint || 'https://api.anthropic.com/v1/messages';
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({ model, max_tokens: 1024, stream: true, messages: [{ role: 'user', content: prompt }] })
+    } as any);
+    const reader = (res as any).body?.getReader?.();
+    if (!reader) { onDone(); return; }
+    const decoder = new TextDecoder();
+    let done = false;
+    while (!done) {
+      const { value, done: d } = await reader.read();
+      done = d;
+      if (value) {
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split(/\n/).map(s => s.trim()).filter(Boolean);
+        for (const line of lines) {
+          if (!line.startsWith('event:') && !line.startsWith('data:')) continue;
+          if (line.startsWith('data:')) {
+            const payload = line.slice(5).trim();
+            try {
+              const obj = JSON.parse(payload);
+              // Anthropic streaming delta
+              if (obj?.type === 'content_block_delta' && obj?.delta?.type === 'text_delta') {
+                const delta = obj.delta?.text;
+                if (typeof delta === 'string') onDelta(delta);
+              }
+            } catch {}
+          }
+        }
+      }
+    }
+    onDone();
+  }
+
+  private async callOllama(aiCfg: any, messages: any[]): Promise<string> {
+    const model = aiCfg.model || 'llama3.1:8b';
+    const base = aiCfg.endpoint || 'http://127.0.0.1:11434';
+    const endpoint = `${base.replace(/\/$/, '')}/api/chat`;
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, messages, stream: false })
+    } as any);
+    const json = await resp.json();
+    return json?.message?.content || '';
+  }
+
+  private async streamOllama(aiCfg: any, prompt: string, onDelta: (t: string) => void, onDone: () => void): Promise<void> {
+    const model = aiCfg.model || 'llama3.1:8b';
+    const base = aiCfg.endpoint || 'http://127.0.0.1:11434';
+    const endpoint = `${base.replace(/\/$/, '')}/api/chat`;
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }], stream: true })
+    } as any);
+    const reader = (res as any).body?.getReader?.();
+    if (!reader) { onDone(); return; }
+    const decoder = new TextDecoder();
+    let done = false;
+    while (!done) {
+      const { value, done: d } = await reader.read();
+      done = d;
+      if (value) {
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split(/\n/).map(s => s.trim()).filter(Boolean);
+        for (const line of lines) {
+          try {
+            const obj = JSON.parse(line);
+            const delta = obj?.message?.content;
+            if (typeof delta === 'string') onDelta(delta);
+          } catch {}
+        }
+      }
+    }
+    onDone();
+  }
+
+  private checkAiEnv(provider: string): { ok: boolean; required: string[]; missing: string[] } {
+    const req: string[] = [];
+    switch (provider) {
+      case 'openai':
+        req.push('OPENAI_API_KEY');
+        break;
+      case 'anthropic':
+        req.push('ANTHROPIC_API_KEY');
+        break;
+      case 'azure-openai':
+        req.push('AZURE_OPENAI_API_KEY', 'AZURE_OPENAI_ENDPOINT');
+        break;
+      case 'ollama':
+        // local runtime; no key required
+        break;
+      default:
+        break;
+    }
+    const missing = req.filter(k => !process.env[k]);
+    return { ok: missing.length === 0, required: req, missing };
   }
 
   setOrchestratorManager(manager: OrchestratorManager): void {
@@ -671,8 +1160,7 @@ export class HttpApiServer {
       const service = await this.serviceRegistry.getService(id);
 
       if (!service) {
-        reply.code(404).send({ error: 'Service not found' });
-        return;
+        return this.respondError(reply, 404, 'Service not found', { code: 'NOT_FOUND', recoverable: true });
       }
 
       reply.send({ service });
@@ -683,8 +1171,7 @@ export class HttpApiServer {
       const body = request.body as ServiceRequestBody;
 
       if (!body.templateName) {
-        reply.code(400).send({ error: 'Template name is required' });
-        return;
+        return this.respondError(reply, 400, 'Template name is required', { code: 'BAD_REQUEST', recoverable: true });
       }
 
       try {
@@ -699,10 +1186,7 @@ export class HttpApiServer {
           message: `Service created from template: ${body.templateName}`
         });
       } catch (error) {
-        reply.code(400).send({
-          error: 'Failed to create service',
-          message: error instanceof Error ? error.message : 'Unknown error'
-        });
+        return this.respondError(reply, 400, error instanceof Error ? error.message : 'Failed to create service', { code: 'CREATE_FAILED', recoverable: true });
       }
     });
 
@@ -719,8 +1203,7 @@ export class HttpApiServer {
       try {
         const service = await this.serviceRegistry.getService(id);
         if (!service) {
-          reply.code(404).send({ error: 'Service not found' });
-          return;
+          return this.respondError(reply, 404, 'Service not found', { code: 'NOT_FOUND', recoverable: true });
         }
 
         // Get the template name for recreation
@@ -743,10 +1226,7 @@ export class HttpApiServer {
         reply.send({ success: true, serviceId: newId, message: 'Service environment variables updated and restarted' });
       } catch (error) {
         this.logger.error('Error updating service environment variables:', error);
-        reply.code(500).send({
-          error: 'Failed to update service environment variables',
-          message: error instanceof Error ? error.message : 'Unknown error'
-        });
+        return this.respondError(reply, 500, error instanceof Error ? error.message : 'Failed to update service environment variables', { code: 'UPDATE_ENV_FAILED' });
       }
     });
 
@@ -758,31 +1238,23 @@ export class HttpApiServer {
         const success = await this.serviceRegistry.stopService(id);
 
         if (!success) {
-          reply.code(404).send({ error: 'Service not found' });
-          return;
+          return this.respondError(reply, 404, 'Service not found', { code: 'NOT_FOUND', recoverable: true });
         }
 
         reply.send({ success: true, message: 'Service stopped successfully' });
       } catch (error) {
-        reply.code(500).send({
-          error: 'Failed to stop service',
-          message: error instanceof Error ? error.message : 'Unknown error'
-        });
+        return this.respondError(reply, 500, error instanceof Error ? error.message : 'Failed to stop service', { code: 'STOP_FAILED' });
       }
     });
 
-    // Get service health
+    // Get service health (centralized via HealthChecker)
     this.server.get('/api/services/:id/health', async (request: FastifyRequest, reply: FastifyReply) => {
       const { id } = request.params as { id: string };
-
       try {
         const health = await this.serviceRegistry.checkHealth(id);
         reply.send({ health });
       } catch (error) {
-        reply.code(500).send({
-          error: 'Failed to check service health',
-          message: error instanceof Error ? error.message : 'Unknown error'
-        });
+        reply.code(500).send({ error: 'Failed to check service health', message: (error as any)?.message || 'Unknown error' });
       }
     });
 
@@ -839,10 +1311,7 @@ export class HttpApiServer {
     this.server.post('/api/generator/generate', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         if (!this.mcpGenerator) {
-          return reply.code(503).send({
-            success: false,
-            error: 'MCP Generator not initialized'
-          });
+          return this.respondError(reply, 503, 'MCP Generator not initialized', { code: 'NOT_READY', recoverable: true });
         }
 
         const body = request.body as GenerateRequest;
@@ -939,7 +1408,7 @@ export class HttpApiServer {
         reply.send({ templates: items });
       } catch (error) {
         this.logger.warn('Marketplace list failed', error);
-        reply.code(500).send({ success: false, error: (error as Error).message });
+        return this.respondError(reply, 500, (error as Error).message || 'Marketplace list failed', { code: 'MARKETPLACE_ERROR' });
       }
     });
 
@@ -957,7 +1426,7 @@ export class HttpApiServer {
             });
         reply.send({ success: true, query, results });
       } catch (error) {
-        reply.code(500).send({ success: false, error: (error as Error).message });
+        return this.respondError(reply, 500, (error as Error).message || 'Marketplace search failed', { code: 'MARKETPLACE_ERROR' });
       }
     });
 
@@ -965,9 +1434,9 @@ export class HttpApiServer {
     this.server.post('/api/generator/marketplace/publish', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         // Placeholder: return not implemented while keeping doc-consistent route
-        reply.code(501).send({ success: false, error: 'Publish not implemented yet' });
+        return this.respondError(reply, 501, 'Publish not implemented yet', { code: 'NOT_IMPLEMENTED', recoverable: true });
       } catch (error) {
-        reply.code(500).send({ success: false, error: (error as Error).message });
+        return this.respondError(reply, 500, (error as Error).message || 'Marketplace publish failed', { code: 'MARKETPLACE_ERROR' });
       }
     });
 
@@ -978,24 +1447,21 @@ export class HttpApiServer {
         const items = await this.loadMarketplaceItems();
         const idOrName = body.templateId || body.name;
         if (!idOrName) {
-          reply.code(400).send({ success: false, error: 'templateId or name is required' });
-          return;
+          return this.respondError(reply, 400, 'templateId or name is required', { code: 'BAD_REQUEST', recoverable: true });
         }
         const item = items.find((it: any) => it.id === idOrName || it.name === idOrName);
         if (!item) {
-          reply.code(404).send({ success: false, error: 'Template not found' });
-          return;
+          return this.respondError(reply, 404, 'Template not found', { code: 'NOT_FOUND', recoverable: true });
         }
         const config = item.template || item.config;
         if (!config) {
-          reply.code(422).send({ success: false, error: 'Template config missing' });
-          return;
+          return this.respondError(reply, 422, 'Template config missing', { code: 'UNPROCESSABLE', recoverable: true });
         }
         await this.serviceRegistry.registerTemplate(config);
         this.addLogEntry('info', `Marketplace installed: ${config.name}`, 'marketplace');
         reply.send({ success: true, name: config.name });
       } catch (error) {
-        reply.code(500).send({ success: false, error: error instanceof Error ? error.message : 'Unknown error' });
+        return this.respondError(reply, 500, error instanceof Error ? error.message : 'Marketplace install failed', { code: 'MARKETPLACE_ERROR' });
       }
     });
   }
@@ -1587,10 +2053,7 @@ export class HttpApiServer {
           message: `Template registered: ${config.name}`
         });
       } catch (error) {
-        reply.code(400).send({
-          error: 'Failed to register template',
-          message: error instanceof Error ? error.message : 'Unknown error'
-        });
+        return this.respondError(reply, 400, error instanceof Error ? error.message : 'Failed to register template', { code: 'TEMPLATE_REGISTER_FAILED', recoverable: true });
       }
     });
 
@@ -1601,13 +2064,9 @@ export class HttpApiServer {
         await this.serviceRegistry.removeTemplate(name);
         reply.send({ success: true, message: 'Template deleted successfully', name });
       } catch (error) {
-        // If template not found or deletion failed
-        const message = error instanceof Error ? error.message : 'Unknown error';
+        const message = error instanceof Error ? error.message : 'Failed to remove template';
         const notFound = /not\s*found/i.test(message);
-        reply.code(notFound ? 404 : 500).send({
-          error: notFound ? 'Template not found' : 'Failed to remove template',
-          message
-        });
+        return this.respondError(reply, notFound ? 404 : 500, message, { code: notFound ? 'NOT_FOUND' : 'TEMPLATE_REMOVE_FAILED', recoverable: notFound });
       }
     });
 
@@ -1617,7 +2076,7 @@ export class HttpApiServer {
         await (this.serviceRegistry as any).templateManager.initializeDefaults();
         reply.send({ success: true });
       } catch (error) {
-        reply.code(500).send({ success: false, error: (error as Error).message });
+        return this.respondError(reply, 500, (error as Error).message || 'Repair templates failed', { code: 'TEMPLATE_REPAIR_FAILED' });
       }
     });
   }
@@ -1787,6 +2246,16 @@ export class HttpApiServer {
       reply.send({ stats });
     });
 
+    // Aggregated health metrics (global + per service)
+    this.server.get('/api/metrics/health', async (_request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const agg = await this.serviceRegistry.getHealthAggregates();
+        reply.send(agg);
+      } catch (error) {
+        reply.code(500).send({ error: (error as Error).message });
+      }
+    });
+
     // Get router metrics
     this.server.get('/api/metrics/router', async (request: FastifyRequest, reply: FastifyReply) => {
       const metrics = this.router.getMetrics();
@@ -1881,51 +2350,34 @@ export class HttpApiServer {
         const apiKeys = this.authLayer.listApiKeys();
         reply.send(apiKeys);
       } catch (error) {
-        reply.code(500).send({
-          error: 'Failed to list API keys',
-          message: error instanceof Error ? error.message : 'Unknown error'
-        });
+        return this.respondError(reply, 500, (error as Error).message || 'Failed to list API keys', { code: 'AUTH_LIST_FAILED' });
       }
     });
 
     // Create API key
     this.server.post('/api/auth/apikey', async (request: FastifyRequest, reply: FastifyReply) => {
-      const { name, permissions } = request.body as { name: string, permissions: string[] };
-
       try {
+        const { name, permissions } = request.body as { name?: string, permissions?: string[] };
+        if (!name || !Array.isArray(permissions)) {
+          return this.respondError(reply, 400, 'name and permissions are required', { code: 'BAD_REQUEST', recoverable: true });
+        }
         const result = await this.authLayer.createApiKey(name, permissions);
-        reply.send({
-          success: true,
-          apiKey: result,
-          message: 'API key created successfully'
-        });
+        reply.code(201).send({ success: true, apiKey: result, message: 'API key created successfully' });
       } catch (error) {
-        reply.code(500).send({
-          error: 'Failed to create API key',
-          message: error instanceof Error ? error.message : 'Unknown error'
-        });
+        return this.respondError(reply, 500, (error as Error).message || 'Failed to create API key', { code: 'AUTH_CREATE_FAILED' });
       }
     });
 
     // Delete API key
     this.server.delete('/api/auth/apikey/:key', async (request: FastifyRequest, reply: FastifyReply) => {
-      const { key } = request.params as { key: string };
-
       try {
+        const { key } = request.params as { key?: string };
+        if (!key) return this.respondError(reply, 400, 'API key is required', { code: 'BAD_REQUEST', recoverable: true });
         const success = await this.authLayer.deleteApiKey(key);
-        if (success) {
-          reply.send({
-            success: true,
-            message: 'API key deleted successfully'
-          });
-        } else {
-          reply.code(404).send({ error: 'API key not found' });
-        }
+        if (!success) return this.respondError(reply, 404, 'API key not found', { code: 'NOT_FOUND', recoverable: true });
+        reply.send({ success: true, message: 'API key deleted successfully' });
       } catch (error) {
-        reply.code(500).send({
-          error: 'Failed to delete API key',
-          message: error instanceof Error ? error.message : 'Unknown error'
-        });
+        return this.respondError(reply, 500, (error as Error).message || 'Failed to delete API key', { code: 'AUTH_DELETE_FAILED' });
       }
     });
 
@@ -1935,55 +2387,34 @@ export class HttpApiServer {
         const tokens = this.authLayer.listTokens();
         reply.send(tokens);
       } catch (error) {
-        reply.code(500).send({
-          error: 'Failed to list tokens',
-          message: error instanceof Error ? error.message : 'Unknown error'
-        });
+        return this.respondError(reply, 500, (error as Error).message || 'Failed to list tokens', { code: 'AUTH_LIST_FAILED' });
       }
     });
 
     // Generate token
     this.server.post('/api/auth/token', async (request: FastifyRequest, reply: FastifyReply) => {
-      const { userId, permissions, expiresInHours = 24 } = request.body as {
-        userId: string,
-        permissions: string[],
-        expiresInHours?: number
-      };
-
       try {
+        const { userId, permissions, expiresInHours = 24 } = request.body as { userId?: string; permissions?: string[]; expiresInHours?: number };
+        if (!userId || !Array.isArray(permissions)) {
+          return this.respondError(reply, 400, 'userId and permissions are required', { code: 'BAD_REQUEST', recoverable: true });
+        }
         const result = await this.authLayer.generateToken(userId, permissions, expiresInHours);
-        reply.send({
-          success: true,
-          token: result,
-          message: 'Token generated successfully'
-        });
+        reply.code(201).send({ success: true, token: result, message: 'Token generated successfully' });
       } catch (error) {
-        reply.code(500).send({
-          error: 'Failed to generate token',
-          message: error instanceof Error ? error.message : 'Unknown error'
-        });
+        return this.respondError(reply, 500, (error as Error).message || 'Failed to generate token', { code: 'AUTH_TOKEN_FAILED' });
       }
     });
 
     // Revoke token
     this.server.delete('/api/auth/token/:token', async (request: FastifyRequest, reply: FastifyReply) => {
-      const { token } = request.params as { token: string };
-
       try {
+        const { token } = request.params as { token?: string };
+        if (!token) return this.respondError(reply, 400, 'Token is required', { code: 'BAD_REQUEST', recoverable: true });
         const success = await this.authLayer.revokeToken(token);
-        if (success) {
-          reply.send({
-            success: true,
-            message: 'Token revoked successfully'
-          });
-        } else {
-          reply.code(404).send({ error: 'Token not found' });
-        }
+        if (!success) return this.respondError(reply, 404, 'Token not found', { code: 'NOT_FOUND', recoverable: true });
+        reply.send({ success: true, message: 'Token revoked successfully' });
       } catch (error) {
-        reply.code(500).send({
-          error: 'Failed to revoke token',
-          message: error instanceof Error ? error.message : 'Unknown error'
-        });
+        return this.respondError(reply, 500, (error as Error).message || 'Failed to revoke token', { code: 'AUTH_REVOKE_FAILED' });
       }
     });
   }

@@ -1,0 +1,16 @@
+{
+  "name": "brave-search",
+  "version": "2024-11-26",
+  "transport": "stdio",
+  "command": "npm",
+  "args": [
+    "exec",
+    "-y",
+    "@modelcontextprotocol/server-brave-search"
+  ],
+  "env": {
+    "SANDBOX": "portable"
+  },
+  "timeout": 30000,
+  "retries": 3
+}

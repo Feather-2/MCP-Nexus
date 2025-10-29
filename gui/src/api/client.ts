@@ -86,6 +86,32 @@ interface OrchestratorConfig {
 
 class ApiClient {
   private baseUrl = '';
+  private apiKey: string | null = null;
+  private bearerToken: string | null = null;
+
+  constructor() {
+    try {
+      const k = localStorage.getItem('pb_api_key');
+      const t = localStorage.getItem('pb_bearer_token');
+      if (k) this.apiKey = k;
+      if (t) this.bearerToken = t;
+    } catch {}
+  }
+
+  setAuth(opts: { apiKey?: string | null; bearerToken?: string | null }) {
+    if (opts.apiKey !== undefined) {
+      this.apiKey = opts.apiKey || null;
+      try { opts.apiKey == null ? localStorage.removeItem('pb_api_key') : localStorage.setItem('pb_api_key', String(opts.apiKey)); } catch {}
+    }
+    if (opts.bearerToken !== undefined) {
+      this.bearerToken = opts.bearerToken || null;
+      try { opts.bearerToken == null ? localStorage.removeItem('pb_bearer_token') : localStorage.setItem('pb_bearer_token', String(opts.bearerToken)); } catch {}
+    }
+  }
+
+  getAuth() {
+    return { apiKey: this.apiKey, bearerToken: this.bearerToken };
+  }
 
   async request<T = any>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
     const url = `${this.baseUrl}${endpoint}`;
@@ -98,6 +124,15 @@ class ApiClient {
     };
 
     const finalOptions = { ...defaultOptions, ...options };
+    // Inject auth headers when not explicitly provided
+    const hdrs = (finalOptions.headers || {}) as Record<string, string>;
+    if (this.apiKey && !hdrs['x-api-key'] && !hdrs['X-API-Key']) {
+      hdrs['X-API-Key'] = this.apiKey;
+    }
+    if (this.bearerToken && !hdrs['authorization'] && !hdrs['Authorization']) {
+      hdrs['Authorization'] = `Bearer ${this.bearerToken}`;
+    }
+    finalOptions.headers = hdrs;
 
     try {
       const response = await fetch(url, finalOptions);
@@ -112,6 +147,52 @@ class ApiClient {
     } catch (error) {
       console.error(`API request failed for ${endpoint}:`, error);
       return { ok: false, error: (error as Error).message };
+    }
+  }
+
+  // AI Provider API
+  async getAiConfig(): Promise<ApiResponse<{ config: any }>> {
+    return this.request<{ config: any }>(`/api/ai/config`);
+  }
+
+  async updateAiConfig(cfg: Partial<{ provider: string; model: string; endpoint: string; timeoutMs: number; streaming: boolean }>): Promise<ApiResponse<{ success: boolean; config: any }>> {
+    return this.request<{ success: boolean; config: any }>(`/api/ai/config`, {
+      method: 'PUT',
+      body: JSON.stringify(cfg)
+    });
+  }
+
+  async testAiConnectivity(payload?: Partial<{ provider: string; model: string; endpoint: string; mode: 'env-only' | 'ping' }>): Promise<ApiResponse<{ success: boolean; provider: string; env: { ok: boolean; required: string[]; missing: string[] }; ping?: { ok: boolean; note?: string } }>> {
+    return this.request(`/api/ai/test`, {
+      method: 'POST',
+      body: JSON.stringify(payload || { mode: 'env-only' })
+    });
+  }
+
+  async aiChat(messages: Array<{ role: string; content: string }>): Promise<ApiResponse<{ message: { role: string; content: string } }>> {
+    return this.request<{ message: { role: string; content: string } }>(`/api/ai/chat`, {
+      method: 'POST',
+      body: JSON.stringify({ messages })
+    })
+  }
+
+  createAiChatStream(prompt: string, onDelta: (chunk: string) => void, onDone?: () => void, onError?: (err: Error) => void): EventSource | null {
+    try {
+      const q = encodeURIComponent(prompt || '')
+      const es = new EventSource(`/api/ai/chat/stream?q=${q}`)
+      let closed = false
+      es.onmessage = (ev) => {
+        try {
+          const obj = JSON.parse(ev.data)
+          if (obj?.event === 'delta' && typeof obj.delta === 'string') onDelta(obj.delta)
+          if (obj?.event === 'done' && !closed) { onDone?.(); es.close(); closed = true }
+        } catch {}
+      }
+      es.onerror = () => { if (!closed) onError?.(new Error('stream error')) }
+      return es
+    } catch (e) {
+      onError?.(e as Error)
+      return null
     }
   }
 
@@ -225,6 +306,29 @@ class ApiClient {
     return this.request<HealthStatus>('/api/health-status');
   }
 
+  async getHealthAggregates(): Promise<ApiResponse<{ global: { monitoring: number; healthy: number; unhealthy: number; avgLatency: number; p95?: number; p99?: number; errorRate?: number }; perService: any[] }>> {
+    return this.request<{ global: any; perService: any[] }>('/api/metrics/health');
+  }
+
+  async getPerServiceMetrics(): Promise<ApiResponse<{ serviceMetrics: Array<{ serviceId: string; serviceName: string; health: any; uptime: number }> }>> {
+    return this.request<{ serviceMetrics: Array<{ serviceId: string; serviceName: string; health: any; uptime: number }> }>('/api/metrics/services');
+  }
+
+  // Generator V2 helpers
+  async exportTemplate(templateName: string, format: 'json' | 'typescript' | 'npm' | 'gist' = 'json'): Promise<ApiResponse<{ success: boolean; downloadUrl?: string; data?: any }>> {
+    return this.request(`/api/generator/export`, {
+      method: 'POST',
+      body: JSON.stringify({ templateName, format })
+    })
+  }
+
+  async importTemplateFromJson(config: any, options: { autoRegister?: boolean; overwrite?: boolean } = { autoRegister: true, overwrite: true }): Promise<ApiResponse<{ success: boolean }>> {
+    return this.request(`/api/generator/import`, {
+      method: 'POST',
+      body: JSON.stringify({ source: { type: 'json', content: config }, options })
+    })
+  }
+
   async getOrchestratorStatus(): Promise<ApiResponse<OrchestratorStatus>> {
     return this.request<OrchestratorStatus>('/api/orchestrator/status');
   }
@@ -309,11 +413,24 @@ class ApiClient {
   createSandboxInstallStream(components: string[], onMessage: (msg: any) => void, onError?: (err: Error) => void): EventSource | null {
     try {
       const params = encodeURIComponent(components.join(','));
-      const es = new EventSource(`${this.baseUrl}/api/sandbox/install/stream?components=${params}`);
-      es.onmessage = (ev) => {
-        try { const obj = JSON.parse(ev.data); onMessage(obj); } catch (e) {}
+      const url = `${this.baseUrl}/api/sandbox/install/stream?components=${params}`;
+      let attempts = 0;
+      let es: EventSource | null = null;
+      const maxDelay = 10000;
+      const connect = () => {
+        es = new EventSource(url);
+        es.onmessage = (ev) => {
+          try { const obj = JSON.parse(ev.data); onMessage(obj); } catch {}
+        };
+        es.onerror = () => {
+          attempts += 1;
+          const delay = Math.min(1000 * Math.pow(2, attempts), maxDelay);
+          try { es && es.close(); } catch {}
+          setTimeout(connect, delay);
+          onError?.(new Error('sandbox stream error'));
+        };
       };
-      es.onerror = () => { onError?.(new Error('sandbox stream error')); };
+      connect();
       return es;
     } catch (e) {
       onError?.(e as Error);
@@ -348,30 +465,29 @@ class ApiClient {
   // Create a Server-Sent Events connection for real-time logs
   createLogStream(onMessage: (log: any) => void, onError?: (error: Error) => void): EventSource | null {
     try {
-      const eventSource = new EventSource(`${this.baseUrl}/api/logs/stream`);
-
-      eventSource.onmessage = (event) => {
-        try {
-          const log = JSON.parse(event.data);
-          onMessage(log);
-        } catch (error) {
-          console.error('Failed to parse log message:', error);
-        }
+      const url = `${this.baseUrl}/api/logs/stream`;
+      let attempts = 0;
+      let es: EventSource | null = null;
+      const maxDelay = 10000;
+      const connect = () => {
+        es = new EventSource(url);
+        es.onmessage = (event) => {
+          try { const log = JSON.parse(event.data); onMessage(log); } catch (error) { console.error('Failed to parse log message:', error); }
+        };
+        es.onerror = (event) => {
+          attempts += 1;
+          const delay = Math.min(1000 * Math.pow(2, attempts), maxDelay);
+          console.error('Log stream error:', event);
+          onError?.(new Error('Log stream connection failed'));
+          try { es && es.close(); } catch {}
+          setTimeout(connect, delay);
+        };
       };
-
-      eventSource.onerror = (event) => {
-        console.error('Log stream error:', event);
-        if (onError) {
-          onError(new Error('Log stream connection failed'));
-        }
-      };
-
-      return eventSource;
+      connect();
+      return es;
     } catch (error) {
       console.error('Failed to create log stream:', error);
-      if (onError) {
-        onError(error as Error);
-      }
+      onError?.(error as Error);
       return null;
     }
   }

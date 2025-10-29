@@ -21,5 +21,12 @@
     "enabled": false,
     "maxRequests": 100,
     "windowMs": 60000
+  },
+  "ai": {
+    "provider": "none",
+    "model": "",
+    "endpoint": "",
+    "timeoutMs": 30000,
+    "streaming": true
   }
 }

@@ -1,0 +1,11 @@
+{
+  "name": "memory",
+  "version": "2024-11-26",
+  "transport": "stdio",
+  "command": "npx",
+  "args": [
+    "@modelcontextprotocol/server-memory"
+  ],
+  "timeout": 15000,
+  "retries": 2
+}

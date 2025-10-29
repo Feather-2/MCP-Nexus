@@ -53,6 +53,10 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
     return this.templateManager;
   }
 
+  setHealthProbe(probe: (serviceId: string) => Promise<HealthCheckResult>): void {
+    (this.healthChecker as any).setProbe?.(probe);
+  }
+
   // Instance Management
   async createInstance(templateName: string, overrides?: Partial<McpServiceConfig>): Promise<ServiceInstance> {
     const template = await this.templateManager.get(templateName);
@@ -145,6 +149,15 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
   // Health & Load Balancing
   async checkHealth(serviceId: string): Promise<HealthCheckResult> {
     return await this.healthChecker.checkHealth(serviceId);
+  }
+
+  async getHealthAggregates(): Promise<{
+    global: { monitoring: number; healthy: number; unhealthy: number; avgLatency: number; p95?: number; p99?: number; errorRate?: number };
+    perService: Array<{ id: string; last: HealthCheckResult | null; p95?: number; p99?: number; errorRate?: number; samples: number; lastError?: string }>
+  }> {
+    const global = await this.healthChecker.getHealthStats();
+    const perService = this.healthChecker.getPerServiceStats();
+    return { global, perService };
   }
 
   async getHealthyInstances(templateName?: string): Promise<ServiceInstance[]> {

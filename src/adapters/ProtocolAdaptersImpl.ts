@@ -8,6 +8,7 @@ import {
 import { StdioTransportAdapter } from './StdioTransportAdapter.js';
 import { HttpTransportAdapter } from './HttpTransportAdapter.js';
 import { StreamableHttpAdapter } from './StreamableHttpAdapter.js';
+import { ContainerTransportAdapter } from './ContainerTransportAdapter.js';
 
 export class ProtocolAdaptersImpl implements ProtocolAdapters {
   constructor(private logger: Logger) {}
@@ -109,6 +110,11 @@ export class ProtocolAdaptersImpl implements ProtocolAdapters {
   async createAdapter(config: McpServiceConfig): Promise<TransportAdapter> {
     switch (config.transport) {
       case 'stdio':
+        // Detect container sandbox
+        if ((config as any)?.container || (config.env as any)?.SANDBOX === 'container') {
+          this.logger.info(`Creating container-stdio adapter for ${config.name} [SANDBOX: container]`);
+          return new ContainerTransportAdapter(config, this.logger);
+        }
         return this.createStdioAdapter(config);
       case 'http':
         return this.createHttpAdapter(config);
