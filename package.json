@@ -1,7 +1,7 @@
 {
-  "name": "pb-mcpgateway",
+  "name": "MCP-Nexus",
   "version": "1.0.0",
-  "description": "Paper Burner MCP Gateway - TypeScript MCP Protocol Gateway Platform",
+  "description": " MCP Nexus - TypeScript MCP Protocol Gateway Platform",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
@@ -22,7 +22,7 @@
     "lint:fix": "eslint src --ext .ts --fix",
     "typecheck": "tsc --noEmit",
     "cli": "tsx src/cli-simple.ts",
-    "build:docker": "docker build -t pb-mcpgateway:local .",
+    "build:docker": "docker build -t MCP-Nexus:local .",
     "pack:portable": "node scripts/make-portable.cjs",
     "pack:portable:clean": "rimraf release || rd /s /q release"
   },
@@ -33,7 +33,7 @@
     "typescript",
     "paper-burner"
   ],
-  "author": "Paper Burner Team",
+  "author": "MCP Nexus Team",
   "license": "MIT",
   "dependencies": {
     "@fastify/cors": "^9.0.1",

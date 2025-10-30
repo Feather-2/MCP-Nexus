@@ -3,13 +3,13 @@ import SandboxBanner from '@/components/SandboxBanner';
 import { apiClient, type ServiceTemplate } from '../api/client';
 import { useToastHelpers } from '../components/ui/toast';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import PageHeader from '@/components/PageHeader';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Checkbox } from '@/components/ui/checkbox';
+// Note: Using native checkbox in table selection to avoid edge cases
 import { Separator } from '@/components/ui/separator';
 import {
   Plus,
@@ -19,8 +19,10 @@ import {
   Settings,
   Edit,
   Trash2,
-  Hammer
+  Hammer,
+  MoreHorizontal
 } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useI18n } from '@/i18n';
 
 const Templates: React.FC = () => {
@@ -53,6 +55,28 @@ const Templates: React.FC = () => {
   const [containerMemory, setContainerMemory] = useState<string>('512m');
   const [containerVolumesText, setContainerVolumesText] = useState<string>('');
   const [selectedTemplates, setSelectedTemplates] = useState<Set<string>>(new Set());
+  const [containerFormErrors, setContainerFormErrors] = useState<{ image?: string; volumes?: string }>(() => ({}));
+  // Quick ENV for template
+  const [envFixOpen, setEnvFixOpen] = useState(false)
+  const [envFixTemplate, setEnvFixTemplate] = useState<ServiceTemplate | null>(null)
+  const [envEntries, setEnvEntries] = useState<Array<{ key: string; value: string }>>([])
+  // Diagnose modal
+  const [diagOpen, setDiagOpen] = useState(false)
+  const [diagFor, setDiagFor] = useState<ServiceTemplate | null>(null)
+  const [diagResult, setDiagResult] = useState<{ required: string[]; provided: string[]; missing: string[]; transport?: string } | null>(null)
+  const [diagLoading, setDiagLoading] = useState(false)
+  const [query, setQuery] = useState('')
+
+  // Native checkbox to avoid Radix controlled edge-cases in table selection
+  const TableCheckbox: React.FC<{ checked: boolean; onChange: (v: boolean) => void; ariaLabel: string }> = ({ checked, onChange, ariaLabel }) => (
+    <input
+      type="checkbox"
+      className="h-4 w-4"
+      checked={checked}
+      onChange={(e) => onChange(e.target.checked)}
+      aria-label={ariaLabel}
+    />
+  )
 
   const loadTemplates = async () => {
     setLoading(true);
@@ -77,8 +101,10 @@ const Templates: React.FC = () => {
       showError('输入验证失败', '请填写模板名称和命令');
       return;
     }
-    if (containerEnabled && !containerImage) {
-      showError('输入验证失败', '容器模式需要提供镜像');
+    const errs = validateContainerInputs({ enabled: containerEnabled, image: containerImage, transport: newTemplate.transport, volumesText: containerVolumesText });
+    setContainerFormErrors(errs.inline);
+    if (errs.messages.length) {
+      showError('输入验证失败', errs.messages.join('\n'));
       return;
     }
 
@@ -99,10 +125,7 @@ const Templates: React.FC = () => {
 
       if (containerEnabled) {
         templateData.env = { ...(templateData.env || {}), SANDBOX: 'container' };
-        const volumes = (containerVolumesText || '').split(/\n+/).map(l => l.trim()).filter(Boolean).map(l => {
-          const [hp, cp, ro] = l.split(':');
-          return { hostPath: hp, containerPath: cp, readOnly: (ro === 'ro') };
-        }).filter(v => v.hostPath && v.containerPath);
+        const volumes = parseVolumes(containerVolumesText);
         templateData.container = {
           image: containerImage,
           workdir: containerWorkdir || undefined,
@@ -144,6 +167,9 @@ const Templates: React.FC = () => {
   };
 
   const handleEditTemplate = (template: ServiceTemplate) => {
+    // Ensure other dialogs are closed to avoid focus traps
+    try { setEnvFixOpen(false); } catch {}
+    try { setDiagOpen(false); } catch {}
     setEditingTemplate(template);
     setNewTemplate({
       name: template.name,
@@ -182,8 +208,10 @@ const Templates: React.FC = () => {
       showError('输入验证失败', `${newTemplate.transport === 'stdio' ? '命令' : '服务 URL'}为必填`);
       return;
     }
-    if (containerEnabled && !containerImage) {
-      showError('输入验证失败', '容器模式需要提供镜像');
+    const errs = validateContainerInputs({ enabled: containerEnabled, image: containerImage, transport: newTemplate.transport, volumesText: containerVolumesText });
+    setContainerFormErrors(errs.inline);
+    if (errs.messages.length) {
+      showError('输入验证失败', errs.messages.join('\n'));
       return;
     }
 
@@ -212,10 +240,7 @@ const Templates: React.FC = () => {
 
       if (containerEnabled) {
         templateData.env = { ...(templateData.env || {}), SANDBOX: 'container' };
-        const volumes = (containerVolumesText || '').split(/\n+/).map(l => l.trim()).filter(Boolean).map(l => {
-          const [hp, cp, ro] = l.split(':');
-          return { hostPath: hp, containerPath: cp, readOnly: (ro === 'ro') };
-        }).filter(v => v.hostPath && v.containerPath);
+        const volumes = parseVolumes(containerVolumesText);
         templateData.container = {
           image: containerImage,
           workdir: containerWorkdir || undefined,
@@ -260,6 +285,109 @@ const Templates: React.FC = () => {
     }
   };
 
+  // ---------- Template ENV helpers ----------
+  function requiredEnvForTemplate(tpl: ServiceTemplate): string[] {
+    const name = (tpl.name || '').toLowerCase()
+    const argsStr = Array.isArray((tpl as any).args) ? ((tpl as any).args as string[]).join(' ').toLowerCase() : ''
+    if (name.includes('brave')) return ['BRAVE_API_KEY']
+    if (name.includes('github')) return ['GITHUB_TOKEN']
+    if (name.includes('openai') || argsStr.includes('openai')) return ['OPENAI_API_KEY']
+    if (name.includes('azure-openai') || argsStr.includes('azure-openai')) return ['AZURE_OPENAI_API_KEY','AZURE_OPENAI_ENDPOINT']
+    if (name.includes('anthropic') || argsStr.includes('anthropic')) return ['ANTHROPIC_API_KEY']
+    if (name.includes('ollama') || argsStr.includes('ollama')) return []
+    if (argsStr.includes('@modelcontextprotocol/server-brave-search')) return ['BRAVE_API_KEY']
+    if (argsStr.includes('@modelcontextprotocol/server-github')) return ['GITHUB_TOKEN']
+    if (argsStr.includes('@modelcontextprotocol/server-openai')) return ['OPENAI_API_KEY']
+    if (argsStr.includes('@modelcontextprotocol/server-anthropic')) return ['ANTHROPIC_API_KEY']
+    // Extended common providers
+    if (name.includes('gemini') || name.includes('google') || argsStr.includes('gemini') || argsStr.includes('google-genai') || argsStr.includes('@modelcontextprotocol/server-google') || argsStr.includes('@modelcontextprotocol/server-gemini')) return ['GOOGLE_API_KEY']
+    if (name.includes('cohere') || argsStr.includes('cohere') || argsStr.includes('@modelcontextprotocol/server-cohere')) return ['COHERE_API_KEY']
+    if (name.includes('groq') || argsStr.includes('groq') || argsStr.includes('@modelcontextprotocol/server-groq')) return ['GROQ_API_KEY']
+    if (name.includes('openrouter') || argsStr.includes('openrouter') || argsStr.includes('@modelcontextprotocol/server-openrouter')) return ['OPENROUTER_API_KEY']
+    if (name.includes('together') || argsStr.includes('together') || argsStr.includes('@modelcontextprotocol/server-together')) return ['TOGETHER_API_KEY']
+    if (name.includes('fireworks') || argsStr.includes('fireworks') || argsStr.includes('@modelcontextprotocol/server-fireworks')) return ['FIREWORKS_API_KEY']
+    if (name.includes('deepseek') || argsStr.includes('deepseek') || argsStr.includes('@modelcontextprotocol/server-deepseek')) return ['DEEPSEEK_API_KEY']
+    if (name.includes('mistral') || argsStr.includes('mistral') || argsStr.includes('@modelcontextprotocol/server-mistral')) return ['MISTRAL_API_KEY']
+    if (name.includes('perplexity') || argsStr.includes('perplexity') || argsStr.includes('@modelcontextprotocol/server-perplexity')) return ['PERPLEXITY_API_KEY']
+    if (name.includes('replicate') || argsStr.includes('replicate') || argsStr.includes('@modelcontextprotocol/server-replicate')) return ['REPLICATE_API_TOKEN']
+    if (name.includes('serpapi') || argsStr.includes('serpapi') || argsStr.includes('@modelcontextprotocol/server-serpapi')) return ['SERPAPI_API_KEY']
+    if (name.includes('huggingface') || name.includes('hugging-face') || argsStr.includes('huggingface') || argsStr.includes('@modelcontextprotocol/server-huggingface')) return ['HF_TOKEN']
+    return []
+  }
+
+  function getMissingEnvKeysTemplate(tpl: ServiceTemplate): string[] {
+    const req = requiredEnvForTemplate(tpl)
+    const provided = Object.keys(((tpl as any).env || {}) as Record<string, string>)
+    return req.filter(k => !provided.includes(k))
+  }
+
+  function openTplEnvFix(tpl: ServiceTemplate) {
+    const missing = getMissingEnvKeysTemplate(tpl)
+    const entries: Array<{ key: string; value: string }> = []
+    if (missing.length) missing.forEach(k => entries.push({ key: k, value: '' }))
+    else entries.push({ key: '', value: '' })
+    setEnvEntries(entries)
+    setEnvFixTemplate(tpl)
+    setEnvFixOpen(true)
+  }
+
+  function openTplEnvFixWith(tpl: ServiceTemplate, keys: string[]) {
+    const entries: Array<{ key: string; value: string }> = []
+    if (keys && keys.length) keys.forEach(k => entries.push({ key: k, value: '' }))
+    else entries.push({ key: '', value: '' })
+    setEnvEntries(entries)
+    setEnvFixTemplate(tpl)
+    setEnvFixOpen(true)
+  }
+
+  async function diagnoseTemplate(tpl: ServiceTemplate) {
+    try {
+      setDiagLoading(true)
+      setDiagFor(tpl)
+      setDiagOpen(true)
+      const res = await apiClient.diagnoseTemplate(tpl.name)
+      if (!res.ok) {
+        // Soft-fail: keep dialog open with message, avoid blocking focus
+        setDiagResult({ required: [], provided: [], missing: [], transport: tpl.transport })
+        showError('诊断失败', res.error || '无法获取诊断结果')
+      } else {
+        const data = res.data as any
+        setDiagResult({ required: data.required || [], provided: data.provided || [], missing: data.missing || [], transport: data.transport })
+      }
+    } catch (e) {
+      showError('诊断失败', e instanceof Error ? e.message : '网络错误')
+    } finally {
+      setDiagLoading(false)
+    }
+  }
+
+  function updateEnvEntry(idx: number, field: 'key'|'value', v: string) {
+    setEnvEntries(prev => prev.map((e, i) => i === idx ? { ...e, [field]: v } : e))
+  }
+
+  function addEnvRow() { setEnvEntries(prev => [...prev, { key: '', value: '' }]) }
+  function removeEnvRow(i: number) { setEnvEntries(prev => prev.filter((_, idx) => idx !== i)) }
+
+  async function saveTplEnvFix() {
+    if (!envFixTemplate) return
+    try {
+      // Merge env and call env-only API
+      const full = (templates.find(t => t.name === envFixTemplate.name) as any) || (envFixTemplate as any)
+      const currentEnv = ((full?.env || {}) as Record<string, string>)
+      const patch: Record<string, string> = { ...currentEnv }
+      for (const { key, value } of envEntries) {
+        const k = (key || '').trim(); if (!k) continue; patch[k] = value ?? ''
+      }
+      const add = await apiClient.updateTemplateEnv(envFixTemplate.name, patch)
+      if (!add.ok) { showError('保存失败', add.error || '更新模板环境变量失败'); return }
+      success('模板环境变量已更新', envFixTemplate.name)
+      setEnvFixOpen(false); setEnvFixTemplate(null); setEnvEntries([])
+      await loadTemplates()
+    } catch (e) {
+      showError('保存失败', e instanceof Error ? e.message : '网络错误')
+    }
+  }
+
   const resetNewTemplate = () => {
     setNewTemplate({
       name: '',
@@ -271,15 +399,7 @@ const Templates: React.FC = () => {
     });
   };
 
-  const toggleTemplateSelection = (templateName: string) => {
-    const newSelected = new Set(selectedTemplates);
-    if (newSelected.has(templateName)) {
-      newSelected.delete(templateName);
-    } else {
-      newSelected.add(templateName);
-    }
-    setSelectedTemplates(newSelected);
-  };
+  // toggle handled inline to improve stability with Radix Checkbox
 
   const selectAllTemplates = () => {
     if (selectedTemplates.size === templates.length) {
@@ -325,6 +445,75 @@ const Templates: React.FC = () => {
 
     setSelectedTemplates(new Set());
     await loadTemplates();
+  };
+
+  // 一键切换为容器模式（预填镜像）
+  const suggestDefaultImage = (tpl: any): string => {
+    const cmd = (tpl?.command || '').toLowerCase();
+    if (cmd.includes('npm') || cmd.includes('node')) return 'node:20-alpine';
+    if (cmd.includes('python')) return 'python:3.11-alpine';
+    if (cmd.includes('go')) return 'golang:1.22-alpine';
+    return 'alpine:3';
+  };
+
+  const isContainerTpl = (tpl: any): boolean => {
+    const env = tpl?.env || {};
+    return env.SANDBOX === 'container' || !!tpl?.container;
+  };
+
+  const isContainerImageMissing = (tpl: any): boolean => {
+    if (!isContainerTpl(tpl)) return false;
+    return !tpl?.container || !tpl?.container?.image;
+  };
+
+  const switchToContainer = async (tpl: any) => {
+    try {
+      const img = suggestDefaultImage(tpl);
+      const updated: any = {
+        ...tpl,
+        env: { ...(tpl.env || {}), SANDBOX: 'container' },
+        container: {
+          image: img,
+          readonlyRootfs: true
+        }
+      };
+
+      // 先删除旧模板，再以同名覆盖
+      const del = await apiClient.deleteTemplate(tpl.name);
+      if (!del.ok) {
+        showError('切换失败', del.error || '删除旧模板失败');
+        return;
+      }
+      const add = await apiClient.addTemplate(updated);
+      if (!add.ok) {
+        showError('切换失败', add.error || '写入新模板失败');
+        return;
+      }
+      success('已切换为容器模式', `镜像：${img}`);
+      await loadTemplates();
+    } catch (err) {
+      showError('切换失败', err instanceof Error ? err.message : '未知错误');
+    }
+  };
+
+  const switchToPortable = async (tpl: any) => {
+    try {
+      const updated: any = { ...tpl };
+      // remove container mode
+      updated.env = { ...(tpl.env || {}) };
+      if (updated.env.SANDBOX === 'container') delete updated.env.SANDBOX;
+      if (Object.keys(updated.env).length === 0) delete updated.env;
+      if (updated.container) delete updated.container;
+
+      const del = await apiClient.deleteTemplate(tpl.name);
+      if (!del.ok) { showError('切换失败', del.error || '删除旧模板失败'); return; }
+      const add = await apiClient.addTemplate(updated);
+      if (!add.ok) { showError('切换失败', add.error || '写入新模板失败'); return; }
+      success('已切换为便携模式', 'SANDBOX=portable/未设置');
+      await loadTemplates();
+    } catch (err) {
+      showError('切换失败', err instanceof Error ? err.message : '未知错误');
+    }
   };
 
   useEffect(() => {
@@ -466,6 +655,8 @@ const Templates: React.FC = () => {
                         <div>
                           <label className="text-sm">{t('tpl.container.image')} *</label>
                           <Input value={containerImage} onChange={(e) => setContainerImage(e.target.value)} placeholder="node:20-alpine 或自定义镜像" />
+                          {containerFormErrors.image && <div className="text-xs text-red-500 mt-1">{containerFormErrors.image}</div>}
+                          {!containerImage && <div className="text-xs text-amber-600 mt-1">容器模式需要填写镜像，否则无法启动</div>}
                         </div>
                         <div>
                           <label className="text-sm">{t('tpl.container.workdir')}</label>
@@ -490,6 +681,7 @@ const Templates: React.FC = () => {
                         <div className="md:col-span-2">
                           <label className="text-sm">{t('tpl.container.volumes')}</label>
                           <textarea className="w-full min-h-20 p-2 rounded border text-xs font-mono" placeholder={t('tpl.container.volumesPh') || ''} value={containerVolumesText} onChange={(e) => setContainerVolumesText(e.target.value)} />
+                          {containerFormErrors.volumes && <div className="text-xs text-red-500 mt-1 whitespace-pre-wrap">{containerFormErrors.volumes}</div>}
                         </div>
                       </div>
                     )}
@@ -509,6 +701,23 @@ const Templates: React.FC = () => {
               </div>
             </DialogContent>
           </Dialog>
+            <Button
+              variant="secondary"
+              onClick={async () => {
+                const res = await apiClient.repairTemplateImages();
+                if (res.ok) {
+                  const data: any = res.data || {};
+                  success('已修复容器镜像缺失', `修复 ${data.fixed || 0} 个模板`);
+                  await loadTemplates();
+                } else {
+                  showError('修复失败', res.error || '未知错误');
+                }
+              }}
+              className="gap-2"
+            >
+              <Hammer className="h-4 w-4" />
+              一键修复容器镜像
+            </Button>
             <Button variant="secondary" onClick={async () => { await apiClient.repairTemplates(); await loadTemplates(); }} className="gap-2">
               <Hammer className="h-4 w-4" />
               {t('tpl.repairTemplates')}
@@ -529,18 +738,15 @@ const Templates: React.FC = () => {
         </Card>
       )}
 
-      <Card>
-        <CardHeader className="pb-0">
-          <CardTitle className="sr-only">{t('tpl.title')}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="rounded-lg border">
+      <div className="rounded-lg border">
             <div className="grid grid-cols-[40px_1fr_220px_160px_200px] gap-2 px-3 py-2 text-[12px] leading-6 text-muted-foreground">
               <div className="flex items-center">
-                <Checkbox
+                <TableCheckbox
                   checked={selectedTemplates.size > 0 && selectedTemplates.size === templates.length}
-                  onCheckedChange={() => selectAllTemplates()}
-                  aria-label="Select all"
+                  onChange={(on) => {
+                    setSelectedTemplates(on ? new Set(templates.map(t => t.name)) : new Set());
+                  }}
+                  ariaLabel="Select all"
                 />
               </div>
               <div>{t('tpl.nameLabel')}</div>
@@ -548,14 +754,33 @@ const Templates: React.FC = () => {
               <div>{t('tpl.transport')}</div>
               <div className="text-right">{t('common.actions')}</div>
             </div>
+            <div className="px-3 py-2 flex items-center gap-2">
+              <Input
+                placeholder="搜索模板…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className="h-8 max-w-[280px]"
+              />
+            </div>
             <Separator />
-            {templates.map((tpl) => (
+            {(templates.filter(t => {
+              const q = query.trim().toLowerCase();
+              if (!q) return true;
+              const hay = `${t.name} ${(t.description||'')}`.toLowerCase();
+              return hay.includes(q);
+            })).map((tpl) => (
               <div key={tpl.name} className="grid grid-cols-[40px_1fr_220px_160px_200px] gap-2 px-3 py-3 items-center hover:bg-muted/40">
                 <div className="flex items-center">
-                  <Checkbox
+                  <TableCheckbox
                     checked={selectedTemplates.has(tpl.name)}
-                    onCheckedChange={() => toggleTemplateSelection(tpl.name)}
-                    aria-label={`Select ${tpl.name}`}
+                    onChange={(on) => {
+                      setSelectedTemplates(prev => {
+                        const ns = new Set(prev);
+                        if (on) ns.add(tpl.name); else ns.delete(tpl.name);
+                        return ns;
+                      });
+                    }}
+                    ariaLabel={`Select ${tpl.name}`}
                   />
                 </div>
                 <div className="truncate flex items-center gap-2">
@@ -566,48 +791,52 @@ const Templates: React.FC = () => {
                 <div className="truncate flex items-center gap-1 text-[12px] text-muted-foreground">
                   <Settings className="h-3 w-3" />
                   {tpl.transport}
+                  {isContainerTpl(tpl) && (
+                    <Badge variant="secondary" className="ml-2 text-indigo-700 bg-indigo-50 border-indigo-200">容器</Badge>
+                  )}
+                  {isContainerImageMissing(tpl) && (
+                    <Badge variant="secondary" className="ml-1 text-amber-700 bg-amber-50 border-amber-200">镜像缺失</Badge>
+                  )}
+                  {(() => { const miss = getMissingEnvKeysTemplate(tpl); return miss.length ? (
+                    <Badge variant="secondary" className="ml-2 text-amber-700 bg-amber-50 border-amber-200">缺少环境变量</Badge>
+                  ) : null })()}
                 </div>
-                <div className="flex items-center justify-end gap-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleUseTemplate(tpl.name)}
-                  >
-                    <Play className="h-4 w-4 mr-1" />
-                    {t('tpl.useTemplate')}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleEditTemplate(tpl)}
-                  >
-                    <Edit className="h-3 w-3 mr-1" />
-                    {t('common.edit')}
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => handleDeleteTemplate(tpl.name)}
-                  >
-                    <Trash2 className="h-3 w-3 mr-1" />
-                    {t('common.delete')}
-                  </Button>
+                <div className="flex items-center justify-end">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="sm" className="px-2">
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => setTimeout(() => handleUseTemplate(tpl.name), 0)}><Play className="h-3 w-3 mr-2" />{t('tpl.useTemplate')}</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setTimeout(() => diagnoseTemplate(tpl), 0)}>诊断</DropdownMenuItem>
+                      {(() => { const miss = getMissingEnvKeysTemplate(tpl); return miss.length ? (
+                        <DropdownMenuItem onClick={() => setTimeout(() => openTplEnvFix(tpl), 0)}>配置</DropdownMenuItem>
+                      ) : null })()}
+                      {isContainerTpl(tpl) ? (
+                        <DropdownMenuItem onClick={() => setTimeout(() => switchToPortable(tpl), 0)}>切回便携模式</DropdownMenuItem>
+                      ) : ((tpl as any)?.transport === 'stdio') ? (
+                        <DropdownMenuItem onClick={() => setTimeout(() => switchToContainer(tpl), 0)}>容器模式</DropdownMenuItem>
+                      ) : null}
+                      <DropdownMenuItem onClick={() => setTimeout(() => handleEditTemplate(tpl), 0)}><Edit className="h-3 w-3 mr-2" />{t('common.edit')}</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setTimeout(() => handleDeleteTemplate(tpl.name), 0)} className="text-red-600"><Trash2 className="h-3 w-3 mr-2" />{t('common.delete')}</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               </div>
             ))}
             {templates.length === 0 && (
               <div className="p-6 text-sm text-muted-foreground">{t('tpl.emptyTitle')}</div>
             )}
-          </div>
+      </div>
 
-          <div className="mt-3">
+      <div className="mt-3">
             <Button variant="destructive" disabled={selectedTemplates.size === 0} onClick={batchDeleteTemplates}>
               <Trash2 className="mr-2 size-4" />
               {t('tpl.deleteSelected')}
             </Button>
-          </div>
-        </CardContent>
-      </Card>
+      </div>
 
       {templates.length === 0 && !error && (
         <Card>
@@ -780,8 +1009,139 @@ const Templates: React.FC = () => {
         </DialogContent>
       </Dialog>
 
+      {/* Diagnose Result Dialog */}
+      <Dialog open={diagOpen} onOpenChange={(open) => { if (!open) { setDiagOpen(false); setDiagFor(null); setDiagResult(null); setDiagLoading(false); } }}>
+        <DialogContent aria-describedby={undefined}>
+          <DialogHeader>
+            <DialogTitle>创建前诊断</DialogTitle>
+            <DialogDescription>
+              {diagFor ? `模板 "${diagFor.name}" 的环境变量检查` : '环境变量检查'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            {diagLoading && (<div className="text-muted-foreground">正在诊断…</div>)}
+            {!diagLoading && diagResult && (
+              <>
+                <div>
+                  <div className="font-medium mb-1">必需变量</div>
+                  <div className="flex flex-wrap gap-2">{(diagResult.required.length ? diagResult.required : ['(无)']).map((k, i) => (
+                    <Badge key={i} variant="secondary">{k}</Badge>
+                  ))}</div>
+                </div>
+                <div>
+                  <div className="font-medium mb-1">已提供</div>
+                  <div className="flex flex-wrap gap-2">{(diagResult.provided.length ? diagResult.provided : ['(无)']).map((k, i) => (
+                    <Badge key={i} variant="secondary" className="bg-emerald-50 text-emerald-700 border-emerald-200">{k}</Badge>
+                  ))}</div>
+                </div>
+                <div>
+                  <div className="font-medium mb-1">缺失</div>
+                  <div className="flex flex-wrap gap-2">{(diagResult.missing.length ? diagResult.missing : ['(无)']).map((k, i) => (
+                    <Badge key={i} variant="secondary" className="bg-amber-50 text-amber-700 border-amber-200">{k}</Badge>
+                  ))}</div>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setDiagOpen(false)}>关闭</Button>
+                  {!!diagResult.missing?.length && diagFor && (
+                    <Button onClick={() => { setDiagOpen(false); openTplEnvFixWith(diagFor, diagResult.missing); }}>一键配置缺失项</Button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick ENV Fix Dialog for template */}
+      <Dialog open={envFixOpen} onOpenChange={(open) => { if (!open) { setEnvFixOpen(false); setEnvFixTemplate(null); setEnvEntries([]); } }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t('tpl.edit') || '配置环境变量'}</DialogTitle>
+            <DialogDescription>
+              {envFixTemplate ? `模板 "${envFixTemplate.name}" 的环境变量` : ''}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            {envEntries.map((e, idx) => (
+              <div key={idx} className="grid grid-cols-2 gap-2 items-center">
+                <input className="border rounded px-2 py-1 text-sm" placeholder="KEY" value={e.key} onChange={(ev) => updateEnvEntry(idx, 'key', ev.target.value)} />
+                <input className="border rounded px-2 py-1 text-sm" placeholder="VALUE" value={e.value} onChange={(ev) => updateEnvEntry(idx, 'value', ev.target.value)} />
+                <div className="col-span-2 text-right">
+                  <Button variant="ghost" size="sm" onClick={() => removeEnvRow(idx)}>删除</Button>
+                </div>
+              </div>
+            ))}
+            <div className="flex items-center justify-between mt-2">
+              <Button variant="outline" size="sm" onClick={addEnvRow}>{t('common.add') || '新增'}</Button>
+              <div className="space-x-2">
+                <Button variant="outline" size="sm" onClick={() => { setEnvFixOpen(false); setEnvFixTemplate(null); setEnvEntries([]); }}>{t('common.cancel')}</Button>
+                <Button size="sm" onClick={saveTplEnvFix}>{t('common.save')}</Button>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
 };
 
 export default Templates;
+
+// Quick ENV Fix Dialog for template
+// Placed after default export for clarity; real UI rendered above using Dialog from shadcn
+
+// Robust volume spec parsing supporting Windows drive letters
+function parseVolumes(text: string): Array<{ hostPath: string; containerPath: string; readOnly?: boolean }> {
+  const lines = (text || '').split(/\n+/).map(s => s.trim()).filter(Boolean);
+  const out: Array<{ hostPath: string; containerPath: string; readOnly?: boolean }> = [];
+  for (const l of lines) {
+    let hostPath = '';
+    let rest = '';
+    // Heuristic: Windows drive path like C:\... starts with letter + ':'
+    if (/^[A-Za-z]:\\/.test(l) || /^[A-Za-z]:\//.test(l)) {
+      const idx = l.indexOf(':', 2); // first colon after drive letter
+      if (idx === -1) continue;
+      hostPath = l.slice(0, idx);
+      rest = l.slice(idx + 1);
+    } else {
+      const idx = l.indexOf(':');
+      if (idx === -1) continue;
+      hostPath = l.slice(0, idx);
+      rest = l.slice(idx + 1);
+    }
+    let readOnly = false;
+    let containerPath = rest;
+    if (/:ro$/i.test(rest)) {
+      readOnly = true;
+      containerPath = rest.replace(/:ro$/i, '');
+    } else if (/:rw$/i.test(rest)) {
+      readOnly = false;
+      containerPath = rest.replace(/:rw$/i, '');
+    }
+    hostPath = hostPath.trim();
+    containerPath = containerPath.trim();
+    if (!hostPath || !containerPath) continue;
+    out.push({ hostPath, containerPath, readOnly });
+  }
+  return out;
+}
+
+function validateContainerInputs(opts: { enabled: boolean; image: string; transport: string; volumesText: string }): { messages: string[]; inline: { image?: string; volumes?: string } } {
+  const messages: string[] = [];
+  const inline: { image?: string; volumes?: string } = {};
+  if (!opts.enabled) return { messages, inline };
+  if (!opts.image || !opts.image.trim()) {
+    inline.image = '容器镜像为必填';
+    messages.push('容器镜像为必填');
+  }
+  if (opts.transport !== 'stdio') {
+    messages.push('容器模式仅支持 stdio 传输');
+  }
+  const vols = parseVolumes(opts.volumesText);
+  if (opts.volumesText.trim() && vols.length === 0) {
+    inline.volumes = '卷格式无效，请按示例填写：C:\\data\\logs:/app/logs[:ro]';
+    messages.push('卷格式无效');
+  }
+  return { messages, inline };
+}

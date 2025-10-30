@@ -612,7 +612,7 @@ const Settings: React.FC = () => {
                 {sandbox.status?.nodeReady ? t('settings.ready') : t('settings.notInstalled')}
               </Badge>
               {sandbox.status?.details?.nodePath && (
-                <div className="text-sm text-foreground/80 truncate">{sandbox.status.details.nodePath}</div>
+                <div className="text-sm text-foreground/80 truncate">{sandbox.status.details.nodePath}{sandbox.status.details.nodeVersion ? ` (${sandbox.status.details.nodeVersion})` : ''}</div>
               )}
             </div>
             <div className="space-y-1">
@@ -621,7 +621,7 @@ const Settings: React.FC = () => {
                 {sandbox.status?.pythonReady ? t('settings.ready') : t('settings.notInstalled')}
               </Badge>
               {sandbox.status?.details?.pythonPath && (
-                <div className="text-sm text-foreground/80 truncate">{sandbox.status.details.pythonPath}</div>
+                <div className="text-sm text-foreground/80 truncate">{sandbox.status.details.pythonPath}{sandbox.status.details.pythonVersion ? ` (${sandbox.status.details.pythonVersion})` : ''}</div>
               )}
             </div>
             <div className="space-y-1">
@@ -630,7 +630,7 @@ const Settings: React.FC = () => {
                 {sandbox.status?.goReady ? t('settings.ready') : t('settings.notInstalled')}
               </Badge>
               {sandbox.status?.details?.goPath && (
-                <div className="text-sm text-foreground/80 truncate">{sandbox.status.details.goPath}</div>
+                <div className="text-sm text-foreground/80 truncate">{sandbox.status.details.goPath}{sandbox.status.details.goVersion ? ` (${sandbox.status.details.goVersion})` : ''}</div>
               )}
             </div>
             <div className="space-y-1">

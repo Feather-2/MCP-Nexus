@@ -6,11 +6,11 @@ export class McpProtocolHandshaker {
   async negotiateVersion(serviceId: string, supportedVersions: McpVersion[]): Promise<McpVersion> {
     // Sort versions by preference (latest first)
     const sortedVersions = [...supportedVersions].sort((a, b) => b.localeCompare(a));
-    
+
     // For now, return the latest supported version
     // In a real implementation, this would involve protocol negotiation with the service
     const selectedVersion = sortedVersions[0];
-    
+
     this.logger.debug(`Version negotiated for ${serviceId}: ${selectedVersion}`);
     return selectedVersion;
   }
@@ -35,14 +35,14 @@ export class McpProtocolHandshaker {
             prompts: { listChanged: true }
           },
           clientInfo: {
-            name: 'pb-mcpgateway',
+            name: 'MCP-Nexus',
             version: '1.0.0'
           }
         }
       };
 
       const initResponse = await protocolStack.sendMessage(serviceId, initMessage);
-      
+
       if (initResponse.error) {
         throw new Error(`Initialize failed: ${initResponse.error.message}`);
       }
@@ -81,7 +81,7 @@ export class McpProtocolHandshaker {
       };
 
       const response = await protocolStack.sendMessage(serviceId, pingMessage);
-      
+
       if (response.error && response.error.code !== -32601) { // Method not found is acceptable
         throw new Error(`Service verification failed: ${response.error.message}`);
       }
@@ -103,14 +103,14 @@ export class McpProtocolHandshaker {
         protocolVersion: negotiatedVersion,
         capabilities: {},
         clientInfo: {
-          name: 'pb-mcpgateway',
+          name: 'MCP-Nexus',
           version: '1.0.0'
         }
       }
     };
 
     const response = await protocolStack.sendMessage(serviceId, message);
-    
+
     if (response.error) {
       throw new Error(`Failed to get server capabilities: ${response.error.message}`);
     }

@@ -62,7 +62,7 @@ const resources: Record<Lang, Record<string, string>> = {
     'status.unhealthy': '异常',
     'status.error': '错误状态',
     // Dashboard
-    'dash.welcome': '欢迎使用 MCP Gateway',
+    'dash.welcome': '欢迎使用 MCP Nexus',
     'dash.subtitle': '管理和监控您的MCP服务',
     'dash.createService': '创建服务',
     'dash.runningServices': '运行服务',
@@ -850,7 +850,7 @@ const resources: Record<Lang, Record<string, string>> = {
     'status.unhealthy': 'Unhealthy',
     'status.error': 'Error',
     // Dashboard
-    'dash.welcome': 'Welcome to MCP Gateway',
+    'dash.welcome': 'Welcome to MCP Nexus',
     'dash.subtitle': 'Manage and monitor your MCP services',
     'dash.createService': 'Create Service',
     'dash.runningServices': 'Running Services',

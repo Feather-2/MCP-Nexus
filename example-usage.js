@@ -1,8 +1,8 @@
-// MCP Gateway 使用示例
+// MCP Nexus 使用示例
 import { PbMcpGateway, createGateway } from './dist/PbMcpGateway.js';
 
 async function example() {
-  console.log('🚀 MCP Gateway 使用示例\n');
+  console.log('🚀 MCP Nexus 使用示例\n');
 
   // 1. 创建网关实例
   console.log('1. 创建网关...');

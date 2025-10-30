@@ -272,8 +272,13 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
   private setupProcessHandlers(): void {
     if (!this.process) return;
 
-    this.process.on('error', (error) => {
+    this.process.on('error', (error: any) => {
       this.logger.error(`Stdio process error:`, error);
+      // Try to surface common env missing patterns to upstream (for UI hints)
+      const msg = String(error?.message || '').toLowerCase();
+      if (msg.includes('required') || msg.includes('not set') || msg.includes('environment variable')) {
+        this.emit('stderr', `env-error: ${error.message}`);
+      }
       this.emit('error', error);
     });
 
@@ -294,6 +299,11 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
           stderrBuffer = stderrBuffer.slice(newlineIndex + 1);
           if (line) {
             this.logger.warn(`Stdio stderr:`, line);
+            // Emit parsed hint for missing env variables (e.g., "BRAVE_API_KEY environment variable is required")
+            const lower = line.toLowerCase();
+            if (lower.includes('environment variable is required') || lower.includes('not set') || /\b(api[_-]?key|token|secret)\b/.test(lower)) {
+              this.emit('stderr', `env-hint: ${line}`);
+            }
             this.emit('stderr', line);
           }
         }

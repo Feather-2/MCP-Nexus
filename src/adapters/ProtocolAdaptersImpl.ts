@@ -56,7 +56,7 @@ export class ProtocolAdaptersImpl implements ProtocolAdapters {
           protocolVersion: version,
           capabilities: {},
           clientInfo: {
-            name: 'pb-mcpgateway-test',
+            name: 'MCP-Nexus-test',
             version: '1.0.0'
           }
         }

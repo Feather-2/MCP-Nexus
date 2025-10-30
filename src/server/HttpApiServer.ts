@@ -54,6 +54,7 @@ export class HttpApiServer {
   private logBuffer: Array<{ timestamp: string; level: string; message: string; service?: string; data?: any }> = [];
   private logStreamClients: Set<FastifyReply> = new Set();
   private sandboxStatus: { nodeReady: boolean; pythonReady: boolean; goReady: boolean; packagesReady: boolean; details: Record<string, any> } = { nodeReady: false, pythonReady: false, goReady: false, packagesReady: false, details: {} };
+  private sandboxInstalling: boolean = false;
   private orchestratorStatus: OrchestratorStatus | null = null;
   private orchestratorManager?: OrchestratorManager;
   private orchestratorEngine?: OrchestratorEngine;
@@ -61,6 +62,7 @@ export class HttpApiServer {
   private mcpGenerator?: McpGenerator;
   private _marketplaceCache?: { items: any[]; loadedAt: number };
   private sandboxProgress?: (evt: any) => void;
+  private sandboxStreamClients: Set<FastifyReply> = new Set();
 
   // Local MCP Proxy state (handshake + token + code rotation)
   private currentVerificationCode: string = '';
@@ -104,6 +106,10 @@ export class HttpApiServer {
         if (!service) {
           return { healthy: false, error: 'Service not found', timestamp: new Date() } as any;
         }
+        // 仅对运行中的实例做探测，避免为非运行/一次性服务反复拉起进程
+        if ((service as any).state !== 'running') {
+          return { healthy: false, error: 'Service not running', timestamp: new Date() } as any;
+        }
         const start = Date.now();
         try {
           const adapter = await this.protocolAdapters.createAdapter(service.config);
@@ -113,10 +119,17 @@ export class HttpApiServer {
             const res = (adapter as any).sendAndReceive ? await (adapter as any).sendAndReceive(msg) : await adapter.send(msg as any);
             const latency = Date.now() - start;
             const ok = !!(res && (res as any).result);
+            if (!ok && (res as any)?.error?.message) {
+              // Attach last error to instance metadata for quick surfacing in UI
+              try { await this.serviceRegistry.setInstanceMetadata(serviceId, 'lastProbeError', (res as any).error.message); } catch {}
+            }
             return { healthy: ok, latency, timestamp: new Date() };
           } finally { await adapter.disconnect(); }
         } catch (e: any) {
-          return { healthy: false, error: e?.message || 'probe failed', latency: Date.now() - start, timestamp: new Date() } as any;
+          // Surface known env-related missing variable errors from stderr or message
+          const errMsg = e?.message || 'probe failed';
+          try { await this.serviceRegistry.setInstanceMetadata(serviceId, 'lastProbeError', errMsg); } catch {}
+          return { healthy: false, error: errMsg, latency: Date.now() - start, timestamp: new Date() } as any;
         }
       });
     } catch {}
@@ -169,7 +182,8 @@ export class HttpApiServer {
   }
 
   private broadcastLogEntry(logEntry: any): void {
-    const message = `data: ${JSON.stringify(logEntry)}\n\n`;
+    const payload = { ...logEntry, serviceId: logEntry.service };
+    const message = `data: ${JSON.stringify(payload)}\n\n`;
 
     for (const client of this.logStreamClients) {
       try {
@@ -259,11 +273,7 @@ export class HttpApiServer {
       const authResponse = await this.authLayer.authenticate(authRequest);
 
       if (!authResponse.success) {
-        reply.code(401).send({
-          error: 'Unauthorized',
-          message: authResponse.error
-        });
-        return;
+        return this.respondError(reply, 401, authResponse.error || 'Unauthorized', { code: 'UNAUTHORIZED', recoverable: true });
       }
 
       // Attach auth info to request
@@ -894,8 +904,7 @@ export class HttpApiServer {
 
     this.server.get('/api/orchestrator/config', async (_request: FastifyRequest, reply: FastifyReply) => {
       if (!this.orchestratorManager) {
-        reply.code(503).send({ error: 'Orchestrator manager not available' });
-        return;
+        return this.respondError(reply, 503, 'Orchestrator manager not available', { code: 'UNAVAILABLE' });
       }
       try {
         const config = this.orchestratorManager.getConfig();
@@ -907,8 +916,7 @@ export class HttpApiServer {
 
     this.server.put('/api/orchestrator/config', async (request: FastifyRequest, reply: FastifyReply) => {
       if (!this.orchestratorManager) {
-        reply.code(503).send({ error: 'Orchestrator manager not available' });
-        return;
+        return this.respondError(reply, 503, 'Orchestrator manager not available', { code: 'UNAVAILABLE' });
       }
       try {
         const updates = (request.body ?? {}) as Partial<OrchestratorConfig>;
@@ -917,7 +925,7 @@ export class HttpApiServer {
         reply.send({ success: true, config: updated });
       } catch (error) {
         this.logger.error('Failed to update orchestrator configuration', error);
-        reply.code(400).send({ success: false, error: (error as Error).message });
+        return this.respondError(reply, 400, (error as Error).message || 'Invalid orchestrator configuration', { code: 'BAD_REQUEST', recoverable: true });
       }
     });
 
@@ -925,8 +933,7 @@ export class HttpApiServer {
     this.server.post('/api/orchestrator/execute', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         if (!this.orchestratorStatus?.enabled || !this.orchestratorManager) {
-          reply.code(503).send({ success: false, error: 'Orchestrator disabled' });
-          return;
+          return this.respondError(reply, 503, 'Orchestrator disabled', { code: 'DISABLED', recoverable: true });
         }
         if (!this.orchestratorEngine || !this.subagentLoader) {
           const subDir = this.orchestratorStatus.subagentsDir;
@@ -945,8 +952,7 @@ export class HttpApiServer {
 
         const body = (request.body ?? {}) as { goal?: string; steps?: Array<{ subagent?: string; tool?: string; params?: any }>; parallel?: boolean; maxSteps?: number; timeoutMs?: number };
         if (!body.goal && (!body.steps || body.steps.length === 0)) {
-          reply.code(400).send({ success: false, error: 'goal or steps is required' });
-          return;
+          return this.respondError(reply, 400, 'goal or steps is required', { code: 'BAD_REQUEST', recoverable: true });
         }
         const res = await this.orchestratorEngine!.execute({
           goal: body.goal,
@@ -966,8 +972,7 @@ export class HttpApiServer {
     this.server.get('/api/orchestrator/subagents', async (_request: FastifyRequest, reply: FastifyReply) => {
       try {
         if (!this.orchestratorStatus?.enabled || !this.orchestratorManager) {
-          reply.code(503).send({ success: false, error: 'Orchestrator disabled' });
-          return;
+          return this.respondError(reply, 503, 'Orchestrator disabled', { code: 'DISABLED', recoverable: true });
         }
         // Ensure loader exists
         if (!this.subagentLoader) {
@@ -987,13 +992,11 @@ export class HttpApiServer {
     this.server.post('/api/orchestrator/subagents', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         if (!this.orchestratorStatus?.enabled || !this.orchestratorManager) {
-          reply.code(503).send({ success: false, error: 'Orchestrator disabled' });
-          return;
+          return this.respondError(reply, 503, 'Orchestrator disabled', { code: 'DISABLED', recoverable: true });
         }
         const body = (request.body || {}) as Partial<SubagentConfig>;
         if (!body || !body.name || !Array.isArray(body.tools) || body.tools.length === 0) {
-          reply.code(400).send({ success: false, error: 'Invalid subagent config: name and tools[] required' });
-          return;
+          return this.respondError(reply, 400, 'Invalid subagent config: name and tools[] required', { code: 'BAD_REQUEST', recoverable: true });
         }
         const subDir = this.orchestratorStatus.subagentsDir;
         // Write file
@@ -1018,13 +1021,11 @@ export class HttpApiServer {
     this.server.delete('/api/orchestrator/subagents/:name', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         if (!this.orchestratorStatus?.enabled || !this.orchestratorManager) {
-          reply.code(503).send({ success: false, error: 'Orchestrator disabled' });
-          return;
+          return this.respondError(reply, 503, 'Orchestrator disabled', { code: 'DISABLED', recoverable: true });
         }
         const { name } = request.params as { name: string };
         if (!name) {
-          reply.code(400).send({ success: false, error: 'name is required' });
-          return;
+          return this.respondError(reply, 400, 'name is required', { code: 'BAD_REQUEST', recoverable: true });
         }
         const path = await import('path');
         const fs = await import('fs/promises');
@@ -1033,8 +1034,7 @@ export class HttpApiServer {
           await fs.unlink(filePath);
         } catch (err: any) {
           if (err?.code === 'ENOENT') {
-            reply.code(404).send({ success: false, error: 'Subagent not found' });
-            return;
+            return this.respondError(reply, 404, 'Subagent not found', { code: 'NOT_FOUND', recoverable: true });
           }
           throw err;
         }
@@ -1053,17 +1053,14 @@ export class HttpApiServer {
     this.server.post('/api/orchestrator/quick-group', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         if (!this.orchestratorStatus?.enabled || !this.orchestratorManager) {
-          reply.code(503).send({ success: false, error: 'Orchestrator disabled' });
-          return;
+          return this.respondError(reply, 503, 'Orchestrator disabled', { code: 'DISABLED', recoverable: true });
         }
         if (!this.mcpGenerator) {
-          reply.code(503).send({ success: false, error: 'MCP Generator not initialized' });
-          return;
+          return this.respondError(reply, 503, 'MCP Generator not initialized', { code: 'NOT_READY' });
         }
         const body = (request.body || {}) as { groupName?: string; source: any; options?: any; auth?: any };
         if (!body.source) {
-          reply.code(400).send({ success: false, error: 'source is required' });
-          return;
+          return this.respondError(reply, 400, 'source is required', { code: 'BAD_REQUEST', recoverable: true });
         }
         // Generate & auto-register template
         const genRes = await this.mcpGenerator.generate({
@@ -1071,8 +1068,7 @@ export class HttpApiServer {
           options: { ...(body.options || {}), autoRegister: true, testMode: false }
         } as any);
         if (!genRes.success || !genRes.template) {
-          reply.code(400).send({ success: false, error: genRes.error || 'Generation failed' });
-          return;
+          return this.respondError(reply, 400, genRes.error || 'Generation failed', { code: 'BAD_REQUEST', recoverable: true });
         }
         const templateName = genRes.template.name;
         const actions = Array.isArray(genRes.template.tools) && genRes.template.tools.length
@@ -1175,9 +1171,11 @@ export class HttpApiServer {
       }
 
       try {
-        const serviceId = await this.serviceRegistry.createServiceFromTemplate(
+        const overrides = body.instanceArgs || {};
+        // 支持 instanceMode 透传（keep-alive/managed）
+        const serviceId = await (this.serviceRegistry as any).createServiceFromTemplate(
           body.templateName,
-          body.instanceArgs || {}
+          overrides
         );
 
         reply.code(201).send({
@@ -1196,8 +1194,7 @@ export class HttpApiServer {
       const body = request.body as { env: Record<string, string> };
 
       if (!body.env || typeof body.env !== 'object') {
-        reply.code(400).send({ error: 'Environment variables object is required' });
-        return;
+        return this.respondError(reply, 400, 'Environment variables object is required', { code: 'BAD_REQUEST', recoverable: true });
       }
 
       try {
@@ -1267,7 +1264,7 @@ export class HttpApiServer {
       try {
         // Filter logs for this specific service or generate service-specific logs
         const serviceLogs = this.logBuffer
-          .filter(log => log.service === id || !log.service)
+          .filter(log => log.service === id)
           .slice(-logLimit);
 
         // If no service-specific logs, generate some for demo
@@ -1395,9 +1392,7 @@ export class HttpApiServer {
         reply.sendFile(filename, exportDir);
       } catch (error) {
         this.logger.error('Failed to download file', error);
-        reply.code(404).send({
-          error: 'File not found'
-        });
+        return this.respondError(reply, 404, 'File not found', { code: 'NOT_FOUND', recoverable: true });
       }
     });
 
@@ -1473,16 +1468,22 @@ export class HttpApiServer {
       reply.send(status);
     });
 
-    // Install components: { components?: string[] }
+    // Install components: { components?: string[] }（与流式共用互斥锁）
     this.server.post('/api/sandbox/install', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
+        if (this.sandboxInstalling) {
+          return this.respondError(reply, 409, 'Sandbox installer busy', { code: 'BUSY', recoverable: true });
+        }
+        this.sandboxInstalling = true;
         const body = (request.body as any) || {};
         const components: string[] = Array.isArray(body.components) && body.components.length ? body.components : ['node', 'packages'];
         const result = await this.installSandboxComponents(components);
         reply.send({ success: true, result });
       } catch (error) {
         this.logger.error('Sandbox install failed:', error);
-        reply.code(500).send({ success: false, error: (error as Error).message });
+        return this.respondError(reply, 500, (error as Error).message || 'Sandbox install failed');
+      } finally {
+        this.sandboxInstalling = false;
       }
     });
     
@@ -1497,9 +1498,19 @@ export class HttpApiServer {
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Headers': 'Cache-Control'
         });
-        const send = (obj: any) => {
-          try { reply.raw.write(`data: ${JSON.stringify(obj)}\n\n`); } catch {}
+
+        const sendTo = (r: FastifyReply, obj: any) => { try { r.raw.write(`data: ${JSON.stringify(obj)}\n\n`); } catch {} };
+        const broadcast = (obj: any) => {
+          for (const r of Array.from(this.sandboxStreamClients)) {
+            try { sendTo(r, obj); } catch { this.sandboxStreamClients.delete(r); }
+          }
         };
+
+        // Register this client
+        this.sandboxStreamClients.add(reply);
+        const onClose = () => { this.sandboxStreamClients.delete(reply); };
+        request.socket.on('close', onClose);
+        request.socket.on('end', onClose);
 
         const q = (request.query as any) || {};
         const compsStr: string = (q.components as string) || '';
@@ -1507,41 +1518,57 @@ export class HttpApiServer {
           ? compsStr.split(',').map((s: string) => s.trim()).filter(Boolean)
           : ['node', 'python', 'go', 'packages'];
 
-        send({ event: 'start', components });
-        // attach reporter
-        this.sandboxProgress = (evt: any) => {
-          send(evt);
-        };
+        sendTo(reply, { event: 'start', components });
+
+        // If an installation is already in progress, attach and do not start a new one
+        if (this.sandboxInstalling) {
+          sendTo(reply, { event: 'attach' });
+          return; // keep connection open to receive broadcasts
+        }
+
+        // Mark installing and set broadcaster
+        this.sandboxInstalling = true;
+        this.sandboxProgress = (evt: any) => broadcast(evt);
+
         const total = components.length;
         let done = 0;
-
         for (const c of components) {
-          send({ event: 'component_start', component: c, progress: Math.floor((done / total) * 100) });
+          broadcast({ event: 'component_start', component: c, progress: Math.floor((done / total) * 100) });
           try {
             await this.installSandboxComponents([c]);
             done += 1;
-            send({ event: 'component_done', component: c, progress: Math.floor((done / total) * 100) });
+            broadcast({ event: 'component_done', component: c, progress: Math.floor((done / total) * 100) });
           } catch (e: any) {
             this.logger.error('Streaming sandbox install component failed', e);
-            send({ event: 'error', component: c, error: (e as Error).message });
+            broadcast({ event: 'error', component: c, error: (e as Error).message });
             break;
           }
         }
 
         const status = await this.inspectSandbox();
-        send({ event: 'complete', progress: 100, status });
+        broadcast({ event: 'complete', progress: 100, status });
         this.sandboxProgress = undefined;
-        try { reply.raw.end(); } catch {}
+        this.sandboxInstalling = false;
+        // End all client streams gracefully
+        for (const r of Array.from(this.sandboxStreamClients)) {
+          try { r.raw.end(); } catch {}
+          this.sandboxStreamClients.delete(r);
+        }
       } catch (error) {
         this.logger.error('Sandbox streaming install failed:', error);
         this.sandboxProgress = undefined;
+        this.sandboxInstalling = false;
         try { reply.code(500).send({ success: false, error: (error as Error).message }); } catch {}
       }
     });
 
-    // Repair missing components only
+    // Repair missing components only（共用互斥锁）
     this.server.post('/api/sandbox/repair', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
+        if (this.sandboxInstalling) {
+          return reply.code(409).send({ success: false, error: 'Sandbox installer busy', code: 'BUSY' } as any);
+        }
+        this.sandboxInstalling = true;
         const body = (request.body as any) || {};
         const wants: string[] = Array.isArray(body.components) && body.components.length ? body.components : ['node','python','go','packages'];
         const status = await this.inspectSandbox();
@@ -1559,6 +1586,8 @@ export class HttpApiServer {
       } catch (error) {
         this.logger.error('Sandbox repair failed:', error);
         reply.code(500).send({ success: false, error: (error as Error).message });
+      } finally {
+        this.sandboxInstalling = false;
       }
     });
 
@@ -1696,19 +1725,83 @@ export class HttpApiServer {
   private async inspectSandbox() {
     const path = await import('path');
     const fs = await import('fs/promises');
+    const { spawn } = await import('child_process');
     const root = process.cwd();
     const runtimesDir = path.resolve(root, '../mcp-sandbox/runtimes');
     const pkgsDir = path.resolve(root, '../mcp-sandbox/packages/@modelcontextprotocol');
 
     const exists = async (p: string) => { try { await fs.access(p); return true; } catch { return false; } };
 
-    const nodeReady = await exists(path.join(runtimesDir, 'nodejs', 'bin', process.platform === 'win32' ? 'node.cmd' : 'node'))
-      && await exists(path.join(runtimesDir, 'nodejs', 'bin', process.platform === 'win32' ? 'npm.cmd' : 'npm'));
+    // Windows: support both node.exe at root and npm.cmd at root or under bin
+    let nodeReady = false;
+    if (process.platform === 'win32') {
+      const nodeExe = path.join(runtimesDir, 'nodejs', 'node.exe');
+      const npmCmdRoot = path.join(runtimesDir, 'nodejs', 'npm.cmd');
+      const npmCmdBin = path.join(runtimesDir, 'nodejs', 'bin', 'npm.cmd');
+      nodeReady = (await exists(nodeExe)) && (await exists(npmCmdRoot) || await exists(npmCmdBin));
+    } else {
+      const nodeBin = path.join(runtimesDir, 'nodejs', 'bin', 'node');
+      const npmBin = path.join(runtimesDir, 'nodejs', 'bin', 'npm');
+      nodeReady = await exists(nodeBin) && await exists(npmBin);
+    }
     const pythonReady = await exists(path.join(runtimesDir, 'python', process.platform === 'win32' ? 'Scripts' : 'bin'));
     const goReady = await exists(path.join(runtimesDir, 'go', 'bin'));
     const packagesReady = await exists(path.join(pkgsDir, 'server-filesystem')) && await exists(path.join(pkgsDir, 'server-memory'));
 
-    this.sandboxStatus = { nodeReady, pythonReady, goReady, packagesReady, details: { runtimesDir, pkgsDir } };
+    // 附加可执行路径详情，便于前端与排错
+    const details: Record<string, any> = { runtimesDir, pkgsDir };
+    if (process.platform === 'win32') {
+      details.nodePath = await exists(path.join(runtimesDir, 'nodejs', 'node.exe')) ? path.join(runtimesDir, 'nodejs', 'node.exe') : undefined;
+      details.npmPath = await exists(path.join(runtimesDir, 'nodejs', 'npm.cmd')) ? path.join(runtimesDir, 'nodejs', 'npm.cmd')
+        : (await exists(path.join(runtimesDir, 'nodejs', 'bin', 'npm.cmd')) ? path.join(runtimesDir, 'nodejs', 'bin', 'npm.cmd') : undefined);
+      details.pythonPath = await exists(path.join(runtimesDir, 'python', 'python.exe')) ? path.join(runtimesDir, 'python', 'python.exe') : undefined;
+      details.goPath = await exists(path.join(runtimesDir, 'go', 'bin', 'go.exe')) ? path.join(runtimesDir, 'go', 'bin', 'go.exe') : undefined;
+      details.packagesDir = pkgsDir;
+    } else {
+      details.nodePath = await exists(path.join(runtimesDir, 'nodejs', 'bin', 'node')) ? path.join(runtimesDir, 'nodejs', 'bin', 'node') : undefined;
+      details.npmPath = await exists(path.join(runtimesDir, 'nodejs', 'bin', 'npm')) ? path.join(runtimesDir, 'nodejs', 'bin', 'npm') : undefined;
+      details.pythonPath = await exists(path.join(runtimesDir, 'python', 'bin', 'python3')) ? path.join(runtimesDir, 'python', 'bin', 'python3') : undefined;
+      details.goPath = await exists(path.join(runtimesDir, 'go', 'bin', 'go')) ? path.join(runtimesDir, 'go', 'bin', 'go') : undefined;
+      details.packagesDir = pkgsDir;
+    }
+    // 轻量版本探针（超时 1s），不影响总体状态
+    const getVersion = async (cmd?: string, args: string[] = [], timeoutMs = 1000): Promise<string | undefined> => {
+      if (!cmd) return undefined;
+      try {
+        return await new Promise<string | undefined>((resolve) => {
+          let settled = false;
+          const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], shell: false });
+          let out = '';
+          let err = '';
+          const timer = setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            try { child.kill('SIGKILL'); } catch {}
+            resolve(undefined);
+          }, timeoutMs);
+          child.stdout?.on('data', (d) => { out += d.toString(); });
+          child.stderr?.on('data', (d) => { err += d.toString(); });
+          child.on('close', () => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            const text = (out || err || '').toString().trim();
+            resolve(text || undefined);
+          });
+          child.on('error', () => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            resolve(undefined);
+          });
+        });
+      } catch { return undefined; }
+    };
+    try { if (details.nodePath) details.nodeVersion = await getVersion(details.nodePath as string, ['-v']); } catch {}
+    try { if (details.pythonPath) details.pythonVersion = await getVersion(details.pythonPath as string, ['--version']); } catch {}
+    try { if (details.goPath) details.goVersion = await getVersion(details.goPath as string, ['version']); } catch {}
+
+    this.sandboxStatus = { nodeReady, pythonReady, goReady, packagesReady, details };
     return this.sandboxStatus;
   }
 
@@ -1725,6 +1818,22 @@ export class HttpApiServer {
 
     const pipelineAsync = promisify(pipeline);
     const ensureDir = async (p: string) => { try { await fs.mkdir(p, { recursive: true }); } catch {} };
+    const copyDir = async (src: string, dest: string) => {
+      await ensureDir(dest);
+      const entries = await fs.readdir(src, { withFileTypes: true } as any);
+      for (const entry of entries as any[]) {
+        const s = join(src, entry.name);
+        const d = join(dest, entry.name);
+        if (entry.isDirectory()) {
+          await copyDir(s, d);
+        } else {
+          await fs.copyFile(s, d).catch(async () => {
+            await fs.rm(d, { force: true } as any).catch(() => {});
+            await fs.copyFile(s, d);
+          });
+        }
+      }
+    };
 
     const run = (cmd: string, args: string[], cwd?: string) => new Promise<void>((resolve, reject) => {
       const child = spawn(cmd, args, { stdio: 'inherit', shell: process.platform === 'win32', cwd });
@@ -1733,15 +1842,18 @@ export class HttpApiServer {
     });
 
     // 跨平台下载函数
-    const download = async (url: string, filePath: string): Promise<void> => {
+    const download = async (url: string, filePath: string, redirectsLeft: number = 5): Promise<void> => {
       await ensureDir(path.dirname(filePath));
       const client = url.startsWith('https') ? https : http;
 
       return new Promise((resolve, reject) => {
         client.get(url, (response) => {
           if (response.statusCode === 302 || response.statusCode === 301) {
-            // 处理重定向
-            return download(response.headers.location!, filePath).then(resolve).catch(reject);
+            // 处理重定向（限制最大次数）
+            const next = response.headers.location;
+            if (!next) { reject(new Error('重定向无 Location')); return; }
+            if (redirectsLeft <= 0) { reject(new Error('重定向次数过多')); return; }
+            return download(next, filePath, redirectsLeft - 1).then(resolve).catch(reject);
           }
           if (response.statusCode !== 200) {
             reject(new Error(`下载失败: ${response.statusCode}`));
@@ -1833,6 +1945,7 @@ export class HttpApiServer {
 
     const config = getRuntimeConfig();
     const platform = process.platform as 'win32' | 'linux' | 'darwin';
+    const platformLabel = platform === 'win32' ? 'Windows' : (platform === 'darwin' ? 'macOS' : 'Linux');
 
     const logger = this.logger; // 提取logger引用避免this作用域问�?
     const actions: Record<string, () => Promise<void>> = {
@@ -1841,17 +1954,26 @@ export class HttpApiServer {
         const binDir = path.join(runtimeDir, 'bin');
 
         // 检查是否已安装
-        const nodeBin = platform === 'win32' ? 'node.exe' : 'node';
-        const npmBin = platform === 'win32' ? 'npm.cmd' : 'npm';
-
         try {
-          await fs.access(path.join(binDir, nodeBin));
-          await fs.access(path.join(binDir, npmBin));
-          // 检查是否为真实文件（大小 > KB）
-          const nodeStats = await fs.stat(path.join(binDir, nodeBin));
-          if (nodeStats.size > 1024) {
-            // 已安装真实的Node.js
-            return;
+          if (platform === 'win32') {
+            const nodeExe = path.join(runtimeDir, 'node.exe');
+            const npmCmdRoot = path.join(runtimeDir, 'npm.cmd');
+            const npmCmdBin = path.join(binDir, 'npm.cmd');
+            const nodeOk = await fs.access(nodeExe).then(() => true).catch(() => false);
+            const npmOk = (await fs.access(npmCmdRoot).then(() => true).catch(() => false)) || (await fs.access(npmCmdBin).then(() => true).catch(() => false));
+            if (nodeOk && npmOk) {
+              const st = await fs.stat(nodeExe);
+              if (st.size > 1024) return; // 已安装
+            }
+          } else {
+            const nodeBin = path.join(binDir, 'node');
+            const npmBin = path.join(binDir, 'npm');
+            const nodeOk = await fs.access(nodeBin).then(() => true).catch(() => false);
+            const npmOk = await fs.access(npmBin).then(() => true).catch(() => false);
+            if (nodeOk && npmOk) {
+              const st = await fs.stat(nodeBin);
+              if (st.size > 1024) return; // 已安装
+            }
           }
         } catch {}
 
@@ -1860,7 +1982,7 @@ export class HttpApiServer {
         const fileName = downloadUrl.split('/').pop()!;
         const archivePath = path.join(runtimeDir, fileName);
 
-        logger.info(`下载Node.js ${config.node.version} for ${platform}...`);
+        logger.info(`下载Node.js ${config.node.version} for ${platformLabel}...`);
         await download(downloadUrl, archivePath);
         // Optional SHA256 verification
         if (process.env.PB_RUNTIME_SHA256_NODE) {
@@ -1876,17 +1998,41 @@ export class HttpApiServer {
         logger.info('解压Node.js...');
         await extract(archivePath, runtimeDir);
 
-        // 重新整理目录结构
+        // 重新整理目录结构（Windows zip 解压后为 node-vXX-win-arch）
         if (platform === 'win32') {
-          const extractedDir = path.join(runtimeDir, `node-${config.node.version}-win-x64`);
+          const archSuffix = process.arch === 'arm64' ? 'arm64' : 'x64';
+          const extractedDir = path.join(runtimeDir, `node-${config.node.version}-win-${archSuffix}`);
           if (await fs.access(extractedDir).then(() => true).catch(() => false)) {
-            // 移动文件到正确位置
+            // 在移动前尽量删除目标处已存在的同名文件/目录，避免 EPERM rename
             await ensureDir(binDir);
             const files = await fs.readdir(extractedDir);
             for (const file of files) {
-              await fs.rename(path.join(extractedDir, file), path.join(runtimeDir, file));
+              const from = path.join(extractedDir, file);
+              const to = path.join(runtimeDir, file);
+              try {
+                // 若目标已存在，先尝试删除（文件/目录分别处理）
+                await fs.rm(to, { recursive: true, force: true } as any).catch(() => {});
+                await fs.rename(from, to);
+              } catch (err: any) {
+                if (err?.code === 'EPERM' || err?.code === 'EEXIST') {
+                  // 回退为复制 + 删除，规避占用/权限问题
+                  try {
+                    const fsp = await import('fs/promises');
+                    const stat = await fsp.stat(from);
+                    if (stat.isDirectory()) {
+                      await copyDir(from, to);
+                      await fsp.rm(from, { recursive: true, force: true } as any);
+                    } else {
+                      await fsp.copyFile(from, to);
+                      await fsp.unlink(from).catch(() => {});
+                    }
+                  } catch {}
+                } else {
+                  throw err;
+                }
+              }
             }
-            await fs.rmdir(extractedDir);
+            await fs.rmdir(extractedDir).catch(() => {});
           }
         }
 
@@ -1917,7 +2063,7 @@ export class HttpApiServer {
         const fileName = downloadUrl.split('/').pop()!;
         const archivePath = path.join(runtimeDir, fileName);
 
-        logger.info(`下载Python ${config.python.version} for ${platform}...`);
+        logger.info(`下载Python ${config.python.version} for ${platformLabel}...`);
         await download(downloadUrl, archivePath);
         if (process.env.PB_RUNTIME_SHA256_PYTHON) {
           try {
@@ -1967,7 +2113,7 @@ export class HttpApiServer {
         const fileName = downloadUrl.split('/').pop()!;
         const archivePath = path.join(runtimeDir, fileName);
 
-        logger.info(`下载Go ${config.go.version} for ${platform}...`);
+        logger.info(`下载Go ${config.go.version} for ${platformLabel}...`);
         await download(downloadUrl, archivePath);
         if (process.env.PB_RUNTIME_SHA256_GO) {
           try {
@@ -1982,14 +2128,34 @@ export class HttpApiServer {
         logger.info('解压Go...');
         await extract(archivePath, runtimeDir);
 
-        // 重新整理目录结构 - Go 解压后会在 go/ 子目录
+        // 重新整理目录结构 - Go 解压后会在 go/ 子目录，加入 EPERM 回退
         const extractedGoDir = path.join(runtimeDir, 'go');
         if (await fs.access(extractedGoDir).then(() => true).catch(() => false)) {
           const files = await fs.readdir(extractedGoDir);
           for (const file of files) {
-            await fs.rename(path.join(extractedGoDir, file), path.join(runtimeDir, file));
+            const from = path.join(extractedGoDir, file);
+            const to = path.join(runtimeDir, file);
+            try {
+              await fs.rm(to, { recursive: true, force: true } as any).catch(() => {});
+              await fs.rename(from, to);
+            } catch (err: any) {
+              if (err?.code === 'EPERM' || err?.code === 'EEXIST') {
+                try {
+                  const stat = await fs.stat(from);
+                  if (stat.isDirectory()) {
+                    await copyDir(from, to);
+                    await fs.rm(from, { recursive: true, force: true } as any);
+                  } else {
+                    await fs.copyFile(from, to);
+                    await fs.unlink(from).catch(() => {});
+                  }
+                } catch {}
+              } else {
+                throw err;
+              }
+            }
           }
-          await fs.rmdir(extractedGoDir);
+          await fs.rmdir(extractedGoDir).catch(() => {});
         }
 
         // 清理下载文件
@@ -2004,8 +2170,9 @@ export class HttpApiServer {
 
         // 使用便携式Node.js来安装包
         const nodeDir = path.resolve(root, '../mcp-sandbox/runtimes/nodejs');
+        // Windows 兼容：node.exe 位于根目录，npm.cmd 可能在根或 bin 下
         const nodeBin = platform === 'win32' ? path.join(nodeDir, 'node.exe') : path.join(nodeDir, 'bin', 'node');
-        let npmScript = platform === 'win32' ? path.join(nodeDir, 'npm.cmd') : path.join(nodeDir, 'bin', 'npm');
+        let npmScript = platform === 'win32' ? (await fs.access(path.join(nodeDir, 'npm.cmd')).then(() => path.join(nodeDir, 'npm.cmd')).catch(() => path.join(nodeDir, 'bin', 'npm.cmd'))) : path.join(nodeDir, 'bin', 'npm');
 
         // 检查Node.js是否可用
         try {
@@ -2042,6 +2209,18 @@ export class HttpApiServer {
       reply.send(templates); // Send array directly
     });
 
+    // Get template by name
+    this.server.get('/api/templates/:name', async (request: FastifyRequest, reply: FastifyReply) => {
+      const { name } = request.params as { name: string };
+      try {
+        const tpl = await this.serviceRegistry.getTemplate(name);
+        if (!tpl) return this.respondError(reply, 404, 'Template not found', { code: 'NOT_FOUND', recoverable: true });
+        reply.send(tpl);
+      } catch (error) {
+        return this.respondError(reply, 500, (error as Error).message || 'Failed to get template', { code: 'TEMPLATE_GET_FAILED' });
+      }
+    });
+
     // Register template
     this.server.post('/api/templates', async (request: FastifyRequest, reply: FastifyReply) => {
       const config = request.body as McpServiceConfig;
@@ -2054,6 +2233,52 @@ export class HttpApiServer {
         });
       } catch (error) {
         return this.respondError(reply, 400, error instanceof Error ? error.message : 'Failed to register template', { code: 'TEMPLATE_REGISTER_FAILED', recoverable: true });
+      }
+    });
+
+    // Update template env only
+    this.server.patch('/api/templates/:name/env', async (request: FastifyRequest, reply: FastifyReply) => {
+      const { name } = request.params as { name: string };
+      const rawBody = (request.body as any) ?? {};
+      // Accept both { env: {...} } and direct key-value { KEY: "", ... }
+      const body = typeof rawBody === 'object' && rawBody && !Array.isArray(rawBody)
+        ? (rawBody.env && typeof rawBody.env === 'object' ? { env: rawBody.env as Record<string,string> } : { env: rawBody as Record<string,string> })
+        : { env: undefined } as { env?: Record<string,string> };
+      try {
+        if (!body || !body.env || typeof body.env !== 'object') {
+          // Return structured JSON instead of empty body, to avoid UI "no body" confusion
+          return this.respondError(reply, 400, 'env object is required', { code: 'BAD_REQUEST', recoverable: true });
+        }
+        const tpl = await this.serviceRegistry.getTemplate(name);
+        if (!tpl) {
+          return this.respondError(reply, 404, 'Template not found', { code: 'NOT_FOUND', recoverable: true });
+        }
+        const updated = { ...tpl, env: { ...(tpl.env || {}), ...body.env } } as McpServiceConfig;
+        await this.serviceRegistry.registerTemplate(updated);
+        reply.send({ success: true, message: 'Template env updated', name });
+      } catch (error) {
+        return this.respondError(reply, 500, (error as Error).message || 'Failed to update template env', { code: 'TEMPLATE_UPDATE_FAILED' });
+      }
+    });
+
+    // Diagnose template for missing envs (env-only heuristic; no spawn)
+    this.server.post('/api/templates/:name/diagnose', async (request: FastifyRequest, reply: FastifyReply) => {
+      const { name } = request.params as { name: string };
+      try {
+        const tpl = await this.serviceRegistry.getTemplate(name);
+        if (!tpl) {
+          // Return a stable payload to avoid UI breaks
+          reply.code(200).send({ success: false, name, required: [], provided: [], missing: [], transport: 'unknown', error: 'Template not found' });
+          return;
+        }
+        let required: string[] = [];
+        try { required = this.computeRequiredEnvForTemplate(tpl as any) || []; } catch { required = []; }
+        const provided = Object.keys((tpl as any).env || {});
+        const missing = required.filter(k => !provided.includes(k));
+        reply.send({ success: true, name, required, provided, missing, transport: (tpl as any).transport });
+      } catch (error) {
+        // Do not surface 500 to UI; send a soft-fail payload
+        reply.code(200).send({ success: false, name, required: [], provided: [], missing: [], transport: 'unknown', error: (error as Error)?.message || 'Diagnose failed' });
       }
     });
 
@@ -2079,6 +2304,76 @@ export class HttpApiServer {
         return this.respondError(reply, 500, (error as Error).message || 'Repair templates failed', { code: 'TEMPLATE_REPAIR_FAILED' });
       }
     });
+
+    // Repair missing container images by applying sensible defaults
+    this.server.post('/api/templates/repair-images', async (_request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const templates = await this.serviceRegistry.listTemplates();
+        let fixed = 0;
+        const updated: string[] = [];
+
+        const suggestImage = (tpl: import('../types/index.js').McpServiceConfig): string => {
+          const cmd = String((tpl as any).command || '').toLowerCase();
+          if (cmd.includes('npm') || cmd.includes('node')) return 'node:20-alpine';
+          if (cmd.includes('python')) return 'python:3.11-alpine';
+          if (cmd.includes('go')) return 'golang:1.22-alpine';
+          return 'alpine:3';
+        };
+
+        for (const tpl of templates) {
+          const env = (tpl as any).env || {};
+          const isContainer = env.SANDBOX === 'container' || !!(tpl as any).container;
+          const isStdio = (tpl as any).transport === 'stdio';
+          if (!isStdio || !isContainer) continue;
+
+          const container = (tpl as any).container || {};
+          if (!container.image) {
+            const image = suggestImage(tpl as any);
+            const next: any = { ...tpl, container: { ...container, image } };
+            // ensure SANDBOX is container
+            next.env = { ...(tpl as any).env, SANDBOX: 'container' };
+            try {
+              await this.serviceRegistry.registerTemplate(next);
+              fixed += 1;
+              updated.push(String(tpl.name));
+            } catch (e) {
+              this.logger.warn('Failed to repair container image for template', { name: tpl.name, error: (e as Error).message });
+            }
+          }
+        }
+
+        reply.send({ success: true, fixed, updated });
+      } catch (error) {
+        return this.respondError(reply, 500, (error as Error).message || 'Repair container images failed', { code: 'TEMPLATE_REPAIR_IMAGES_FAILED' });
+      }
+    });
+  }
+
+  // Heuristic env requirement mapping, aligned with GUI
+  private computeRequiredEnvForTemplate(tpl: import('../types/index.js').McpServiceConfig): string[] {
+    const name = String((tpl?.name || '')).toLowerCase();
+    const cmd = String((tpl as any)?.command || '').toLowerCase();
+    const args = Array.isArray((tpl as any)?.args) ? ((tpl as any).args as string[]).join(' ').toLowerCase() : '';
+    if (name.includes('brave') || args.includes('@modelcontextprotocol/server-brave-search')) return ['BRAVE_API_KEY'];
+    if (name.includes('github') || args.includes('@modelcontextprotocol/server-github')) return ['GITHUB_TOKEN'];
+    if (name.includes('openai') || cmd.includes('openai') || args.includes('openai') || args.includes('@modelcontextprotocol/server-openai')) return ['OPENAI_API_KEY'];
+    if (name.includes('azure-openai') || cmd.includes('azure-openai') || args.includes('azure-openai')) return ['AZURE_OPENAI_API_KEY','AZURE_OPENAI_ENDPOINT'];
+    if (name.includes('anthropic') || cmd.includes('anthropic') || args.includes('anthropic') || args.includes('@modelcontextprotocol/server-anthropic')) return ['ANTHROPIC_API_KEY'];
+    if (name.includes('ollama') || cmd.includes('ollama') || args.includes('ollama')) return [];
+    // Extended common providers (best-effort)
+    if (name.includes('gemini') || name.includes('google') || cmd.includes('gemini') || args.includes('gemini') || args.includes('google-genai') || args.includes('@modelcontextprotocol/server-google') || args.includes('@modelcontextprotocol/server-gemini')) return ['GOOGLE_API_KEY'];
+    if (name.includes('cohere') || cmd.includes('cohere') || args.includes('cohere') || args.includes('@modelcontextprotocol/server-cohere')) return ['COHERE_API_KEY'];
+    if (name.includes('groq') || cmd.includes('groq') || args.includes('groq') || args.includes('@modelcontextprotocol/server-groq')) return ['GROQ_API_KEY'];
+    if (name.includes('openrouter') || cmd.includes('openrouter') || args.includes('openrouter') || args.includes('@modelcontextprotocol/server-openrouter')) return ['OPENROUTER_API_KEY'];
+    if (name.includes('together') || cmd.includes('together') || args.includes('together') || args.includes('@modelcontextprotocol/server-together')) return ['TOGETHER_API_KEY'];
+    if (name.includes('fireworks') || cmd.includes('fireworks') || args.includes('fireworks') || args.includes('@modelcontextprotocol/server-fireworks')) return ['FIREWORKS_API_KEY'];
+    if (name.includes('deepseek') || cmd.includes('deepseek') || args.includes('deepseek') || args.includes('@modelcontextprotocol/server-deepseek')) return ['DEEPSEEK_API_KEY'];
+    if (name.includes('mistral') || cmd.includes('mistral') || args.includes('mistral') || args.includes('@modelcontextprotocol/server-mistral')) return ['MISTRAL_API_KEY'];
+    if (name.includes('perplexity') || cmd.includes('perplexity') || args.includes('perplexity') || args.includes('@modelcontextprotocol/server-perplexity')) return ['PERPLEXITY_API_KEY'];
+    if (name.includes('replicate') || cmd.includes('replicate') || args.includes('replicate') || args.includes('@modelcontextprotocol/server-replicate')) return ['REPLICATE_API_TOKEN'];
+    if (name.includes('serpapi') || cmd.includes('serpapi') || args.includes('serpapi') || args.includes('@modelcontextprotocol/server-serpapi')) return ['SERPAPI_API_KEY'];
+    if (name.includes('huggingface') || name.includes('hugging-face') || cmd.includes('huggingface') || args.includes('huggingface') || args.includes('@modelcontextprotocol/server-huggingface')) return ['HF_TOKEN'];
+    return [];
   }
 
   private setupRoutingRoutes(): void {
@@ -2087,8 +2382,7 @@ export class HttpApiServer {
       const body = request.body as RouteRequestBody;
 
       if (!body.method) {
-        reply.code(400).send({ error: 'method is required' });
-        return;
+        return this.respondError(reply, 400, 'method is required', { code: 'BAD_REQUEST', recoverable: true });
       }
 
       try {
@@ -2155,8 +2449,7 @@ export class HttpApiServer {
         const service = await this.serviceRegistry.getService(serviceId);
 
         if (!service) {
-          reply.code(404).send({ error: 'Service not found' });
-          return;
+          return this.respondError(reply, 404, 'Service not found', { code: 'NOT_FOUND', recoverable: true });
         }
 
         // Create adapter and send message

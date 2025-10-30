@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* 简化的 shadcn/ui 变量（对齐 pb-mcpgateway-ui 的更克制中性风格） */
+/* 简化的 shadcn/ui 变量（对齐 MCP-Nexus-ui 的更克制中性风格） */
 /* 回退到中性 HSL 方案，去除“线条风”观感，保留简洁清爽 */
 :root {
   --background: 0 0% 100%;

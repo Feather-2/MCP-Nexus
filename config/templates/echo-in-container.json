@@ -1,0 +1,12 @@
+{
+  "name": "echo-in-container",
+  "version": "2024-11-26",
+  "transport": "stdio",
+  "command": "node",
+  "args": [
+    "-e",
+    "console.log(JSON.stringify({jsonrpc:'2.0',id:'protocol-test',result:{ok:true}}))"
+  ],
+  "timeout": 30000,
+  "retries": 3
+}

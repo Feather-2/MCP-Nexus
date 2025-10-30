@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// Simple CLI for PB MCP Gateway
+// Simple CLI for PB MCP Nexus
 import { spawn } from 'child_process';
 import readline from 'readline';
 import { join } from 'path';
@@ -16,10 +16,10 @@ let gatewayProcess: any = null;
 const commands = {
   help: () => {
     console.log(`
-🚀 Paper Burner MCP Gateway CLI
+🚀  MCP Nexus CLI
 
 📚 Available Commands:
-  start                    - Start the gateway  
+  start                    - Start the gateway
   stop                     - Stop the gateway
   restart                  - Restart the gateway
   status                   - Show gateway status
@@ -34,7 +34,7 @@ const commands = {
       return;
     }
 
-    console.log('🚀 Starting PB MCP Gateway...');
+    console.log('🚀 Starting PB MCP Nexus...');
     try {
       // For now, just simulate starting
       console.log('✅ Gateway started successfully on port 19233');
@@ -86,7 +86,7 @@ const commands = {
 // Handle user input
 rl.on('line', (input) => {
   const command = input.trim();
-  
+
   if (!command) {
     rl.prompt();
     return;
@@ -97,7 +97,7 @@ rl.on('line', (input) => {
   } else {
     console.log(`❓ Unknown command: ${command}. Type 'help' for available commands.`);
   }
-  
+
   rl.prompt();
 });
 
@@ -107,7 +107,7 @@ rl.on('close', () => {
 
 // Welcome message
 console.log(`
-🚀 Paper Burner MCP Gateway CLI v1.0.0
+🚀  MCP Nexus CLI v1.0.0
 
 Welcome! This is a simplified CLI interface.
 Type 'help' for available commands or 'start' to begin.

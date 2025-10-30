@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Paper Burner MCP Gateway - 快速开始示例
- * 
- * 这个脚本演示了如何使用 MCP Gateway 的基本功能
+ *  MCP Nexus - 快速开始示例
+ *
+ * 这个脚本演示了如何使用 MCP Nexus 的基本功能
  */
 
 import { createGateway } from './dist/PbMcpGateway.js';
@@ -13,7 +13,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 async function quickStart() {
-  console.log('🚀 Paper Burner MCP Gateway - 快速开始示例\n');
+  console.log('🚀  MCP Nexus - 快速开始示例\n');
 
   // 创建网关实例
   console.log('📋 步骤 1: 创建网关实例...');
@@ -57,7 +57,7 @@ async function quickStart() {
     console.log('\n📊 步骤 6: 系统运行状态:');
     const services = await gateway.listServices();
     const health = await gateway.getHealthStatus();
-    
+
     console.log(`  网关状态: ${health.gateway.status}`);
     console.log(`  运行时间: ${Math.round(health.gateway.uptime / 1000)}秒`);
     console.log(`  活跃服务: ${services.length}个`);

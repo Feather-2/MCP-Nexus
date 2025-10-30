@@ -60,9 +60,9 @@ export function AppSidebar({ onNavigate, active }: Props) {
             PB
           </div>
           <div className="min-w-0 group-data-[collapsible=icon]:hidden">
-            <div className="truncate text-base font-semibold tracking-tight">MCP Gateway</div>
+            <div className="truncate text-base font-semibold tracking-tight">MCP Nexus</div>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="truncate">Management Console</span>
+              <span className="truncate">Console</span>
               <Badge variant="secondary" className="text-[10px]">Preview</Badge>
             </div>
           </div>

@@ -88,7 +88,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               </button>
               <Zap className="h-5 w-5 text-primary" />
               <div className="hidden sm:block">
-                <h1 className="text-[17px] font-semibold text-foreground tracking-tight">PB MCP Gateway</h1>
+                <h1 className="text-[17px] font-semibold text-foreground tracking-tight">PB MCP Nexus</h1>
               </div>
             </div>
             <div className="flex-1 hidden md:flex items-center max-w-2xl">
@@ -207,7 +207,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
                   <Zap className="h-5 w-5" />
                 </div>
-                <span className="font-semibold">PB MCP Gateway</span>
+                <span className="font-semibold">PB MCP Nexus</span>
               </div>
               <button className="p-2 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => setSidebarOpen(false)}>
                 <X className="h-5 w-5" />
@@ -239,7 +239,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       {/* Footer */}
       <footer className="border-t py-6 text-center text-sm text-slate-500 dark:text-slate-400">
         <div className="mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-8">
-          PB MCP Gateway · 简洁 · 高效 · 可视化
+          PB MCP Nexus · 简洁 · 高效 · 可视化
         </div>
       </footer>
     </div>

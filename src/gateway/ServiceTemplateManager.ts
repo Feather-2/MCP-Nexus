@@ -215,6 +215,22 @@ export class ServiceTemplateManager {
         timeout: 30000,
         retries: 3
       }
+      ,
+      // 一个可交互且常驻的容器模板，便于控制台/健康检查
+      {
+        name: 'node-stdio-container',
+        version: '2024-11-26',
+        transport: 'stdio',
+        command: 'node',
+        args: ['-e', "console.log(JSON.stringify({jsonrpc:'2.0',id:'init',result:{tools:[]}})) && setInterval(()=>{}, 1<<30)"],
+        env: { SANDBOX: 'container' },
+        // 由容器适配器接管命令，把以下镜像/只读根等转为 docker run ...
+        // 注意：这只是默认模板，运行需本机有 docker/podman
+        // @ts-ignore
+        container: { image: 'node:20-alpine', readonlyRootfs: true },
+        timeout: 30000,
+        retries: 3
+      }
     ];
 
     for (const template of defaultTemplates) {

@@ -145,11 +145,11 @@ const Monitoring: React.FC = () => {
 
   const getLevelColor = (level: string) => {
     switch (level.toLowerCase()) {
-      case 'error': return 'text-destructive';
-      case 'warn': return 'text-amber-600';
-      case 'info': return 'text-primary';
-      case 'debug': return 'text-foreground/70';
-      default: return 'text-muted-foreground';
+      case 'error': return 'text-red-600 dark:text-red-400';
+      case 'warn': return 'text-amber-700 dark:text-amber-400';
+      case 'info': return 'text-blue-600 dark:text-blue-400';
+      case 'debug': return 'text-slate-600 dark:text-slate-400';
+      default: return 'text-slate-600 dark:text-slate-300';
     }
   };
 
@@ -516,7 +516,7 @@ const Monitoring: React.FC = () => {
         <CardContent>
           <div
             ref={logContainerRef}
-            className="bg-black dark:bg-slate-950 text-foreground p-4 rounded-lg h-80 overflow-auto font-mono text-sm space-y-1"
+            className="bg-black dark:bg-slate-950 text-slate-200 dark:text-slate-200 p-4 rounded-lg h-80 overflow-auto font-mono text-sm space-y-1"
           >
             {logs.length === 0 ? (
               <div className="text-slate-400">

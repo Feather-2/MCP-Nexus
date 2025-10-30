@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Paper Burner MCP Gateway - GUI 启动器
+ *  MCP Nexus - GUI 启动器
  * 使用 GitHub Primer Design System 风格
  */
 
@@ -13,7 +13,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 async function startGUI() {
-  console.log('🎨 Paper Burner MCP Gateway - GitHub Primer GUI\n');
+  console.log('🎨  MCP Nexus - GitHub Primer GUI\n');
 
   // 创建网关实例
   console.log('⚡ 启动网关服务...');
@@ -28,12 +28,12 @@ async function startGUI() {
   try {
     // 启动网关
     await gateway.start();
-    
+
     console.log('✅ 网关启动成功！');
     console.log(`🌐 Web GUI: http://localhost:19233`);
     console.log(`📋 GitHub Primer Design System 风格界面`);
     console.log('');
-    
+
     // 显示可用功能
     console.log('🎯 可用功能:');
     console.log('  📊 仪表板        - GitHub Actions 风格的状态展示');
@@ -43,7 +43,7 @@ async function startGUI() {
     console.log('  📈 监控中心      - 终端风格的实时日志');
     console.log('  ⚙️  系统设置      - GitHub 设置页面风格');
     console.log('');
-    
+
     // 显示设计特色
     console.log('🎨 设计特色:');
     console.log('  • 简洁专业的开发者界面');
@@ -52,13 +52,13 @@ async function startGUI() {
     console.log('  • 深色/浅色主题自动切换');
     console.log('  • 直观的状态指示和反馈');
     console.log('');
-    
+
     console.log('🚀 在浏览器中打开 http://localhost:19233 开始使用！');
     console.log('');
-    
+
     // 等待用户输入退出
     console.log('按 Ctrl+C 停止服务...');
-    
+
     // 优雅退出处理
     const exitHandler = async (signal) => {
       console.log(`\n📝 收到 ${signal} 信号，正在停止服务...`);
@@ -71,13 +71,13 @@ async function startGUI() {
         process.exit(1);
       }
     };
-    
+
     process.on('SIGINT', () => exitHandler('SIGINT'));
     process.on('SIGTERM', () => exitHandler('SIGTERM'));
-    
+
     // 保持进程运行
     process.stdin.resume();
-    
+
   } catch (error) {
     console.error('❌ 启动 GUI 失败:', error.message);
     console.error('');
@@ -91,7 +91,7 @@ async function startGUI() {
 
 // 显示启动信息
 console.log('╭─────────────────────────────────────────────────╮');
-console.log('│  🎨 Paper Burner MCP Gateway - GitHub GUI      │');
+console.log('│  🎨  MCP Nexus - GitHub GUI      │');
 console.log('│                                                 │');
 console.log('│  采用 GitHub Primer Design System              │');
 console.log('│  专为开发者设计的现代化管理界面                 │');

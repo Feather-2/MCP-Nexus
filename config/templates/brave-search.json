@@ -9,7 +9,7 @@
     "@modelcontextprotocol/server-brave-search"
   ],
   "env": {
-    "SANDBOX": "portable"
+    "BRAVE_API_KEY": "123"
   },
   "timeout": 30000,
   "retries": 3

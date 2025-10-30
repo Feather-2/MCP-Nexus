@@ -58,7 +58,7 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
   }
 
   // Instance Management
-  async createInstance(templateName: string, overrides?: Partial<McpServiceConfig>): Promise<ServiceInstance> {
+  async createInstance(templateName: string, overrides?: Partial<McpServiceConfig> & { instanceMode?: 'keep-alive' | 'managed' }): Promise<ServiceInstance> {
     const template = await this.templateManager.get(templateName);
     if (!template) {
       throw new Error(`Template ${templateName} not found`);
@@ -87,8 +87,16 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
 
     const instance = await this.instanceManager.create(config);
 
-    // Start health checking for the new instance
-    await this.healthChecker.startMonitoring(instance.id);
+    // Apply instance mode (keep-alive | managed)
+    const instanceMode = (overrides as any)?.instanceMode as ('keep-alive' | 'managed' | undefined);
+    if (instanceMode) {
+      try { await this.instanceManager.setMetadata(instance.id, 'mode', instanceMode); } catch {}
+    }
+
+    // Start health checking for keep-alive; skip for managed
+    if (instanceMode !== 'managed') {
+      await this.healthChecker.startMonitoring(instance.id);
+    }
 
     // Register with load balancer
     this.loadBalancer.addInstance(instance);
@@ -176,6 +184,11 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
     }
 
     return healthyInstances;
+  }
+
+  // Metadata helpers for instances (exposed for server to annotate diagnostics)
+  async setInstanceMetadata(serviceId: string, key: string, value: any): Promise<void> {
+    await (this.instanceManager as any).setMetadata?.(serviceId, key, value);
   }
 
   async selectBestInstance(templateName: string, strategy: RoutingStrategy = 'performance'): Promise<ServiceInstance | null> {

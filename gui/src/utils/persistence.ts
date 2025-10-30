@@ -1,6 +1,6 @@
 // Simple localStorage-based persistence utility
 export class LocalStorageManager {
-  private static PREFIX = 'pb-mcpgateway-';
+  private static PREFIX = 'MCP-Nexus-';
 
   static get<T>(key: string, defaultValue: T): T {
     try {
@@ -29,7 +29,7 @@ export class LocalStorageManager {
 
   static clear(): void {
     try {
-      const keys = Object.keys(localStorage).filter(key => 
+      const keys = Object.keys(localStorage).filter(key =>
         key.startsWith(this.PREFIX)
       );
       keys.forEach(key => localStorage.removeItem(key));
@@ -90,13 +90,15 @@ export interface UIState {
   selectedTemplateFilters: string[];
   dashboardLayout: 'grid' | 'list';
   tablePageSizes: Record<string, number>;
+  rowClickSelect?: boolean;
 }
 
 export const DEFAULT_UI_STATE: UIState = {
   selectedServiceFilters: [],
   selectedTemplateFilters: [],
   dashboardLayout: 'grid',
-  tablePageSizes: {}
+  tablePageSizes: {},
+  rowClickSelect: false
 };
 
 export class UIStateManager {

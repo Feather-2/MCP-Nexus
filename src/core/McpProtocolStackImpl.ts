@@ -197,7 +197,7 @@ export class McpProtocolStackImpl implements McpProtocolStack {
         protocolVersion: negotiatedVersion,
         capabilities: {},
         clientInfo: {
-          name: 'pb-mcpgateway',
+          name: 'MCP-Nexus',
           version: '1.0.0'
         }
       }

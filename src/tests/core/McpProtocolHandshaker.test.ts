@@ -29,7 +29,7 @@ describe('McpProtocolHandshaker', () => {
     it('should select the latest version from supported versions', async () => {
       const versions: McpVersion[] = ['2024-11-26', '2025-03-26', '2025-06-18'];
       const result = await handshaker.negotiateVersion('test-service', versions);
-      
+
       expect(result).toBe('2025-06-18');
       expect(mockLogger.debug).toHaveBeenCalledWith(
         'Version negotiated for test-service: 2025-06-18'
@@ -39,14 +39,14 @@ describe('McpProtocolHandshaker', () => {
     it('should handle single version', async () => {
       const versions: McpVersion[] = ['2024-11-26'];
       const result = await handshaker.negotiateVersion('test-service', versions);
-      
+
       expect(result).toBe('2024-11-26');
     });
 
     it('should sort versions correctly', async () => {
       const versions: McpVersion[] = ['2024-11-26', '2025-06-18', '2025-03-26'];
       const result = await handshaker.negotiateVersion('test-service', versions);
-      
+
       expect(result).toBe('2025-06-18');
     });
   });
@@ -54,7 +54,7 @@ describe('McpProtocolHandshaker', () => {
   describe('handshake process', () => {
     it('should perform successful handshake', async () => {
       const serviceId = 'test-service';
-      
+
       // Mock successful initialize response
       vi.mocked(mockProtocolStack.sendMessage)
         .mockResolvedValueOnce({
@@ -99,7 +99,7 @@ describe('McpProtocolHandshaker', () => {
         params: {
           protocolVersion: '2025-06-18',
           clientInfo: {
-            name: 'pb-mcpgateway',
+            name: 'MCP-Nexus',
             version: '1.0.0'
           }
         }
@@ -120,7 +120,7 @@ describe('McpProtocolHandshaker', () => {
 
     it('should handle initialize error', async () => {
       const serviceId = 'test-service';
-      
+
       vi.mocked(mockProtocolStack.sendMessage)
         .mockResolvedValueOnce({
           jsonrpc: '2.0',
@@ -142,7 +142,7 @@ describe('McpProtocolHandshaker', () => {
 
     it('should handle verification failure gracefully', async () => {
       const serviceId = 'test-service';
-      
+
       vi.mocked(mockProtocolStack.sendMessage)
         .mockResolvedValueOnce({
           jsonrpc: '2.0',
@@ -179,7 +179,7 @@ describe('McpProtocolHandshaker', () => {
 
     it('should handle method not found in verification as acceptable', async () => {
       const serviceId = 'test-service';
-      
+
       vi.mocked(mockProtocolStack.sendMessage)
         .mockResolvedValueOnce({
           jsonrpc: '2.0',
@@ -232,7 +232,7 @@ describe('McpProtocolHandshaker', () => {
       const capabilities = await handshaker.getServerCapabilities(serviceId, mockProtocolStack);
 
       expect(capabilities).toEqual(expectedCapabilities);
-      
+
       const message = vi.mocked(mockProtocolStack.sendMessage).mock.calls[0][1] as McpMessage;
       expect(message.method).toBe('initialize');
       expect(message.params?.protocolVersion).toBe('2025-06-18');

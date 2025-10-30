@@ -70,7 +70,7 @@ async function main() {
   }
 
   // Write readme
-  const readme = `PB-MCPGateway Portable\n\nUsage:\n${platform === 'win32' ? '  double click start.bat' : '  ./start.sh'}\n\nConfig:\n  Edit ./config/gateway.json and put templates to ./config/templates/*.json\n`;
+  const readme = `MCP-Nexus Portable\n\nUsage:\n${platform === 'win32' ? '  double click start.bat' : '  ./start.sh'}\n\nConfig:\n  Edit ./config/gateway.json and put templates to ./config/templates/*.json\n`;
   await fsp.writeFile(path.join(outDir, 'README_PORTABLE.txt'), readme, 'utf-8');
 
   console.log(`[pack] Portable bundle ready: ${outDir}`);

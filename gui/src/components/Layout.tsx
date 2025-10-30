@@ -33,9 +33,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         <div className="header-content">
           <div className="logo">
             <span className="logo-icon">⚡</span>
-            <span className="logo-text">Paper Burner MCP Gateway</span>
+            <span className="logo-text"> MCP Nexus</span>
           </div>
-          
+
           <div className="header-actions">
             <button className="theme-toggle" onClick={toggleTheme}>
               {isDarkMode ? '🌞' : '🌙'}

@@ -9,9 +9,6 @@
     "@modelcontextprotocol/server-filesystem",
     "C:/Users/Public"
   ],
-  "env": {
-    "SANDBOX": "portable"
-  },
   "timeout": 30000,
   "retries": 3
 }

@@ -1,4 +1,4 @@
-# Paper Burner MCP Gateway
+#  MCP Nexus
 
 🚀 **一个功能完整的 TypeScript MCP 协议网关平台**
 
@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)]()
 
-Paper Burner MCP Gateway 是一个生产就绪的 Model Context Protocol (MCP) 网关实现，支持多种传输方式、智能路由、负载均衡和完整的服务管理功能。
+ MCP Nexus 是一个生产就绪的 Model Context Protocol (MCP) 网关实现，支持多种传输方式、智能路由、负载均衡和完整的服务管理功能。
 
 ## 📚 文档位置
 
@@ -36,7 +36,7 @@ Paper Burner MCP Gateway 是一个生产就绪的 Model Context Protocol (MCP) �
 
 ```bash
 git clone <your-repo>
-cd pb-mcpgateway
+cd MCP-Nexus
 npm install
 ```
 
@@ -275,7 +275,7 @@ curl http://localhost:19233/api/health-status
 
 ### GUI 功能概览
 
-Paper Burner MCP Gateway 采用 **GitHub Primer Design System**，提供了一个简洁、专业的 Web 管理界面，专为开发者设计的现代化管理体验。
+ MCP Nexus 采用 **GitHub Primer Design System**，提供了一个简洁、专业的 Web 管理界面，专为开发者设计的现代化管理体验。
 
 ### 主要界面模块
 
@@ -387,7 +387,7 @@ npm run test:coverage
 ## 📁 项目结构
 
 ```
-pb-mcpgateway/
+MCP-Nexus/
 ├── src/
 │   ├── auth/                 # 认证系统
 │   ├── config/               # 配置管理
@@ -495,4 +495,4 @@ pb-mcpgateway/
 
 ⭐ **如果这个项目对你有帮助，请给一个 Star！**
 
-**Paper Burner MCP Gateway - 让 MCP 服务管理变得简单！** 🚀
+** MCP Nexus - 让 MCP 服务管理变得简单！** 🚀

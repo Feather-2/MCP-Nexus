@@ -1,4 +1,4 @@
-// API client for MCP Gateway backend
+// API client for MCP Nexus backend
 
 interface ApiResponse<T = any> {
   ok: boolean;
@@ -137,16 +137,54 @@ class ApiClient {
     try {
       const response = await fetch(url, finalOptions);
 
+      // Non-OK: 尽可能解析结构化错误体，避免出现“no body”误导
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        const ct = response.headers.get('content-type') || '';
+        // 优先尝试 JSON
+        if (ct.includes('application/json')) {
+          try {
+            const j = await response.json();
+            // 常见结构：{ success:false, error:{ message, code } } | { error, message }
+            const errObj: any = j || {};
+            const msg = (errObj?.error?.message) || errObj?.message || (typeof errObj?.error === 'string' ? errObj.error : '') || '';
+            const code = errObj?.error?.code || errObj?.code;
+            const combined = [code && String(code), msg || response.statusText].filter(Boolean).join(': ');
+            return { ok: false, error: combined || `HTTP ${response.status}` };
+          } catch {}
+        }
+        // 再尝试文本
+        try {
+          const text = await response.text();
+          const trimmed = (text || '').trim();
+          if (trimmed) return { ok: false, error: trimmed };
+        } catch {}
+        // 兜底：状态码与状态文本
+        return { ok: false, error: `HTTP ${response.status}: ${response.statusText || 'Error'}` };
       }
 
-      const data = await response.json();
-      return { ok: true, data };
+      // OK: 解析 JSON；若无 body，返回 data:null 避免“no body”观感
+      const ct = response.headers.get('content-type') || '';
+      if (ct.includes('application/json')) {
+        try {
+          const data = await response.json();
+          return { ok: true, data };
+        } catch {
+          return { ok: true, data: null as any };
+        }
+      } else {
+        // 非 JSON：尝试文本，失败则返回空
+        try {
+          const text = await response.text();
+          return { ok: true, data: (text ?? '') as any };
+        } catch {
+          return { ok: true, data: null as any };
+        }
+      }
 
     } catch (error) {
       console.error(`API request failed for ${endpoint}:`, error);
-      return { ok: false, error: (error as Error).message };
+      const msg = (error as Error)?.message || 'Network error';
+      return { ok: false, error: msg };
     }
   }
 
@@ -264,6 +302,20 @@ class ApiClient {
     return this.request(`/api/templates/${templateName}`, {
       method: 'DELETE'
     });
+  }
+
+  async updateTemplateEnv(templateName: string, env: Record<string, string>): Promise<ApiResponse<{ success: boolean; name: string }>> {
+    return this.request<{ success: boolean; name: string }>(`/api/templates/${encodeURIComponent(templateName)}/env`, {
+      method: 'PATCH',
+      body: JSON.stringify({ env })
+    });
+  }
+
+  async diagnoseTemplate(templateName: string): Promise<ApiResponse<{ success: boolean; name: string; required: string[]; provided: string[]; missing: string[]; transport: string }>> {
+    return this.request<{ success: boolean; name: string; required: string[]; provided: string[]; missing: string[]; transport: string }>(
+      `/api/templates/${encodeURIComponent(templateName)}/diagnose`,
+      { method: 'POST' }
+    );
   }
 
   // Authentication API
@@ -411,26 +463,13 @@ class ApiClient {
   }
 
   createSandboxInstallStream(components: string[], onMessage: (msg: any) => void, onError?: (err: Error) => void): EventSource | null {
+    // 不自动重连：避免安装流程被多次触发；若后端已有安装在进行，会以“attach”姿态加入
     try {
       const params = encodeURIComponent(components.join(','));
       const url = `${this.baseUrl}/api/sandbox/install/stream?components=${params}`;
-      let attempts = 0;
-      let es: EventSource | null = null;
-      const maxDelay = 10000;
-      const connect = () => {
-        es = new EventSource(url);
-        es.onmessage = (ev) => {
-          try { const obj = JSON.parse(ev.data); onMessage(obj); } catch {}
-        };
-        es.onerror = () => {
-          attempts += 1;
-          const delay = Math.min(1000 * Math.pow(2, attempts), maxDelay);
-          try { es && es.close(); } catch {}
-          setTimeout(connect, delay);
-          onError?.(new Error('sandbox stream error'));
-        };
-      };
-      connect();
+      const es = new EventSource(url);
+      es.onmessage = (ev) => { try { const obj = JSON.parse(ev.data); onMessage(obj); } catch {} };
+      es.onerror = () => { try { es.close(); } catch {}; onError?.(new Error('sandbox stream error')); };
       return es;
     } catch (e) {
       onError?.(e as Error);
@@ -451,6 +490,13 @@ class ApiClient {
 
   async repairTemplates(): Promise<ApiResponse<{ success: boolean }>> {
     return this.request<{ success: boolean }>('/api/templates/repair', { method: 'POST' });
+  }
+
+  async repairTemplateImages(): Promise<ApiResponse<{ success: boolean; fixed?: number; updated?: string[] }>> {
+    return this.request<{ success: boolean; fixed?: number; updated?: string[] }>(
+      '/api/templates/repair-images',
+      { method: 'POST' }
+    );
   }
 
   // External MCP config import
@@ -509,7 +555,7 @@ class ApiClient {
       params: {
         protocolVersion,
         capabilities,
-        clientInfo: { name: 'pb-mcpgateway-ui', version: '1.0.0' }
+        clientInfo: { name: 'MCP-Nexus-ui', version: '1.0.0' }
       }
     };
   }

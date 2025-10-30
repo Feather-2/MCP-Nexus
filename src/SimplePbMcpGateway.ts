@@ -1,22 +1,22 @@
-// Simplified PB MCP Gateway Implementation
+// Simplified PB MCP Nexus Implementation
 import { EventEmitter } from 'events';
 
 // Simple Logger
 class SimpleLogger {
   constructor(private level: string = 'info') {}
-  
+
   info(message: string, ...args: any[]) {
     console.log(`[INFO] ${message}`, ...args);
   }
-  
+
   error(message: string, ...args: any[]) {
     console.error(`[ERROR] ${message}`, ...args);
   }
-  
+
   warn(message: string, ...args: any[]) {
     console.warn(`[WARN] ${message}`, ...args);
   }
-  
+
   debug(message: string, ...args: any[]) {
     if (this.level === 'debug') {
       console.log(`[DEBUG] ${message}`, ...args);
@@ -31,7 +31,7 @@ interface SimpleGatewayConfig {
   logLevel?: string;
 }
 
-// Simple MCP Gateway Class
+// Simple MCP Nexus Class
 export class SimplePbMcpGateway extends EventEmitter {
   private config: SimpleGatewayConfig;
   private logger: SimpleLogger;
@@ -40,14 +40,14 @@ export class SimplePbMcpGateway extends EventEmitter {
 
   constructor(config: SimpleGatewayConfig = {}) {
     super();
-    
+
     this.config = {
       port: 19233,
       host: '127.0.0.1',
       logLevel: 'info',
       ...config
     };
-    
+
     this.logger = new SimpleLogger(this.config.logLevel);
   }
 
@@ -57,22 +57,22 @@ export class SimplePbMcpGateway extends EventEmitter {
     }
 
     try {
-      this.logger.info('Starting PB MCP Gateway...');
-      
+      this.logger.info('Starting PB MCP Nexus...');
+
       // Initialize built-in service templates
       this.initializeTemplates();
-      
+
       this.isRunning = true;
-      
+
       this.logger.info(`Gateway started successfully on ${this.config.host}:${this.config.port}`);
       this.logger.info('Available service templates:', Array.from(this.services.keys()));
-      
+
       this.emit('started', {
         host: this.config.host,
         port: this.config.port,
         templates: Array.from(this.services.keys())
       });
-      
+
     } catch (error) {
       this.logger.error('Failed to start gateway:', error);
       throw error;
@@ -85,18 +85,18 @@ export class SimplePbMcpGateway extends EventEmitter {
     }
 
     try {
-      this.logger.info('Stopping PB MCP Gateway...');
-      
+      this.logger.info('Stopping PB MCP Nexus...');
+
       // Stop all services
       for (const [serviceId] of this.services) {
         this.logger.info(`Stopping service: ${serviceId}`);
       }
-      
+
       this.isRunning = false;
-      
+
       this.logger.info('Gateway stopped successfully');
       this.emit('stopped');
-      
+
     } catch (error) {
       this.logger.error('Error stopping gateway:', error);
       throw error;
@@ -145,14 +145,14 @@ export class SimplePbMcpGateway extends EventEmitter {
         version: '2024-11-26'
       },
       {
-        name: 'brave-search', 
+        name: 'brave-search',
         description: 'Brave Search API integration',
         command: 'npx @modelcontextprotocol/server-brave-search',
         version: '2024-11-26'
       },
       {
         name: 'github',
-        description: 'GitHub API integration', 
+        description: 'GitHub API integration',
         command: 'npx @modelcontextprotocol/server-github',
         version: '2024-11-26'
       },
@@ -165,7 +165,7 @@ export class SimplePbMcpGateway extends EventEmitter {
       {
         name: 'memory',
         description: 'In-memory storage for conversations',
-        command: 'npx @modelcontextprotocol/server-memory', 
+        command: 'npx @modelcontextprotocol/server-memory',
         version: '2024-11-26'
       }
     ];

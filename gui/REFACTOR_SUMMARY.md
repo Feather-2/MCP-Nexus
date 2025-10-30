@@ -1,7 +1,7 @@
-# pb-mcpgateway GUI 重构总结
+# MCP-Nexus GUI 重构总结
 
 ## 重构目标
-使用 shadcn/ui 重构 pb-mcpgateway 的 GUI，提升用户界面的现代化程度和专业性。
+使用 shadcn/ui 重构 MCP-Nexus 的 GUI，提升用户界面的现代化程度和专业性。
 
 ## 完成的工作
 
@@ -83,7 +83,7 @@
 ## 📁 文件结构
 
 ```
-pb-mcpgateway/gui/
+MCP-Nexus/gui/
 ├── src/
 │   ├── components/
 │   │   ├── ui/           # shadcn/ui 组件
@@ -119,7 +119,7 @@ pb-mcpgateway/gui/
 
 ### 开发环境启动
 ```bash
-cd pb-mcpgateway/gui
+cd MCP-Nexus/gui
 npm run dev
 ```
 
@@ -135,7 +135,7 @@ npx shadcn@latest add [component-name]
 
 ## 🎉 总结
 
-通过这次重构，pb-mcpgateway 的 GUI 获得了：
+通过这次重构，MCP-Nexus 的 GUI 获得了：
 - 🎨 **现代化的视觉设计**
 - 🔧 **统一的组件系统**
 - 📱 **更好的响应式支持**

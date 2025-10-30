@@ -1,5 +1,5 @@
-import { 
-  GatewayConfig, 
+import {
+  GatewayConfig,
   Logger,
   ServiceInstance,
   ServiceHealth,
@@ -33,10 +33,10 @@ export class PbMcpGateway extends EventEmitter {
 
   constructor(configPath?: string, logger?: Logger) {
     super();
-    
+
     // Set up logger
     this.logger = logger || new ConsoleLogger('info');
-    
+
     // Initialize config manager
     const defaultConfigPath = configPath || join(process.cwd(), 'config', 'gateway.json');
     // Ensure ServiceTemplateManager uses the same templates directory as ConfigManager
@@ -46,10 +46,10 @@ export class PbMcpGateway extends EventEmitter {
     } catch {}
     this.configManager = new ConfigManagerImpl(defaultConfigPath, this.logger);
     this.orchestratorManager = new OrchestratorManager(defaultConfigPath, this.logger);
-    
+
     // Initialize default config
     this.config = this.configManager.getConfig();
-    
+
     // Initialize core components
     this.protocolAdapters = new ProtocolAdaptersImpl(this.logger);
     this._serviceRegistry = new ServiceRegistryImpl(this.logger);
@@ -57,7 +57,7 @@ export class PbMcpGateway extends EventEmitter {
     this.router = new GatewayRouterImpl(this.logger, this.config.loadBalancingStrategy);
     this.httpServer = new HttpApiServer(this.config, this.logger, this.configManager);
     this.httpServer.setOrchestratorManager(this.orchestratorManager);
-    
+
     this.setupEventHandlers();
   }
 
@@ -76,11 +76,11 @@ export class PbMcpGateway extends EventEmitter {
     }
 
     try {
-      this.logger.info('Starting PB MCP Gateway...');
+      this.logger.info('Starting PB MCP Nexus...');
 
       // Load configuration
       this.config = await this.configManager.loadConfig();
-      this.logger.info('Configuration loaded', { 
+      this.logger.info('Configuration loaded', {
         authMode: this.config.authMode,
         port: this.config.port,
         host: this.config.host
@@ -134,8 +134,8 @@ export class PbMcpGateway extends EventEmitter {
 
       // Mark as started
       this._isStarted = true;
-      
-      this.logger.info('PB MCP Gateway started successfully', {
+
+      this.logger.info('PB MCP Nexus started successfully', {
         port: this.config.port,
         host: this.config.host,
         authMode: this.config.authMode,
@@ -172,7 +172,7 @@ export class PbMcpGateway extends EventEmitter {
     }
 
     try {
-      this.logger.info('Stopping PB MCP Gateway...');
+      this.logger.info('Stopping PB MCP Nexus...');
 
       // Stop configuration watching
       this.configManager.stopConfigWatch();
@@ -187,8 +187,8 @@ export class PbMcpGateway extends EventEmitter {
       }
 
       this._isStarted = false;
-      
-      this.logger.info('PB MCP Gateway stopped successfully');
+
+      this.logger.info('PB MCP Nexus stopped successfully');
       this.emit('stopped');
 
     } catch (error) {
@@ -242,7 +242,7 @@ export class PbMcpGateway extends EventEmitter {
 
   async registerTemplate(template: ServiceTemplate): Promise<void> {
     await this.configManager.saveTemplate(template);
-    
+
     // Convert ServiceTemplate to McpServiceConfig
     const serviceConfig: McpServiceConfig = {
       name: template.name,
@@ -275,7 +275,7 @@ export class PbMcpGateway extends EventEmitter {
   async updateConfig(updates: Partial<GatewayConfig>): Promise<GatewayConfig> {
     const newConfig = await this.configManager.updateConfig(updates);
     this.config = newConfig;
-    
+
     // Update components with new config
     if (updates.loadBalancingStrategy) {
       await this.router.updateLoadBalancingStrategy(updates.loadBalancingStrategy);
@@ -489,21 +489,21 @@ export class PbMcpGateway extends EventEmitter {
 
 // Factory function for easier instantiation
 export function createGateway(
-  config?: Partial<GatewayConfig & { configPath?: string }>, 
+  config?: Partial<GatewayConfig & { configPath?: string }>,
   logger?: Logger
 ): PbMcpGateway {
   const { configPath, logLevel, ...gatewayConfig } = config || {};
-  
+
   // Create logger with specified level if no logger provided
   const gatewayLogger = logger || new ConsoleLogger(logLevel || 'info');
-  
+
   const gateway = new PbMcpGateway(configPath, gatewayLogger);
-  
+
   if (Object.keys(gatewayConfig).length > 0) {
     // Apply config updates after construction
     gateway.updateConfig(gatewayConfig);
   }
-  
+
   return gateway;
 }
 

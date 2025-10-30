@@ -4,12 +4,12 @@ import { createGateway } from './index.js';
 import readline from 'readline';
 
 async function main() {
-  console.log('🚀 Paper Burner MCP Gateway CLI');
+  console.log('🚀  MCP Nexus CLI');
   console.log('================================');
 
-  const gateway = createGateway({ 
+  const gateway = createGateway({
     logLevel: 'info',
-    port: 19233 
+    port: 19233
   });
 
   // Start the gateway
@@ -101,7 +101,7 @@ async function main() {
 
 async function handleList(gateway: any) {
   const services = await gateway.listServices();
-  
+
   if (services.length === 0) {
     console.log('No services running.');
     return;
@@ -121,7 +121,7 @@ async function handleList(gateway: any) {
 
 async function handleTemplates(gateway: any) {
   const templates = await gateway.serviceRegistry.listTemplates();
-  
+
   if (templates.length === 0) {
     console.log('No templates available.');
     return;
@@ -145,7 +145,7 @@ async function handleCreate(gateway: any, templateName: string) {
   }
 
   console.log(`Creating service from template: ${templateName}...`);
-  
+
   try {
     const serviceId = await gateway.createService(templateName);
     console.log(`✅ Service created: ${serviceId}`);
@@ -161,7 +161,7 @@ async function handleStop(gateway: any, serviceId: string) {
   }
 
   console.log(`Stopping service: ${serviceId}...`);
-  
+
   try {
     await gateway.stopService(serviceId);
     console.log(`✅ Service stopped: ${serviceId}`);
@@ -177,7 +177,7 @@ async function handleStatus(gateway: any, serviceId: string) {
   }
 
   const status = await gateway.getServiceStatus(serviceId);
-  
+
   if (!status) {
     console.log(`Service ${serviceId} not found.`);
     return;
@@ -196,13 +196,13 @@ async function handleStatus(gateway: any, serviceId: string) {
 async function handleHealth(gateway: any) {
   // Get registry stats
   const registryStats = await gateway.serviceRegistry.getRegistryStats();
-  
+
   console.log('\n🏥 Health Statistics:');
   console.log('─────────────────────');
   console.log(`Total Templates: ${registryStats.totalTemplates}`);
   console.log(`Total Instances: ${registryStats.totalInstances}`);
   console.log(`Healthy Instances: ${registryStats.healthyInstances}`);
-  
+
   console.log('\nInstances by State:');
   for (const [state, count] of Object.entries(registryStats.instancesByState)) {
     console.log(`  ${state}: ${count}`);
