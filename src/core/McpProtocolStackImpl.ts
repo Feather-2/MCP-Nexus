@@ -346,7 +346,8 @@ export class McpProtocolStackImpl implements McpProtocolStack {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: processEnv,
       cwd: effectiveCwd,
-      shell: process.platform === 'win32' // Enable shell on Windows so npm/npx .cmd resolves reliably
+      // Default shell=false for better safety/stability; allow opt-in via USE_SHELL=1
+      shell: process.platform === 'win32' && String(env?.USE_SHELL) === '1'
     });
 
     if (!childProcess.pid) {

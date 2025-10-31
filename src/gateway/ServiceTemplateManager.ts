@@ -176,7 +176,8 @@ export class ServiceTemplateManager {
     // If any templates already exist on disk, skip initialization (per tests)
     try {
       const files = await fs.readdir(this.templatesDir);
-      if (files && files.length > 0) {
+      const jsonFiles = (files || []).filter(f => f.endsWith('.json'));
+      if (jsonFiles && jsonFiles.length > 0) {
         this.logger.info('Default templates already exist, skipping initialization');
         return;
       }
