@@ -127,14 +127,16 @@ describe('McpProtocolStackImpl', () => {
         pid: 12345
       });
       
-      expect(spawn).toHaveBeenCalledWith('node', ['test-server.js'], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env: expect.objectContaining({
-          NODE_ENV: 'test'
-        }),
-        cwd: '/tmp',
-        shell: false
-      });
+      expect(spawn).toHaveBeenCalledWith(
+        'node',
+        ['test-server.js'],
+        expect.objectContaining({
+          stdio: ['pipe', 'pipe', 'pipe'],
+          env: expect.objectContaining({ NODE_ENV: 'test' }),
+          cwd: '/tmp',
+          shell: false
+        })
+      );
     });
 
     it('should handle process spawn failure', async () => {
