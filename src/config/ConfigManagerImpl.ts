@@ -233,7 +233,8 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
     await mkdir(this.templatesPath, { recursive: true });
     
     for (const [name, template] of this.templates) {
-      const templatePath = join(this.templatesPath, `${name}.json`);
+      const safeName = this.sanitizeFilename(name);
+      const templatePath = join(this.templatesPath, `${safeName}.json`);
       const templateJson = JSON.stringify(template, null, 2);
       await writeFile(templatePath, templateJson);
     }
@@ -275,7 +276,8 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
       this.templates.set(template.name, template);
       
       // Save to file system
-      const templatePath = join(this.templatesPath, `${template.name}.json`);
+      const safeName = this.sanitizeFilename(template.name);
+      const templatePath = join(this.templatesPath, `${safeName}.json`);
       const templateJson = JSON.stringify(template, null, 2);
       await writeFile(templatePath, templateJson);
       
@@ -307,7 +309,8 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
     
     // Remove from file system
     try {
-      const templatePath = join(this.templatesPath, `${name}.json`);
+      const safeName = this.sanitizeFilename(name);
+      const templatePath = join(this.templatesPath, `${safeName}.json`);
       await unlink(templatePath);
       this.logger.debug(`Template file removed: ${templatePath}`);
     } catch (e: any) {
@@ -524,7 +527,7 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
     const envPort = process.env.PBMCP_PORT || process.env.PB_GATEWAY_PORT;
     if (envPort) {
       const port = parseInt(envPort, 10);
-      if (this.isValidPort(port)) {
+      if (!Number.isNaN(port) && this.isValidPort(port)) {
         overrides.port = port;
       }
     }
@@ -703,6 +706,14 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
     if (errors.length > 0) {
       throw new Error(`Template validation failed: ${errors.join(', ')}`);
     }
+  }
+
+  private sanitizeFilename(name: string): string {
+    return String(name)
+      .replace(/[^a-zA-Z0-9._-]/g, '')
+      .replace(/\.+/g, '.')
+      .replace(/\.\.+/g, '.')
+      .slice(0, 200);
   }
 
   private loadBuiltInTemplates(): void {

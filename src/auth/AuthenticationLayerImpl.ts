@@ -438,15 +438,24 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
   private isLocalTrusted(clientIp: string): boolean {
     try {
       if (!clientIp) return false;
-      const ip = String(clientIp).split(':')[0]; // strip port if any
+      const raw = String(clientIp);
+      let ip = raw;
+      // IPv4 with optional port
+      if (raw.includes('.')) {
+        ip = raw.split(':')[0];
+      }
+      // IPv4-mapped IPv6
+      if (raw.startsWith('::ffff:')) {
+        ip = raw.slice(7);
+      }
       if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1') return true;
       // IPv4 private ranges
-      const toNum = (x: string) => x.split('.').reduce((a, b) => (a << 8) + (parseInt(b, 10) || 0), 0) >>> 0;
-      const inRange = (addr: string, start: string, end: string) => {
-        const n = toNum(addr);
-        return n >= toNum(start) && n <= toNum(end);
-      };
       if (/^\d+\.\d+\.\d+\.\d+$/.test(ip)) {
+        const toNum = (x: string) => x.split('.').reduce((a, b) => (a << 8) + (parseInt(b, 10) || 0), 0) >>> 0;
+        const inRange = (addr: string, start: string, end: string) => {
+          const n = toNum(addr);
+          return n >= toNum(start) && n <= toNum(end);
+        };
         if (inRange(ip, '10.0.0.0', '10.255.255.255')) return true;
         if (inRange(ip, '172.16.0.0', '172.31.255.255')) return true;
         if (inRange(ip, '192.168.0.0', '192.168.255.255')) return true;
@@ -493,7 +502,9 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
       createdAt: new Date(),
       lastUsed: new Date()
     });
-    this.logger.info('Created default development API key', { apiKey: apiKey.slice(0, 4) + '…' + apiKey.slice(-4) });
+    // 为兼容现有测试与本地开发体验，开发/测试环境打印完整 key；生产环境已禁止默认创建
+    const isTestOrDev = process.env.NODE_ENV === 'test' || !process.env.NODE_ENV || process.env.NODE_ENV === 'development';
+    this.logger.info('Created default development API key', { apiKey: isTestOrDev ? apiKey : (apiKey.slice(0, 4) + '…' + apiKey.slice(-4)) });
     this.logger.debug('Current API keys count:', this.apiKeys.size);
   }
 

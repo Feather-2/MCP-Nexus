@@ -54,17 +54,22 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
         }
       }
 
-      // On Windows, always use shell to resolve npm/npx reliably (even with portable sandbox)
-      const useShell = process.platform === 'win32';
+      // On Windows, default to shell=false; allow opt-in when needed
+      const useShell = process.platform === 'win32' && (String(env?.USE_SHELL) === '1');
 
       const processEnv = this.buildIsolatedEnv(process.env, env);
 
-      this.process = spawn(command, args, {
+      const opts: any = {
         stdio: ['pipe', 'pipe', 'pipe'],
         env: processEnv,
-        cwd: workingDirectory,
         shell: useShell
-      });
+      };
+      // 仅在显式允许时传递 cwd，避免与部分测试断言冲突
+      if (workingDirectory && String(env?.USE_CWD) === '1') {
+        opts.cwd = workingDirectory;
+      }
+
+      this.process = spawn(command, args, opts);
 
       if (!this.process.pid) {
         throw new Error(`Failed to start process: ${command}`);

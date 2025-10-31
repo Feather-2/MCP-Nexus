@@ -17,9 +17,12 @@ export class SubagentLoader {
     try {
       const files = await fs.readdir(this.dir);
       for (const f of files) {
-        if (!f.endsWith('.json')) continue;
+        // 仅允许形如 name.json 的文件，过滤可疑文件名
+        if (!/^[a-zA-Z0-9._-]+\.json$/.test(f)) continue;
         const full = join(this.dir, f);
         try {
+          const st = await fs.stat(full);
+          if (!st.isFile()) continue;
           const raw = await fs.readFile(full, 'utf-8');
           const parsed = JSON.parse(raw);
           const cfg = SubagentConfigSchema.parse(parsed);

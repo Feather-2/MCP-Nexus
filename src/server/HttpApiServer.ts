@@ -338,7 +338,7 @@ export class HttpApiServer {
       });
     });
 
-    // Response logging
+    // Response logging + security headers
     this.server.addHook('onSend', async (request: FastifyRequest, reply: FastifyReply, payload: any) => {
       // Security headers & CSP
       try {
@@ -352,7 +352,8 @@ export class HttpApiServer {
         }
       } catch {}
 
-      this.logger.debug(`${request.method} ${request.url} - ${reply.statusCode}`, { responseTime: reply.getResponseTime() });
+      const elapsed = (reply as any).elapsedTime ?? undefined;
+      this.logger.debug(`${request.method} ${request.url} - ${reply.statusCode}`, { responseTime: elapsed });
     });
   }
 

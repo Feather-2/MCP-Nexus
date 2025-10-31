@@ -51,10 +51,18 @@ export class ContainerTransportAdapter extends EventEmitter implements Transport
     // workdir
     if (container.workdir) runArgs.push('-w', String(container.workdir));
 
-    // volumes
+    // volumes (validate host/container paths to avoid traversal)
     const volumes = Array.isArray(container.volumes) ? container.volumes : [];
     for (const v of volumes) {
       if (!v || !v.hostPath || !v.containerPath) continue;
+      const hostResolved = path.resolve(String(v.hostPath));
+      const allowedBase = process.env.ALLOWED_VOLUME_PATHS || path.resolve(process.cwd());
+      if (!hostResolved.startsWith(allowedBase)) {
+        throw new Error(`Volume hostPath not allowed: ${v.hostPath}`);
+      }
+      if (String(v.containerPath).includes('..')) {
+        throw new Error(`Invalid containerPath: ${v.containerPath}`);
+      }
       const ro = v.readOnly ? ':ro' : '';
       // Note: quoting paths with spaces can be shell-specific; rely on spawn(shell=true on win) in StdioAdapter
       runArgs.push('-v', `${v.hostPath}:${v.containerPath}${ro}`);
@@ -68,9 +76,12 @@ export class ContainerTransportAdapter extends EventEmitter implements Transport
     delete passEnv.SANDBOX_PYTHON_DIR;
     delete passEnv.SANDBOX_GO_DIR;
 
+    // Env whitelist: pass only safe keys or project-prefixed keys
+    const isSafeEnvKey = (k: string) => /^(PB_|PBMCP_|MCP_|NODE_|BRAVE_|GITHUB_|DATABASE_|HTTP_|HTTPS_)/.test(k);
     for (const [k, v] of Object.entries(passEnv)) {
-      // Only pass simple strings
-      if (typeof v === 'string') runArgs.push('-e', `${k}=${v}`);
+      if (typeof v !== 'string') continue;
+      if (!isSafeEnvKey(k)) continue;
+      runArgs.push('-e', `${k}=${v}`);
     }
 
     // Image
