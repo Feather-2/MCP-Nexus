@@ -106,10 +106,9 @@ export class ServiceHealthChecker {
         return false;
       }
     }
-
-    // Fallback: simulate check
-    await new Promise(resolve => setTimeout(resolve, 100));
-    return Math.random() > 0.1;
+    // No fallback in production: require probe to be set
+    // Provide a conservative default to avoid false-healthy
+    return false;
   }
 
   async getHealthStats(): Promise<{

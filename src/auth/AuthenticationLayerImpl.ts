@@ -28,24 +28,10 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
   private trustedLocalNetworks = [
     '127.0.0.1',
     '::1',
+    // Kept for backward compat but not used directly; see isLocalTrusted
     '192.168.',
     '10.',
-    '172.16.',
-    '172.17.',
-    '172.18.',
-    '172.19.',
-    '172.20.',
-    '172.21.',
-    '172.22.',
-    '172.23.',
-    '172.24.',
-    '172.25.',
-    '172.26.',
-    '172.27.',
-    '172.28.',
-    '172.29.',
-    '172.30.',
-    '172.31.'
+    '172.'
   ];
 
   constructor(
@@ -450,9 +436,25 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
   }
 
   private isLocalTrusted(clientIp: string): boolean {
-    return this.trustedLocalNetworks.some(network => 
-      clientIp.startsWith(network)
-    );
+    try {
+      if (!clientIp) return false;
+      const ip = String(clientIp).split(':')[0]; // strip port if any
+      if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1') return true;
+      // IPv4 private ranges
+      const toNum = (x: string) => x.split('.').reduce((a, b) => (a << 8) + (parseInt(b, 10) || 0), 0) >>> 0;
+      const inRange = (addr: string, start: string, end: string) => {
+        const n = toNum(addr);
+        return n >= toNum(start) && n <= toNum(end);
+      };
+      if (/^\d+\.\d+\.\d+\.\d+$/.test(ip)) {
+        if (inRange(ip, '10.0.0.0', '10.255.255.255')) return true;
+        if (inRange(ip, '172.16.0.0', '172.31.255.255')) return true;
+        if (inRange(ip, '192.168.0.0', '192.168.255.255')) return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
   }
 
   private checkPermissions(userPermissions: string[], requiredPermissions: string[]): boolean {
@@ -479,23 +481,20 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
   }
 
   private initializeDefaults(): void {
-    // Create default API key for development (synchronously for tests)
+    // In production, do not auto-create default API key
+    if (process.env.NODE_ENV === 'production') {
+      this.logger.info('Production mode: skip creating default API key');
+      return;
+    }
     const apiKey = this.generateSecureApiKey();
-    
     this.apiKeys.set(apiKey, {
       name: 'default-dev',
       permissions: ['*'],
       createdAt: new Date(),
       lastUsed: new Date()
     });
-    
-    this.logger.info('Created default development API key', { apiKey });
+    this.logger.info('Created default development API key', { apiKey: apiKey.slice(0, 4) + '…' + apiKey.slice(-4) });
     this.logger.debug('Current API keys count:', this.apiKeys.size);
-
-    // Start token cleanup interval (disabled for tests to avoid race conditions)
-    // setInterval(() => {
-    //   this.cleanupExpiredTokensInternal();
-    // }, 60000); // Check every minute
   }
 
   private cleanupExpiredTokensInternal(): void {

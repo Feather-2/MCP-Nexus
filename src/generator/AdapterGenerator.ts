@@ -198,6 +198,8 @@ export class AdapterGenerator {
     toolSchema: McpToolSchema
   ): Promise<string> {
     // Template for Node.js MCP server
+    const escapeForTemplate = (str: string) => str.replace(/`/g, '\\`').replace(/\$/g, '\\$');
+    const safeUrl = (() => { try { const u = new URL(parseResult.endpoint.url); if (u.protocol === 'http:' || u.protocol === 'https:') return u.toString(); } catch {} return 'http://localhost'; })();
     const template = `#!/usr/bin/env node
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -222,7 +224,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
   if (name === '${toolSchema.name}') {
-    const url = new URL('${parseResult.endpoint.url}');
+    const url = new URL('${'${'}SAFE_URL{'}'}');
 
     // Add query parameters
     ${parseResult.parameters.map((p: any) =>
@@ -261,8 +263,8 @@ await server.connect(transport);
 
 console.error('${name} MCP server running on stdio');
 `;
-
-    return template;
+    // Inject SAFE_URL separately to avoid template injection
+    return template.replace('${'+'SAFE_URL'+'}', escapeForTemplate(safeUrl));
   }
 
   /**

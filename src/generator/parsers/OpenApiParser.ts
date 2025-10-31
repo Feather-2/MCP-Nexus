@@ -33,15 +33,7 @@ export class OpenApiParser extends BaseParser {
       doc = JSON.parse(content);
     } catch (e) {
       // YAML fallback (runtime dynamic import; avoids TS type resolution)
-      try {
-        const dynamicImport: any = new Function('m', 'return import(m)');
-        const mod: any = await dynamicImport('yaml');
-        const parsed = mod?.parse ? mod.parse(content) : null;
-        if (!parsed) throw new Error('YAML parser not available');
-        doc = parsed;
-      } catch (ye) {
-        throw new Error('Failed to parse OpenAPI: content is not valid JSON; YAML parse not available');
-      }
+      throw new Error('Failed to parse OpenAPI: content is not valid JSON (YAML parsing disabled for security)');
     }
 
     const baseUrl = this.extractBaseUrl(doc);

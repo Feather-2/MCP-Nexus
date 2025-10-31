@@ -22,8 +22,22 @@ export class HttpTransportAdapter extends EventEmitter implements TransportAdapt
     this.headers = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
-      ...(config.env?.HTTP_HEADERS ? JSON.parse(config.env.HTTP_HEADERS) : {})
     };
+    // Safely merge extra headers from env
+    try {
+      if (config.env?.HTTP_HEADERS) {
+        const parsed = JSON.parse(config.env.HTTP_HEADERS);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          for (const [k, v] of Object.entries(parsed)) {
+            if (typeof k === 'string' && typeof v === 'string') this.headers[k] = v;
+          }
+        } else {
+          this.logger.warn('Invalid HTTP_HEADERS format (must be object)');
+        }
+      }
+    } catch (e) {
+      this.logger.warn('Invalid HTTP_HEADERS JSON', { error: (e as Error)?.message });
+    }
 
     // Add authentication headers if provided
     if (config.env?.API_KEY) {
@@ -148,7 +162,7 @@ export class HttpTransportAdapter extends EventEmitter implements TransportAdapt
     
     // Check if the command itself is a URL
     if (config.command?.startsWith('http')) {
-      return config.command;
+      if (this.isValidUrl(config.command)) return config.command;
     }
     
     // Try to construct from host and port in env
@@ -158,7 +172,17 @@ export class HttpTransportAdapter extends EventEmitter implements TransportAdapt
     }
     
     // Default fallback
-    return config.env?.MCP_BASE_URL || 'http://localhost:3000';
+    const fallback = config.env?.MCP_BASE_URL || 'http://localhost:3000';
+    return this.isValidUrl(fallback) ? fallback : 'http://localhost:3000';
+  }
+
+  private isValidUrl(urlStr: string): boolean {
+    try {
+      const u = new URL(urlStr);
+      return u.protocol === 'http:' || u.protocol === 'https:';
+    } catch {
+      return false;
+    }
   }
 
   // Utility method for health checks

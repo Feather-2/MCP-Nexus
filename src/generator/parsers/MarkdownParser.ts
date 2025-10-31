@@ -64,6 +64,16 @@ export class MarkdownParser extends BaseParser {
       throw new Error('No API endpoint URL found in Markdown');
     }
 
+    // Validate protocol (http/https only)
+    try {
+      const u = new URL(url);
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+        throw new Error('Unsupported URL protocol');
+      }
+    } catch {
+      throw new Error('Invalid URL in Markdown');
+    }
+
     // Extract HTTP method
     const methodPattern = /(?:method|verb):\s*(GET|POST|PUT|DELETE|PATCH)/i;
     const methodMatch = content.match(methodPattern);

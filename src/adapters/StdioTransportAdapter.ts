@@ -38,6 +38,22 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
     try {
       this.logger.debug(`Starting stdio process: ${command} ${args.join(' ')}`);
 
+      // Basic command allowlist to reduce injection surface when shell=true (Windows)
+      const ALLOWED_COMMANDS = new Set(['node', 'npx', 'npm', 'python', 'python3', 'deno']);
+      const baseCmd = path.basename(command).toLowerCase();
+      if (process.platform === 'win32' && !ALLOWED_COMMANDS.has(baseCmd)) {
+        throw new Error(`Command not allowed: ${baseCmd}`);
+      }
+
+      // Validate working directory stays within project cwd
+      if (workingDirectory) {
+        const resolved = path.resolve(workingDirectory);
+        const root = path.resolve(process.cwd());
+        if (!resolved.startsWith(root)) {
+          throw new Error('Working directory outside allowed path');
+        }
+      }
+
       // On Windows, always use shell to resolve npm/npx reliably (even with portable sandbox)
       const useShell = process.platform === 'win32';
 

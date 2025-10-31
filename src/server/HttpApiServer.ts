@@ -160,6 +160,24 @@ export class HttpApiServer {
 
       this.addLogEntry(level, message, service);
     }, 3000 + Math.random() * 7000); // Random interval between 3-10 seconds
+
+    // Periodic cleanup of disconnected SSE clients
+    setInterval(() => {
+      try {
+        for (const client of Array.from(this.logStreamClients)) {
+          const raw: any = client.raw as any;
+          if (!raw || raw.writableEnded || raw.destroyed) {
+            this.logStreamClients.delete(client);
+          }
+        }
+        for (const client of Array.from(this.sandboxStreamClients)) {
+          const raw: any = client.raw as any;
+          if (!raw || raw.writableEnded || raw.destroyed) {
+            this.sandboxStreamClients.delete(client);
+          }
+        }
+      } catch {}
+    }, 30000);
   }
 
   private addLogEntry(level: string, message: string, service?: string, data?: any): void {
@@ -249,8 +267,25 @@ export class HttpApiServer {
   private setupMiddleware(): void {
     // CORS middleware
     this.server.register(cors, {
-      origin: true,
-      credentials: true
+      origin: (origin, cb) => {
+        try {
+          if (!this.config.enableCors) return cb(null, false);
+          if (!origin) return cb(null, true); // non-browser or same-origin
+          const allowed = new Set(this.config.corsOrigins || []);
+          if (allowed.has(origin)) return cb(null, true);
+          // allow subpath variants without trailing slash issues
+          const o = origin.replace(/\/$/, '');
+          for (const a of allowed) {
+            if (o === a.replace(/\/$/, '')) return cb(null, true);
+          }
+          return cb(new Error('CORS origin not allowed'), false);
+        } catch (e) {
+          return cb(e as Error, false);
+        }
+      },
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key']
     });
 
     // Authentication middleware
@@ -280,6 +315,21 @@ export class HttpApiServer {
       (request as any).auth = authResponse;
     });
 
+    // Basic rate limiting (per IP/API key) for API routes
+    this.server.addHook('onRequest', async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        if (!this.config.rateLimiting?.enabled) return;
+        if (!request.url.startsWith('/api/')) return;
+        const apiKey = this.extractApiKey(request) || this.extractBearerToken(request) || '';
+        const identifier = apiKey ? `key:${apiKey.slice(0, 16)}` : `ip:${request.ip}`;
+        const ok = this.checkRateLimit(identifier, this.config.rateLimiting.maxRequests, this.config.rateLimiting.windowMs);
+        if (!ok) {
+          reply.header('Retry-After', Math.ceil(this.config.rateLimiting.windowMs / 1000));
+          return reply.code(429).send({ success: false, error: 'Too Many Requests' } as any);
+        }
+      } catch {}
+    });
+
     // Request logging
     this.server.addHook('onRequest', async (request: FastifyRequest) => {
       this.logger.debug(`${request.method} ${request.url}`, {
@@ -290,9 +340,19 @@ export class HttpApiServer {
 
     // Response logging
     this.server.addHook('onSend', async (request: FastifyRequest, reply: FastifyReply, payload: any) => {
-      this.logger.debug(`${request.method} ${request.url} - ${reply.statusCode}`, {
-        responseTime: reply.getResponseTime()
-      });
+      // Security headers & CSP
+      try {
+        reply.header('X-Content-Type-Options', 'nosniff');
+        reply.header('X-Frame-Options', 'DENY');
+        reply.header('Referrer-Policy', 'no-referrer');
+        // Keep CSP minimal; can be overridden via config if needed
+        reply.header('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'");
+        if (request.protocol === 'https') {
+          reply.header('Strict-Transport-Security', 'max-age=31536000');
+        }
+      } catch {}
+
+      this.logger.debug(`${request.method} ${request.url} - ${reply.statusCode}`, { responseTime: reply.getResponseTime() });
     });
   }
 
@@ -1491,12 +1551,14 @@ export class HttpApiServer {
     this.server.get('/api/sandbox/install/stream', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         // Prepare SSE response
+        const origin = request.headers['origin'] as string | undefined;
+        const allowed = Array.isArray(this.config.corsOrigins) ? this.config.corsOrigins : [];
+        const isAllowed = origin && allowed.includes(origin);
         reply.raw.writeHead(200, {
           'Content-Type': 'text/event-stream',
           'Cache-Control': 'no-cache',
           'Connection': 'keep-alive',
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Headers': 'Cache-Control'
+          ...(isAllowed ? { 'Access-Control-Allow-Origin': origin!, 'Vary': 'Origin' } : {})
         });
 
         const sendTo = (r: FastifyReply, obj: any) => { try { r.raw.write(`data: ${JSON.stringify(obj)}\n\n`); } catch {} };
@@ -1511,6 +1573,7 @@ export class HttpApiServer {
         const onClose = () => { this.sandboxStreamClients.delete(reply); };
         request.socket.on('close', onClose);
         request.socket.on('end', onClose);
+        request.socket.on('error', onClose);
 
         const q = (request.query as any) || {};
         const compsStr: string = (q.components as string) || '';
@@ -3057,12 +3120,15 @@ export class HttpApiServer {
 
     // Server-Sent Events stream for real-time logs
     this.server.get('/api/logs/stream', async (request: FastifyRequest, reply: FastifyReply) => {
+      // Reflect allowed origin instead of wildcard
+      const origin = request.headers['origin'] as string | undefined;
+      const allowed = Array.isArray(this.config.corsOrigins) ? this.config.corsOrigins : [];
+      const isAllowed = origin && allowed.includes(origin);
       reply.raw.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Cache-Control'
+        ...(isAllowed ? { 'Access-Control-Allow-Origin': origin!, 'Vary': 'Origin' } : {})
       });
 
       // Send initial connection message
@@ -3082,13 +3148,10 @@ export class HttpApiServer {
       }
 
       // Handle client disconnect
-      request.socket.on('close', () => {
-        this.logStreamClients.delete(reply);
-      });
-
-      request.socket.on('end', () => {
-        this.logStreamClients.delete(reply);
-      });
+      const cleanup = () => this.logStreamClients.delete(reply);
+      request.socket.on('close', cleanup);
+      request.socket.on('end', cleanup);
+      request.socket.on('error', cleanup);
     });
   }
 }
