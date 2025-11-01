@@ -1,5 +1,5 @@
 import { promises as fs } from 'fs';
-import { join, dirname } from 'path';
+import { join, dirname, resolve, sep } from 'path';
 import { McpServiceConfig, Logger, McpVersion } from '../types/index.js';
 
 type SourceName = 'VSCode' | 'Cursor' | 'Windsurf' | 'Claude' | 'Cline';
@@ -12,6 +12,7 @@ export interface DiscoveredTemplate {
 
 export class ExternalMcpConfigImporter {
   private readonly defaultVersion: McpVersion = '2024-11-26' as McpVersion;
+  private readonly MAX_JSON_BYTES = 1_000_000; // 1MB 上限，避免 DoS
 
   constructor(private logger: Logger) {}
 
@@ -112,6 +113,9 @@ export class ExternalMcpConfigImporter {
   // ========== Core scanning helpers ==========
   private async discoverFromSettingsFile(source: SourceName, filePath: string, keys: string[]): Promise<DiscoveredTemplate[]> {
     try {
+      // 文件大小限制与存在性检查
+      const st = await fs.stat(filePath).catch(() => null as any);
+      if (!st || !st.isFile() || st.size > this.MAX_JSON_BYTES) return [];
       const raw = await fs.readFile(filePath, 'utf-8');
       const json = this.safeParseJson(raw);
       if (!json) return [];
@@ -145,6 +149,8 @@ export class ExternalMcpConfigImporter {
       const files = await this.findJsonFiles(base, depth).catch(() => [] as string[]);
       for (const f of files) {
         try {
+          const st = await fs.stat(f).catch(() => null as any);
+          if (!st || !st.isFile() || st.size > this.MAX_JSON_BYTES) continue;
           const raw = await fs.readFile(f, 'utf-8');
           if (!raw.includes('mcpServers') && !raw.includes('mcp.servers')) continue;
           const json = this.safeParseJson(raw);
@@ -166,19 +172,26 @@ export class ExternalMcpConfigImporter {
 
   private async findJsonFiles(baseDir: string, depth: number): Promise<string[]> {
     const acc: string[] = [];
+    const baseResolved = this.normPath(resolve(baseDir));
     const walk = async (dir: string, d: number) => {
       if (d < 0) return;
       let entries: any[] = [];
       try {
-        entries = await (await import('fs/promises')).readdir(dir, { withFileTypes: true });
+        const fsP = await import('fs/promises');
+        entries = await fsP.readdir(dir, { withFileTypes: true });
       } catch {
         return;
       }
       for (const e of entries) {
-        const full = join(dir, (e as any).name || '');
+        const name = (e as any).name || '';
+        const full = resolve(dir, name);
+        const normFull = this.normPath(full);
+        // 白名单：仅遍历 baseDir 子路径
+        if (!this.isSubPath(baseResolved, normFull)) continue;
+        if ((e as any).isSymbolicLink?.()) continue; // 跳过符号链接
         if ((e as any).isDirectory?.()) {
           await walk(full, d - 1);
-        } else if (full.toLowerCase().endsWith('.json')) {
+        } else if (normFull.toLowerCase().endsWith('.json')) {
           acc.push(full);
         }
       }
@@ -215,6 +228,7 @@ export class ExternalMcpConfigImporter {
       // URL-based (HTTP / Streamable HTTP)
       const url: string | undefined = entry.url || entry.serverUrl || entry.endpoint || entry.baseUrl;
       if (url) {
+        if (!this.isValidHttpUrl(url)) return null;
         transport = url.includes('/sse') ? 'streamable-http' : 'http';
         env['MCP_SERVER_URL'] = url;
       }
@@ -287,6 +301,21 @@ export class ExternalMcpConfigImporter {
       } catch {
         return null;
       }
+    }
+  }
+
+  // ===== Helpers =====
+  private normPath(p: string): string { return p.replace(/\\/g, '/'); }
+  private isSubPath(base: string, target: string): boolean {
+    const b = base.endsWith('/') ? base : base + '/';
+    return target.startsWith(b);
+  }
+  private isValidHttpUrl(u: string): boolean {
+    try {
+      const parsed = new URL(u);
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch {
+      return false;
     }
   }
 }
