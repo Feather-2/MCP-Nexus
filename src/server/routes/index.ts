@@ -13,3 +13,5 @@ export { ExternalImportRoutes } from './ExternalImportRoutes.js';
 export { GeneratorRoutes } from './GeneratorRoutes.js';
 export { OrchestratorRoutes } from './OrchestratorRoutes.js';
 export { LocalMcpProxyRoutes } from './LocalMcpProxyRoutes.js';
+export { AiRoutes } from './AiRoutes.js';
+export { SandboxRoutes } from './SandboxRoutes.js';
