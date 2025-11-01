@@ -12,6 +12,8 @@ import { dirname, join } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+let currentGateway = null;
+
 async function quickStart() {
   console.log('🚀  MCP Nexus - 快速开始示例\n');
 
@@ -26,6 +28,7 @@ async function quickStart() {
   });
 
   try {
+    currentGateway = gateway;
     // 启动网关
     console.log('🔄 步骤 2: 启动网关服务...');
     await gateway.start();
@@ -70,16 +73,26 @@ async function quickStart() {
     console.log('  3. 运行 npm run cli 使用命令行工具');
     console.log('  4. 查看 README.md 了解更多功能');
 
-    // 等待用户输入然后关闭
+    // 等待用户输入然后关闭（兼容非 TTY 环境）
     console.log('\n按 Enter 键停止网关...');
-    process.stdin.setRawMode(true);
-    process.stdin.resume();
-    process.stdin.on('data', async () => {
-      console.log('\n🔄 正在停止网关...');
-      await gateway.stop();
-      console.log('✅ 网关已停止，再见！');
-      process.exit(0);
-    });
+    if (process.stdin.isTTY) {
+      try { process.stdin.setRawMode(true); } catch {}
+      process.stdin.resume();
+      process.stdin.on('data', async () => {
+        console.log('\n🔄 正在停止网关...');
+        await gateway.stop();
+        console.log('✅ 网关已停止，再见！');
+        process.exit(0);
+      });
+    } else {
+      console.log('检测到非交互环境，10 秒后自动退出');
+      setTimeout(async () => {
+        console.log('\n🔄 正在停止网关...');
+        await gateway.stop();
+        console.log('✅ 网关已停止，再见！');
+        process.exit(0);
+      }, 10_000);
+    }
 
   } catch (error) {
     console.error('❌ 发生错误:', error.message);
@@ -92,13 +105,15 @@ async function quickStart() {
 }
 
 // 优雅退出处理
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   console.log('\n👋 收到退出信号，正在清理...');
+  try { if (currentGateway) await currentGateway.stop(); } catch {}
   process.exit(0);
 });
 
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
   console.log('\n👋 收到终止信号，正在清理...');
+  try { if (currentGateway) await currentGateway.stop(); } catch {}
   process.exit(0);
 });
 

@@ -1,5 +1,7 @@
 import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
+import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -213,6 +215,18 @@ export class HttpApiServer {
     }
   }
 
+  private writeSseHeaders(reply: FastifyReply, request: FastifyRequest): void {
+    const origin = request.headers['origin'] as string | undefined;
+    const allowed = Array.isArray(this.config.corsOrigins) ? this.config.corsOrigins : [];
+    const isAllowed = origin && allowed.includes(origin);
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      ...(isAllowed ? { 'Access-Control-Allow-Origin': origin!, 'Vary': 'Origin' } : {})
+    });
+  }
+
   // Convert HealthCheckResult to ServiceHealth
   private convertHealthResult(result: HealthCheckResult): ServiceHealth {
     return {
@@ -265,6 +279,45 @@ export class HttpApiServer {
   }
 
   private setupMiddleware(): void {
+    // Distributed-friendly rate limiting (fallback to memory store by default)
+    if (this.config.rateLimiting?.enabled) {
+      const cfg = this.config.rateLimiting as any;
+      const base = {
+        max: cfg.maxRequests,
+        timeWindow: cfg.windowMs,
+        keyGenerator: (req: any) => {
+          const apiKey = this.extractApiKey(req) || this.extractBearerToken(req) || '';
+          return apiKey ? `key:${apiKey.slice(0, 32)}` : `ip:${req.ip}`;
+        },
+        allowList: [] as string[]
+      } as any;
+
+      // Optional Redis store
+      if (cfg.store === 'redis' && cfg.redis) {
+        base.name = 'rate-limit';
+        base.redis = cfg.redis;
+      }
+      this.server.register(rateLimit as any, base);
+    }
+
+    // Security headers via helmet (production-ready defaults)
+    this.server.register(helmet, {
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'", "'unsafe-inline'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          imgSrc: ["'self'", 'data:'],
+          connectSrc: ["'self'"],
+          objectSrc: ["'none'"],
+          frameAncestors: ["'none'"]
+        }
+      },
+      frameguard: { action: 'deny' },
+      referrerPolicy: { policy: 'no-referrer' },
+      hsts: this.config.host === '127.0.0.1' || this.config.host === 'localhost' ? false : { maxAge: 31536000 }
+    } as any);
+
     // CORS middleware
     this.server.register(cors, {
       origin: (origin, cb) => {
@@ -315,20 +368,7 @@ export class HttpApiServer {
       (request as any).auth = authResponse;
     });
 
-    // Basic rate limiting (per IP/API key) for API routes
-    this.server.addHook('onRequest', async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        if (!this.config.rateLimiting?.enabled) return;
-        if (!request.url.startsWith('/api/')) return;
-        const apiKey = this.extractApiKey(request) || this.extractBearerToken(request) || '';
-        const identifier = apiKey ? `key:${apiKey.slice(0, 16)}` : `ip:${request.ip}`;
-        const ok = this.checkRateLimit(identifier, this.config.rateLimiting.maxRequests, this.config.rateLimiting.windowMs);
-        if (!ok) {
-          reply.header('Retry-After', Math.ceil(this.config.rateLimiting.windowMs / 1000));
-          return reply.code(429).send({ success: false, error: 'Too Many Requests' } as any);
-        }
-      } catch {}
-    });
+    // Remove custom per-request sliding window limiter in favor of plugin above
 
     // Request logging
     this.server.addHook('onRequest', async (request: FastifyRequest) => {
@@ -338,20 +378,8 @@ export class HttpApiServer {
       });
     });
 
-    // Response logging + security headers
+    // Response logging (helmet handles security headers)
     this.server.addHook('onSend', async (request: FastifyRequest, reply: FastifyReply, payload: any) => {
-      // Security headers & CSP
-      try {
-        reply.header('X-Content-Type-Options', 'nosniff');
-        reply.header('X-Frame-Options', 'DENY');
-        reply.header('Referrer-Policy', 'no-referrer');
-        // Keep CSP minimal; can be overridden via config if needed
-        reply.header('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'");
-        if (request.protocol === 'https') {
-          reply.header('Strict-Transport-Security', 'max-age=31536000');
-        }
-      } catch {}
-
       const elapsed = (reply as any).elapsedTime ?? undefined;
       this.logger.debug(`${request.method} ${request.url} - ${reply.statusCode}`, { responseTime: elapsed });
     });
@@ -574,12 +602,8 @@ export class HttpApiServer {
         const ai = (await this.configManager.get<any>('ai')) || {};
         const provider = String(ai.provider || 'none');
 
-        // Prepare SSE response headers
-        reply.raw.writeHead(200, {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive'
-        });
+        // Prepare SSE response headers with strict CORS reflection (no wildcard)
+        this.writeSseHeaders(reply, request);
 
         const send = (obj: any) => {
           try { reply.raw.write(`data: ${JSON.stringify(obj)}\n\n`); } catch {}
@@ -1551,16 +1575,8 @@ export class HttpApiServer {
     // Streaming install via SSE: GET /api/sandbox/install/stream?components=a,b,c
     this.server.get('/api/sandbox/install/stream', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        // Prepare SSE response
-        const origin = request.headers['origin'] as string | undefined;
-        const allowed = Array.isArray(this.config.corsOrigins) ? this.config.corsOrigins : [];
-        const isAllowed = origin && allowed.includes(origin);
-        reply.raw.writeHead(200, {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive',
-          ...(isAllowed ? { 'Access-Control-Allow-Origin': origin!, 'Vary': 'Origin' } : {})
-        });
+        // Prepare SSE response (strict CORS reflection)
+        this.writeSseHeaders(reply, request);
 
         const sendTo = (r: FastifyReply, obj: any) => { try { r.raw.write(`data: ${JSON.stringify(obj)}\n\n`); } catch {} };
         const broadcast = (obj: any) => {
@@ -2568,6 +2584,41 @@ export class HttpApiServer {
   }
 
   private setupMonitoringRoutes(): void {
+    // Redis rate-limit store connectivity self-check (no secrets exposed)
+    this.server.get('/api/health/ratelimit', async (_req: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const rl = (this.config as any).rateLimiting || {};
+        if (!rl.enabled) return reply.send({ enabled: false, store: 'memory' });
+        if (rl.store !== 'redis') return reply.send({ enabled: true, store: 'memory' });
+
+        const info: any = { enabled: true, store: 'redis', connected: false };
+        try {
+          // Lazy import to avoid bringing ioredis if unused
+          const { default: IORedis } = await import('ioredis');
+          let client;
+          if (rl.redis?.url) {
+            client = new (IORedis as any)(rl.redis.url);
+          } else {
+            client = new (IORedis as any)({
+              host: rl.redis?.host || '127.0.0.1',
+              port: rl.redis?.port || 6379,
+              username: rl.redis?.username,
+              password: rl.redis?.password,
+              db: rl.redis?.db,
+              tls: rl.redis?.tls ? {} : undefined
+            });
+          }
+          const pong = await client.ping();
+          info.connected = pong === 'PONG';
+          await client.quit();
+        } catch (e: any) {
+          info.error = e?.message || String(e);
+        }
+        return reply.send(info);
+      } catch (error) {
+        return reply.code(500).send({ error: (error as Error).message });
+      }
+    });
     // Get comprehensive health status
     this.server.get('/api/health-status', async (request: FastifyRequest, reply: FastifyReply) => {
       const stats = await this.serviceRegistry.getRegistryStats();
@@ -3122,15 +3173,7 @@ export class HttpApiServer {
     // Server-Sent Events stream for real-time logs
     this.server.get('/api/logs/stream', async (request: FastifyRequest, reply: FastifyReply) => {
       // Reflect allowed origin instead of wildcard
-      const origin = request.headers['origin'] as string | undefined;
-      const allowed = Array.isArray(this.config.corsOrigins) ? this.config.corsOrigins : [];
-      const isAllowed = origin && allowed.includes(origin);
-      reply.raw.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-        ...(isAllowed ? { 'Access-Control-Allow-Origin': origin!, 'Vary': 'Origin' } : {})
-      });
+      this.writeSseHeaders(reply, request);
 
       // Send initial connection message
       reply.raw.write(`data: ${JSON.stringify({
