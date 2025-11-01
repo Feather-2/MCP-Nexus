@@ -32,12 +32,13 @@ import type {
   ExportRequest,
   ImportRequest
 } from '../types/index.js';
-
-interface ServiceRequestBody {
-  templateName?: string;
-  config?: Partial<McpServiceConfig>;
-  instanceArgs?: any;
-}
+import {
+  RouteContext,
+  ServiceRoutes,
+  AuthRoutes,
+  ConfigRoutes,
+  LogRoutes
+} from './routes/index.js';
 
 interface RouteRequestBody {
   method: string;
@@ -279,6 +280,30 @@ export class HttpApiServer {
     }
   }
 
+  /**
+   * Create route context for modular route handlers
+   */
+  private createRouteContext(): RouteContext {
+    return {
+      server: this.server,
+      logger: this.logger,
+      serviceRegistry: this.serviceRegistry,
+      authLayer: this.authLayer,
+      router: this.router,
+      protocolAdapters: this.protocolAdapters,
+      configManager: this.configManager,
+      orchestratorManager: this.orchestratorManager,
+      mcpGenerator: this.mcpGenerator,
+      logBuffer: this.logBuffer,
+      logStreamClients: this.logStreamClients,
+      sandboxStreamClients: this.sandboxStreamClients,
+      sandboxStatus: this.sandboxStatus,
+      sandboxInstalling: this.sandboxInstalling,
+      addLogEntry: this.addLogEntry.bind(this),
+      respondError: this.respondError.bind(this)
+    };
+  }
+
   private setupMiddleware(): void {
     // Distributed-friendly rate limiting (fallback to memory store by default)
     if (this.config.rateLimiting?.enabled) {
@@ -506,14 +531,17 @@ export class HttpApiServer {
       reply.send(health);
     });
 
-    // Service management endpoints
-    this.setupServiceRoutes();
+    // Initialize route context for modular routes
+    const routeContext = this.createRouteContext();
+
+    // Service management endpoints (modularized)
+    new ServiceRoutes(routeContext).setupRoutes();
 
     // Template management endpoints
     this.setupTemplateRoutes();
 
-    // Authentication endpoints
-    this.setupAuthRoutes();
+    // Authentication endpoints (modularized)
+    new AuthRoutes(routeContext).setupRoutes();
 
     // Routing and proxy endpoints
     this.setupRoutingRoutes();
@@ -521,11 +549,11 @@ export class HttpApiServer {
     // Monitoring and metrics endpoints
     this.setupMonitoringRoutes();
 
-    // Log streaming endpoints
-    this.setupLogRoutes();
+    // Log streaming endpoints (modularized)
+    new LogRoutes(routeContext).setupRoutes();
 
-    // Configuration management endpoints
-    this.setupConfigRoutes();
+    // Configuration management endpoints (modularized)
+    new ConfigRoutes(routeContext).setupRoutes();
 
     // AI provider configuration & test endpoints
     this.setupAiRoutes();
@@ -1287,165 +1315,6 @@ export class HttpApiServer {
         reply.send({ success: true, applied });
       } catch (error) {
         reply.code(500).send({ success: false, error: (error as Error).message });
-      }
-    });
-  }
-
-  private setupServiceRoutes(): void {
-    // List all services
-    this.server.get('/api/services', async (request: FastifyRequest, reply: FastifyReply) => {
-      const services = await this.serviceRegistry.listServices();
-      reply.send(services); // Send array directly
-    });
-
-    // Get service by ID
-    this.server.get('/api/services/:id', async (request: FastifyRequest, reply: FastifyReply) => {
-      const { id } = request.params as { id: string };
-      const service = await this.serviceRegistry.getService(id);
-
-      if (!service) {
-        return this.respondError(reply, 404, 'Service not found', { code: 'NOT_FOUND', recoverable: true });
-      }
-
-      reply.send({ service });
-    });
-
-    // Create service from template
-    this.server.post('/api/services', async (request: FastifyRequest, reply: FastifyReply) => {
-      const body = request.body as ServiceRequestBody;
-
-      if (!body.templateName) {
-        return this.respondError(reply, 400, 'Template name is required', { code: 'BAD_REQUEST', recoverable: true });
-      }
-
-      try {
-        const overrides = body.instanceArgs || {};
-        // 支持 instanceMode 透传（keep-alive/managed）
-        const serviceId = await (this.serviceRegistry as any).createServiceFromTemplate(
-          body.templateName,
-          overrides
-        );
-
-        reply.code(201).send({
-          success: true,
-          serviceId,
-          message: `Service created from template: ${body.templateName}`
-        });
-      } catch (error) {
-        return this.respondError(reply, 400, error instanceof Error ? error.message : 'Failed to create service', { code: 'CREATE_FAILED', recoverable: true });
-      }
-    });
-
-    // Update service environment variables
-    this.server.patch('/api/services/:id/env', async (request: FastifyRequest, reply: FastifyReply) => {
-      const { id } = request.params as { id: string };
-      const body = request.body as { env: Record<string, string> };
-
-      if (!body.env || typeof body.env !== 'object') {
-        return this.respondError(reply, 400, 'Environment variables object is required', { code: 'BAD_REQUEST', recoverable: true });
-      }
-
-      try {
-        const service = await this.serviceRegistry.getService(id);
-        if (!service) {
-          return this.respondError(reply, 404, 'Service not found', { code: 'NOT_FOUND', recoverable: true });
-        }
-
-        // Get the template name for recreation
-        const templateName = service.config.name;
-
-        // Stop the current service
-        const stopped = await this.serviceRegistry.stopService(id);
-        if (!stopped) {
-          reply.code(500).send({ error: 'Failed to stop service for restart' });
-          return;
-        }
-
-        // Wait a bit before restarting
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
-        // Recreate the service with updated environment variables
-        const newId = await this.serviceRegistry.createServiceFromTemplate(templateName, { env: body.env });
-
-        this.logger.info(`Service ${id} updated with new environment variables and restarted as ${newId}`);
-        reply.send({ success: true, serviceId: newId, message: 'Service environment variables updated and restarted' });
-      } catch (error) {
-        this.logger.error('Error updating service environment variables:', error);
-        return this.respondError(reply, 500, error instanceof Error ? error.message : 'Failed to update service environment variables', { code: 'UPDATE_ENV_FAILED' });
-      }
-    });
-
-    // Stop service
-    this.server.delete('/api/services/:id', async (request: FastifyRequest, reply: FastifyReply) => {
-      const { id } = request.params as { id: string };
-
-      try {
-        const success = await this.serviceRegistry.stopService(id);
-
-        if (!success) {
-          return this.respondError(reply, 404, 'Service not found', { code: 'NOT_FOUND', recoverable: true });
-        }
-
-        reply.send({ success: true, message: 'Service stopped successfully' });
-      } catch (error) {
-        return this.respondError(reply, 500, error instanceof Error ? error.message : 'Failed to stop service', { code: 'STOP_FAILED' });
-      }
-    });
-
-    // Get service health (centralized via HealthChecker)
-    this.server.get('/api/services/:id/health', async (request: FastifyRequest, reply: FastifyReply) => {
-      const { id } = request.params as { id: string };
-      try {
-        const health = await this.serviceRegistry.checkHealth(id);
-        reply.send({ health });
-      } catch (error) {
-        reply.code(500).send({ error: 'Failed to check service health', message: (error as any)?.message || 'Unknown error' });
-      }
-    });
-
-    // Get service logs
-    this.server.get('/api/services/:id/logs', async (request: FastifyRequest, reply: FastifyReply) => {
-      const { id } = request.params as { id: string };
-      const { limit } = request.query as { limit?: string };
-      const logLimit = limit ? parseInt(limit) : 50;
-
-      try {
-        // Filter logs for this specific service or generate service-specific logs
-        const serviceLogs = this.logBuffer
-          .filter(log => log.service === id)
-          .slice(-logLimit);
-
-        // If no service-specific logs, generate some for demo
-        if (serviceLogs.length === 0) {
-          const demoLogs = [
-            {
-              timestamp: new Date(Date.now() - 30000).toISOString(),
-              level: 'info',
-              message: '服务实例启动成功',
-              service: id
-            },
-            {
-              timestamp: new Date(Date.now() - 20000).toISOString(),
-              level: 'debug',
-              message: '初始化MCP连接',
-              service: id
-            },
-            {
-              timestamp: new Date(Date.now() - 10000).toISOString(),
-              level: 'info',
-              message: '服务就绪，等待请求',
-              service: id
-            }
-          ];
-          reply.send(demoLogs);
-        } else {
-          reply.send(serviceLogs);
-        }
-      } catch (error) {
-        reply.code(500).send({
-          error: 'Failed to get service logs',
-          message: error instanceof Error ? error.message : 'Unknown error'
-        });
       }
     });
   }
@@ -2822,128 +2691,6 @@ export class HttpApiServer {
     return this.router;
   }
 
-  private setupAuthRoutes(): void {
-    // List API keys
-    this.server.get('/api/auth/apikeys', async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const apiKeys = this.authLayer.listApiKeys();
-        reply.send(apiKeys);
-      } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || 'Failed to list API keys', { code: 'AUTH_LIST_FAILED' });
-      }
-    });
-
-    // Create API key
-    this.server.post('/api/auth/apikey', async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const { name, permissions } = request.body as { name?: string, permissions?: string[] };
-        if (!name || !Array.isArray(permissions)) {
-          return this.respondError(reply, 400, 'name and permissions are required', { code: 'BAD_REQUEST', recoverable: true });
-        }
-        const result = await this.authLayer.createApiKey(name, permissions);
-        reply.code(201).send({ success: true, apiKey: result, message: 'API key created successfully' });
-      } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || 'Failed to create API key', { code: 'AUTH_CREATE_FAILED' });
-      }
-    });
-
-    // Delete API key
-    this.server.delete('/api/auth/apikey/:key', async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const { key } = request.params as { key?: string };
-        if (!key) return this.respondError(reply, 400, 'API key is required', { code: 'BAD_REQUEST', recoverable: true });
-        const success = await this.authLayer.deleteApiKey(key);
-        if (!success) return this.respondError(reply, 404, 'API key not found', { code: 'NOT_FOUND', recoverable: true });
-        reply.send({ success: true, message: 'API key deleted successfully' });
-      } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || 'Failed to delete API key', { code: 'AUTH_DELETE_FAILED' });
-      }
-    });
-
-    // List tokens
-    this.server.get('/api/auth/tokens', async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const tokens = this.authLayer.listTokens();
-        reply.send(tokens);
-      } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || 'Failed to list tokens', { code: 'AUTH_LIST_FAILED' });
-      }
-    });
-
-    // Generate token
-    this.server.post('/api/auth/token', async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const { userId, permissions, expiresInHours = 24 } = request.body as { userId?: string; permissions?: string[]; expiresInHours?: number };
-        if (!userId || !Array.isArray(permissions)) {
-          return this.respondError(reply, 400, 'userId and permissions are required', { code: 'BAD_REQUEST', recoverable: true });
-        }
-        const result = await this.authLayer.generateToken(userId, permissions, expiresInHours);
-        reply.code(201).send({ success: true, token: result, message: 'Token generated successfully' });
-      } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || 'Failed to generate token', { code: 'AUTH_TOKEN_FAILED' });
-      }
-    });
-
-    // Revoke token
-    this.server.delete('/api/auth/token/:token', async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const { token } = request.params as { token?: string };
-        if (!token) return this.respondError(reply, 400, 'Token is required', { code: 'BAD_REQUEST', recoverable: true });
-        const success = await this.authLayer.revokeToken(token);
-        if (!success) return this.respondError(reply, 404, 'Token not found', { code: 'NOT_FOUND', recoverable: true });
-        reply.send({ success: true, message: 'Token revoked successfully' });
-      } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || 'Failed to revoke token', { code: 'AUTH_REVOKE_FAILED' });
-      }
-    });
-  }
-
-  private setupConfigRoutes(): void {
-    // Get current configuration
-    this.server.get('/api/config', async (request: FastifyRequest, reply: FastifyReply) => {
-      const config = this.configManager.getConfig();
-      reply.send(config);
-    });
-
-    // Update configuration
-    this.server.put('/api/config', async (request: FastifyRequest, reply: FastifyReply) => {
-      const updates = request.body as Partial<GatewayConfig>;
-
-      try {
-        const updatedConfig = await this.configManager.updateConfig(updates);
-        reply.send({
-          success: true,
-          message: 'Configuration updated successfully',
-          config: updatedConfig
-        });
-      } catch (error) {
-        reply.code(500).send({
-          error: 'Failed to update configuration',
-          message: error instanceof Error ? error.message : 'Unknown error'
-        });
-      }
-    });
-
-    // Get specific configuration value
-    this.server.get('/api/config/:key', async (request: FastifyRequest, reply: FastifyReply) => {
-      const { key } = request.params as { key: string };
-
-      try {
-        const value = await this.configManager.get(key);
-        if (value === null) {
-          reply.code(404).send({ error: 'Configuration key not found', key });
-          return;
-        }
-        reply.send({ key, value });
-      } catch (error) {
-        reply.code(500).send({
-          error: 'Failed to get configuration value',
-          message: error instanceof Error ? error.message : 'Unknown error'
-        });
-      }
-    });
-  }
-
   // ============ Local MCP Proxy per docs/LOCAL-MCP-PROXY.md ============
   private setupLocalMcpProxyRoutes(): void {
     // Optional helper for UI to display current code
@@ -3229,44 +2976,5 @@ export class HttpApiServer {
     recent.push(now);
     this.rateCounters.set(key, recent);
     return recent.length <= maxCount;
-  }
-
-  private setupLogRoutes(): void {
-    // Get recent logs
-    this.server.get('/api/logs', async (request: FastifyRequest, reply: FastifyReply) => {
-      const { limit } = request.query as { limit?: string };
-      const logLimit = limit ? parseInt(limit) : 50;
-
-      const recentLogs = this.logBuffer.slice(-logLimit);
-      reply.send(recentLogs);
-    });
-
-    // Server-Sent Events stream for real-time logs
-    this.server.get('/api/logs/stream', async (request: FastifyRequest, reply: FastifyReply) => {
-      // Reflect allowed origin instead of wildcard
-      this.writeSseHeaders(reply, request);
-
-      // Send initial connection message
-      reply.raw.write(`data: ${JSON.stringify({
-        timestamp: new Date().toISOString(),
-        level: 'info',
-        message: '已连接到实时日志',
-        service: 'monitor'
-      })}\n\n`);
-
-      // Add client to the set
-      this.logStreamClients.add(reply);
-
-      // Send recent logs
-      for (const log of this.logBuffer.slice(-10)) {
-        reply.raw.write(`data: ${JSON.stringify(log)}\n\n`);
-      }
-
-      // Handle client disconnect
-      const cleanup = () => this.logStreamClients.delete(reply);
-      request.socket.on('close', cleanup);
-      request.socket.on('end', cleanup);
-      request.socket.on('error', cleanup);
-    });
   }
 }
