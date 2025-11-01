@@ -4,7 +4,8 @@ import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { dirname, join, resolve } from 'path';
+import { existsSync } from 'fs';
 import { randomBytes, createHash, createHmac, pbkdf2Sync, scryptSync, randomUUID } from 'crypto';
 import {
   Logger,
@@ -388,12 +389,13 @@ export class HttpApiServer {
   private setupRoutes(): void {
     // Static file serving for GUI
     const __dirname = dirname(fileURLToPath(import.meta.url));
-    // Prefer projectRoot/dist-gui (vite output), fallback to legacy gui/dist
-    const projectRoot = join(__dirname, '../../..');
-    const distGuiPath = join(projectRoot, 'dist-gui');
-    const legacyGuiDistPath = join(__dirname, '../../gui/dist');
-    const fsSync = require('fs');
-    const staticRoot = fsSync.existsSync(distGuiPath) ? distGuiPath : legacyGuiDistPath;
+    // Resolve candidate roots relative to current working directory first, then module location
+    const candidates = [
+      resolve(process.cwd(), 'dist-gui'),
+      resolve(process.cwd(), 'gui', 'dist'),
+      resolve(__dirname, '../..', 'gui', 'dist')
+    ];
+    const staticRoot = candidates.find(p => existsSync(p)) || candidates[0];
 
     this.server.register(fastifyStatic, {
       root: staticRoot,
@@ -408,7 +410,7 @@ export class HttpApiServer {
     // Serve index.html for root and SPA routes
     this.server.get('/', async (request, reply) => {
       const indexPath = join(staticRoot, 'index.html');
-      if (!fsSync.existsSync(indexPath)) {
+      if (!existsSync(indexPath)) {
         return reply.code(503).type('text/plain').send('GUI assets not found. Please build GUI into dist-gui or gui/dist.');
       }
       return reply.type('text/html').sendFile('index.html', staticRoot);
@@ -416,7 +418,7 @@ export class HttpApiServer {
 
     this.server.get('/dashboard*', async (request, reply) => {
       const indexPath = join(staticRoot, 'index.html');
-      if (!fsSync.existsSync(indexPath)) {
+      if (!existsSync(indexPath)) {
         return reply.code(503).type('text/plain').send('GUI assets not found. Please build GUI into dist-gui or gui/dist.');
       }
       return reply.type('text/html').sendFile('index.html', staticRoot);
@@ -424,7 +426,7 @@ export class HttpApiServer {
 
     this.server.get('/services*', async (request, reply) => {
       const indexPath = join(staticRoot, 'index.html');
-      if (!fsSync.existsSync(indexPath)) {
+      if (!existsSync(indexPath)) {
         return reply.code(503).type('text/plain').send('GUI assets not found. Please build GUI into dist-gui or gui/dist.');
       }
       return reply.type('text/html').sendFile('index.html', staticRoot);
@@ -432,7 +434,7 @@ export class HttpApiServer {
 
     this.server.get('/templates*', async (request, reply) => {
       const indexPath = join(staticRoot, 'index.html');
-      if (!fsSync.existsSync(indexPath)) {
+      if (!existsSync(indexPath)) {
         return reply.code(503).type('text/plain').send('GUI assets not found. Please build GUI into dist-gui or gui/dist.');
       }
       return reply.type('text/html').sendFile('index.html', staticRoot);
@@ -440,7 +442,7 @@ export class HttpApiServer {
 
     this.server.get('/auth*', async (request, reply) => {
       const indexPath = join(staticRoot, 'index.html');
-      if (!fsSync.existsSync(indexPath)) {
+      if (!existsSync(indexPath)) {
         return reply.code(503).type('text/plain').send('GUI assets not found. Please build GUI into dist-gui or gui/dist.');
       }
       return reply.type('text/html').sendFile('index.html', staticRoot);
@@ -448,7 +450,7 @@ export class HttpApiServer {
 
     this.server.get('/monitoring*', async (request, reply) => {
       const indexPath = join(staticRoot, 'index.html');
-      if (!fsSync.existsSync(indexPath)) {
+      if (!existsSync(indexPath)) {
         return reply.code(503).type('text/plain').send('GUI assets not found. Please build GUI into dist-gui or gui/dist.');
       }
       return reply.type('text/html').sendFile('index.html', staticRoot);
@@ -456,7 +458,7 @@ export class HttpApiServer {
 
     this.server.get('/settings*', async (request, reply) => {
       const indexPath = join(staticRoot, 'index.html');
-      if (!fsSync.existsSync(indexPath)) {
+      if (!existsSync(indexPath)) {
         return reply.code(503).type('text/plain').send('GUI assets not found. Please build GUI into dist-gui or gui/dist.');
       }
       return reply.type('text/html').sendFile('index.html', staticRoot);
@@ -2738,7 +2740,12 @@ export class HttpApiServer {
 
   private setupErrorHandlers(): void {
     this.server.setErrorHandler(async (error, request, reply) => {
-      this.logger.error('HTTP API error:', error);
+      this.logger.error('HTTP API error:', {
+        method: request.method,
+        url: request.url,
+        message: (error as any)?.message || String(error),
+        stack: (error as any)?.stack
+      });
 
       reply.code(500).send({
         error: 'Internal Server Error',
