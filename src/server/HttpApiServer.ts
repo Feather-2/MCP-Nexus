@@ -37,7 +37,9 @@ import {
   ServiceRoutes,
   AuthRoutes,
   ConfigRoutes,
-  LogRoutes
+  LogRoutes,
+  TemplateRoutes,
+  MonitoringRoutes
 } from './routes/index.js';
 
 interface RouteRequestBody {
@@ -537,8 +539,8 @@ export class HttpApiServer {
     // Service management endpoints (modularized)
     new ServiceRoutes(routeContext).setupRoutes();
 
-    // Template management endpoints
-    this.setupTemplateRoutes();
+    // Template management endpoints (modularized)
+    new TemplateRoutes(routeContext).setupRoutes();
 
     // Authentication endpoints (modularized)
     new AuthRoutes(routeContext).setupRoutes();
@@ -546,8 +548,8 @@ export class HttpApiServer {
     // Routing and proxy endpoints
     this.setupRoutingRoutes();
 
-    // Monitoring and metrics endpoints
-    this.setupMonitoringRoutes();
+    // Monitoring and metrics endpoints (modularized)
+    new MonitoringRoutes(routeContext).setupRoutes();
 
     // Log streaming endpoints (modularized)
     new LogRoutes(routeContext).setupRoutes();
@@ -2214,180 +2216,6 @@ export class HttpApiServer {
     return await this.inspectSandbox();
   }
 
-  private setupTemplateRoutes(): void {
-    // List templates
-    this.server.get('/api/templates', async (request: FastifyRequest, reply: FastifyReply) => {
-      const templates = await this.serviceRegistry.listTemplates();
-      reply.send(templates); // Send array directly
-    });
-
-    // Get template by name
-    this.server.get('/api/templates/:name', async (request: FastifyRequest, reply: FastifyReply) => {
-      const { name } = request.params as { name: string };
-      try {
-        const tpl = await this.serviceRegistry.getTemplate(name);
-        if (!tpl) return this.respondError(reply, 404, 'Template not found', { code: 'NOT_FOUND', recoverable: true });
-        reply.send(tpl);
-      } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || 'Failed to get template', { code: 'TEMPLATE_GET_FAILED' });
-      }
-    });
-
-    // Register template
-    this.server.post('/api/templates', async (request: FastifyRequest, reply: FastifyReply) => {
-      const config = request.body as McpServiceConfig;
-
-      try {
-        await this.serviceRegistry.registerTemplate(config);
-        reply.code(201).send({
-          success: true,
-          message: `Template registered: ${config.name}`
-        });
-      } catch (error) {
-        return this.respondError(reply, 400, error instanceof Error ? error.message : 'Failed to register template', { code: 'TEMPLATE_REGISTER_FAILED', recoverable: true });
-      }
-    });
-
-    // Update template env only
-    this.server.patch('/api/templates/:name/env', async (request: FastifyRequest, reply: FastifyReply) => {
-      const { name } = request.params as { name: string };
-      const rawBody = (request.body as any) ?? {};
-      // Accept both { env: {...} } and direct key-value { KEY: "", ... }
-      const body = typeof rawBody === 'object' && rawBody && !Array.isArray(rawBody)
-        ? (rawBody.env && typeof rawBody.env === 'object' ? { env: rawBody.env as Record<string,string> } : { env: rawBody as Record<string,string> })
-        : { env: undefined } as { env?: Record<string,string> };
-      try {
-        if (!body || !body.env || typeof body.env !== 'object') {
-          // Return structured JSON instead of empty body, to avoid UI "no body" confusion
-          return this.respondError(reply, 400, 'env object is required', { code: 'BAD_REQUEST', recoverable: true });
-        }
-        const tpl = await this.serviceRegistry.getTemplate(name);
-        if (!tpl) {
-          return this.respondError(reply, 404, 'Template not found', { code: 'NOT_FOUND', recoverable: true });
-        }
-        const updated = { ...tpl, env: { ...(tpl.env || {}), ...body.env } } as McpServiceConfig;
-        await this.serviceRegistry.registerTemplate(updated);
-        reply.send({ success: true, message: 'Template env updated', name });
-      } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || 'Failed to update template env', { code: 'TEMPLATE_UPDATE_FAILED' });
-      }
-    });
-
-    // Diagnose template for missing envs (env-only heuristic; no spawn)
-    this.server.post('/api/templates/:name/diagnose', async (request: FastifyRequest, reply: FastifyReply) => {
-      const { name } = request.params as { name: string };
-      try {
-        const tpl = await this.serviceRegistry.getTemplate(name);
-        if (!tpl) {
-          // Return a stable payload to avoid UI breaks
-          reply.code(200).send({ success: false, name, required: [], provided: [], missing: [], transport: 'unknown', error: 'Template not found' });
-          return;
-        }
-        let required: string[] = [];
-        try { required = this.computeRequiredEnvForTemplate(tpl as any) || []; } catch { required = []; }
-        const provided = Object.keys((tpl as any).env || {});
-        const missing = required.filter(k => !provided.includes(k));
-        reply.send({ success: true, name, required, provided, missing, transport: (tpl as any).transport });
-      } catch (error) {
-        // Do not surface 500 to UI; send a soft-fail payload
-        reply.code(200).send({ success: false, name, required: [], provided: [], missing: [], transport: 'unknown', error: (error as Error)?.message || 'Diagnose failed' });
-      }
-    });
-
-    // Delete template
-    this.server.delete('/api/templates/:name', async (request: FastifyRequest, reply: FastifyReply) => {
-      const { name } = request.params as { name: string };
-      try {
-        await this.serviceRegistry.removeTemplate(name);
-        reply.send({ success: true, message: 'Template deleted successfully', name });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to remove template';
-        const notFound = /not\s*found/i.test(message);
-        return this.respondError(reply, notFound ? 404 : 500, message, { code: notFound ? 'NOT_FOUND' : 'TEMPLATE_REMOVE_FAILED', recoverable: notFound });
-      }
-    });
-
-    // Repair templates (fix legacy placeholders) & list offline MCP packages
-    this.server.post('/api/templates/repair', async (_request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        await (this.serviceRegistry as any).templateManager.initializeDefaults();
-        reply.send({ success: true });
-      } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || 'Repair templates failed', { code: 'TEMPLATE_REPAIR_FAILED' });
-      }
-    });
-
-    // Repair missing container images by applying sensible defaults
-    this.server.post('/api/templates/repair-images', async (_request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const templates = await this.serviceRegistry.listTemplates();
-        let fixed = 0;
-        const updated: string[] = [];
-
-        const suggestImage = (tpl: import('../types/index.js').McpServiceConfig): string => {
-          const cmd = String((tpl as any).command || '').toLowerCase();
-          if (cmd.includes('npm') || cmd.includes('node')) return 'node:20-alpine';
-          if (cmd.includes('python')) return 'python:3.11-alpine';
-          if (cmd.includes('go')) return 'golang:1.22-alpine';
-          return 'alpine:3';
-        };
-
-        for (const tpl of templates) {
-          const env = (tpl as any).env || {};
-          const isContainer = env.SANDBOX === 'container' || !!(tpl as any).container;
-          const isStdio = (tpl as any).transport === 'stdio';
-          if (!isStdio || !isContainer) continue;
-
-          const container = (tpl as any).container || {};
-          if (!container.image) {
-            const image = suggestImage(tpl as any);
-            const next: any = { ...tpl, container: { ...container, image } };
-            // ensure SANDBOX is container
-            next.env = { ...(tpl as any).env, SANDBOX: 'container' };
-            try {
-              await this.serviceRegistry.registerTemplate(next);
-              fixed += 1;
-              updated.push(String(tpl.name));
-            } catch (e) {
-              this.logger.warn('Failed to repair container image for template', { name: tpl.name, error: (e as Error).message });
-            }
-          }
-        }
-
-        reply.send({ success: true, fixed, updated });
-      } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || 'Repair container images failed', { code: 'TEMPLATE_REPAIR_IMAGES_FAILED' });
-      }
-    });
-  }
-
-  // Heuristic env requirement mapping, aligned with GUI
-  private computeRequiredEnvForTemplate(tpl: import('../types/index.js').McpServiceConfig): string[] {
-    const name = String((tpl?.name || '')).toLowerCase();
-    const cmd = String((tpl as any)?.command || '').toLowerCase();
-    const args = Array.isArray((tpl as any)?.args) ? ((tpl as any).args as string[]).join(' ').toLowerCase() : '';
-    if (name.includes('brave') || args.includes('@modelcontextprotocol/server-brave-search')) return ['BRAVE_API_KEY'];
-    if (name.includes('github') || args.includes('@modelcontextprotocol/server-github')) return ['GITHUB_TOKEN'];
-    if (name.includes('openai') || cmd.includes('openai') || args.includes('openai') || args.includes('@modelcontextprotocol/server-openai')) return ['OPENAI_API_KEY'];
-    if (name.includes('azure-openai') || cmd.includes('azure-openai') || args.includes('azure-openai')) return ['AZURE_OPENAI_API_KEY','AZURE_OPENAI_ENDPOINT'];
-    if (name.includes('anthropic') || cmd.includes('anthropic') || args.includes('anthropic') || args.includes('@modelcontextprotocol/server-anthropic')) return ['ANTHROPIC_API_KEY'];
-    if (name.includes('ollama') || cmd.includes('ollama') || args.includes('ollama')) return [];
-    // Extended common providers (best-effort)
-    if (name.includes('gemini') || name.includes('google') || cmd.includes('gemini') || args.includes('gemini') || args.includes('google-genai') || args.includes('@modelcontextprotocol/server-google') || args.includes('@modelcontextprotocol/server-gemini')) return ['GOOGLE_API_KEY'];
-    if (name.includes('cohere') || cmd.includes('cohere') || args.includes('cohere') || args.includes('@modelcontextprotocol/server-cohere')) return ['COHERE_API_KEY'];
-    if (name.includes('groq') || cmd.includes('groq') || args.includes('groq') || args.includes('@modelcontextprotocol/server-groq')) return ['GROQ_API_KEY'];
-    if (name.includes('openrouter') || cmd.includes('openrouter') || args.includes('openrouter') || args.includes('@modelcontextprotocol/server-openrouter')) return ['OPENROUTER_API_KEY'];
-    if (name.includes('together') || cmd.includes('together') || args.includes('together') || args.includes('@modelcontextprotocol/server-together')) return ['TOGETHER_API_KEY'];
-    if (name.includes('fireworks') || cmd.includes('fireworks') || args.includes('fireworks') || args.includes('@modelcontextprotocol/server-fireworks')) return ['FIREWORKS_API_KEY'];
-    if (name.includes('deepseek') || cmd.includes('deepseek') || args.includes('deepseek') || args.includes('@modelcontextprotocol/server-deepseek')) return ['DEEPSEEK_API_KEY'];
-    if (name.includes('mistral') || cmd.includes('mistral') || args.includes('mistral') || args.includes('@modelcontextprotocol/server-mistral')) return ['MISTRAL_API_KEY'];
-    if (name.includes('perplexity') || cmd.includes('perplexity') || args.includes('perplexity') || args.includes('@modelcontextprotocol/server-perplexity')) return ['PERPLEXITY_API_KEY'];
-    if (name.includes('replicate') || cmd.includes('replicate') || args.includes('replicate') || args.includes('@modelcontextprotocol/server-replicate')) return ['REPLICATE_API_TOKEN'];
-    if (name.includes('serpapi') || cmd.includes('serpapi') || args.includes('serpapi') || args.includes('@modelcontextprotocol/server-serpapi')) return ['SERPAPI_API_KEY'];
-    if (name.includes('huggingface') || name.includes('hugging-face') || cmd.includes('huggingface') || args.includes('huggingface') || args.includes('@modelcontextprotocol/server-huggingface')) return ['HF_TOKEN'];
-    return [];
-  }
-
   private setupRoutingRoutes(): void {
     // Route request to appropriate service
     this.server.post('/api/route', async (request: FastifyRequest, reply: FastifyReply) => {
@@ -2512,122 +2340,7 @@ export class HttpApiServer {
 
     
 
-    
-  }
 
-  private setupMonitoringRoutes(): void {
-    // Redis rate-limit store connectivity self-check (no secrets exposed)
-    this.server.get('/api/health/ratelimit', async (_req: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const rl = (this.config as any).rateLimiting || {};
-        if (!rl.enabled) return reply.send({ enabled: false, store: 'memory' });
-        if (rl.store !== 'redis') return reply.send({ enabled: true, store: 'memory' });
-
-        const info: any = { enabled: true, store: 'redis', connected: false };
-        try {
-          // Lazy import to avoid bringing ioredis if unused
-          const { default: IORedis } = await import('ioredis');
-          let client;
-          if (rl.redis?.url) {
-            client = new (IORedis as any)(rl.redis.url);
-          } else {
-            client = new (IORedis as any)({
-              host: rl.redis?.host || '127.0.0.1',
-              port: rl.redis?.port || 6379,
-              username: rl.redis?.username,
-              password: rl.redis?.password,
-              db: rl.redis?.db,
-              tls: rl.redis?.tls ? {} : undefined
-            });
-          }
-          const pong = await client.ping();
-          info.connected = pong === 'PONG';
-          await client.quit();
-        } catch (e: any) {
-          info.error = e?.message || String(e);
-        }
-        return reply.send(info);
-      } catch (error) {
-        return reply.code(500).send({ error: (error as Error).message });
-      }
-    });
-    // Get comprehensive health status
-    this.server.get('/api/health-status', async (request: FastifyRequest, reply: FastifyReply) => {
-      const stats = await this.serviceRegistry.getRegistryStats();
-      const routerMetrics = this.router.getMetrics();
-      const services = await this.serviceRegistry.listServices();
-
-      const healthStatus = {
-        gateway: {
-          uptime: process.uptime() * 1000, // Convert to milliseconds
-          status: 'healthy',
-          version: '1.0.0'
-        },
-        metrics: {
-          totalRequests: routerMetrics.totalRequests || 0,
-          successRate: routerMetrics.successRate || 0,
-          averageResponseTime: routerMetrics.averageResponseTime || 0,
-          activeConnections: 0 // Default value since not available
-        },
-        services: {
-          total: services.length,
-          running: services.filter(s => s.state === 'running').length,
-          stopped: services.filter(s => s.state === 'stopped').length,
-          error: services.filter(s => s.state === 'error').length
-        }
-      };
-
-      reply.send(healthStatus);
-    });
-
-    // Get registry statistics
-    this.server.get('/api/metrics/registry', async (request: FastifyRequest, reply: FastifyReply) => {
-      const stats = await this.serviceRegistry.getRegistryStats();
-      reply.send({ stats });
-    });
-
-    // Aggregated health metrics (global + per service)
-    this.server.get('/api/metrics/health', async (_request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const agg = await this.serviceRegistry.getHealthAggregates();
-        reply.send(agg);
-      } catch (error) {
-        reply.code(500).send({ error: (error as Error).message });
-      }
-    });
-
-    // Get router metrics
-    this.server.get('/api/metrics/router', async (request: FastifyRequest, reply: FastifyReply) => {
-      const metrics = this.router.getMetrics();
-      reply.send({ metrics });
-    });
-
-    // Get service metrics
-    this.server.get('/api/metrics/services', async (request: FastifyRequest, reply: FastifyReply) => {
-      const services = await this.serviceRegistry.listServices();
-      const serviceMetrics = [];
-
-      for (const service of services) {
-        try {
-          const health = await this.serviceRegistry.checkHealth(service.id);
-          serviceMetrics.push({
-            serviceId: service.id,
-            serviceName: service.config.name,
-            health,
-            uptime: Date.now() - service.startedAt.getTime()
-          });
-        } catch (error) {
-          serviceMetrics.push({
-            serviceId: service.id,
-            serviceName: service.config.name,
-            health: { status: 'unhealthy', error: error instanceof Error ? error.message : 'Unknown error' },
-            uptime: 0
-          });
-        }
-      }
-
-      reply.send({ serviceMetrics });
-    });
   }
 
   private setupErrorHandlers(): void {
