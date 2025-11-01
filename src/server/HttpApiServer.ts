@@ -399,33 +399,66 @@ export class HttpApiServer {
       root: staticRoot,
       prefix: '/static/'
     });
+    // Serve vite assets under /assets/ to match index.html references
+    this.server.register(fastifyStatic, {
+      root: join(staticRoot, 'assets'),
+      prefix: '/assets/'
+    });
 
     // Serve index.html for root and SPA routes
     this.server.get('/', async (request, reply) => {
+      const indexPath = join(staticRoot, 'index.html');
+      if (!fsSync.existsSync(indexPath)) {
+        return reply.code(503).type('text/plain').send('GUI assets not found. Please build GUI into dist-gui or gui/dist.');
+      }
       return reply.type('text/html').sendFile('index.html', staticRoot);
     });
 
     this.server.get('/dashboard*', async (request, reply) => {
+      const indexPath = join(staticRoot, 'index.html');
+      if (!fsSync.existsSync(indexPath)) {
+        return reply.code(503).type('text/plain').send('GUI assets not found. Please build GUI into dist-gui or gui/dist.');
+      }
       return reply.type('text/html').sendFile('index.html', staticRoot);
     });
 
     this.server.get('/services*', async (request, reply) => {
+      const indexPath = join(staticRoot, 'index.html');
+      if (!fsSync.existsSync(indexPath)) {
+        return reply.code(503).type('text/plain').send('GUI assets not found. Please build GUI into dist-gui or gui/dist.');
+      }
       return reply.type('text/html').sendFile('index.html', staticRoot);
     });
 
     this.server.get('/templates*', async (request, reply) => {
+      const indexPath = join(staticRoot, 'index.html');
+      if (!fsSync.existsSync(indexPath)) {
+        return reply.code(503).type('text/plain').send('GUI assets not found. Please build GUI into dist-gui or gui/dist.');
+      }
       return reply.type('text/html').sendFile('index.html', staticRoot);
     });
 
     this.server.get('/auth*', async (request, reply) => {
+      const indexPath = join(staticRoot, 'index.html');
+      if (!fsSync.existsSync(indexPath)) {
+        return reply.code(503).type('text/plain').send('GUI assets not found. Please build GUI into dist-gui or gui/dist.');
+      }
       return reply.type('text/html').sendFile('index.html', staticRoot);
     });
 
     this.server.get('/monitoring*', async (request, reply) => {
+      const indexPath = join(staticRoot, 'index.html');
+      if (!fsSync.existsSync(indexPath)) {
+        return reply.code(503).type('text/plain').send('GUI assets not found. Please build GUI into dist-gui or gui/dist.');
+      }
       return reply.type('text/html').sendFile('index.html', staticRoot);
     });
 
     this.server.get('/settings*', async (request, reply) => {
+      const indexPath = join(staticRoot, 'index.html');
+      if (!fsSync.existsSync(indexPath)) {
+        return reply.code(503).type('text/plain').send('GUI assets not found. Please build GUI into dist-gui or gui/dist.');
+      }
       return reply.type('text/html').sendFile('index.html', staticRoot);
     });
 
