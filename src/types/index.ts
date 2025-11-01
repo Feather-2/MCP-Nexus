@@ -144,6 +144,23 @@ export const McpServiceConfigSchema = z.object({
   }).optional()
 });
 
+const RateLimitingConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  maxRequests: z.number().default(100),
+  windowMs: z.number().default(60000),
+  // 允许缺省，静态类型上为可选；运行时默认 memory
+  store: z.enum(['memory', 'redis']).optional().default('memory'),
+  redis: z.object({
+    url: z.string().optional(),
+    host: z.string().optional(),
+    port: z.number().optional(),
+    username: z.string().optional(),
+    password: z.string().optional(),
+    db: z.number().optional(),
+    tls: z.boolean().optional()
+  }).optional()
+});
+
 export const GatewayConfigSchema = z.object({
   port: z.number().default(19233),
   host: z.string().default('127.0.0.1'),
@@ -160,11 +177,7 @@ export const GatewayConfigSchema = z.object({
   corsOrigins: z.array(z.string()).default(['http://localhost:3000']),
   maxRequestSize: z.number().default(10 * 1024 * 1024),
   metricsRetentionDays: z.number().default(7),
-  rateLimiting: z.object({
-    enabled: z.boolean().default(false),
-    maxRequests: z.number().default(100),
-    windowMs: z.number().default(60000)
-  }).default({}),
+  rateLimiting: RateLimitingConfigSchema.default({}),
   logLevel: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('info'),
   // Non-secret AI configuration (keys read from environment variables)
   ai: AiConfigSchema.optional()

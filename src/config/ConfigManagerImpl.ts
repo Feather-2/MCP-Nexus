@@ -659,7 +659,8 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
       rateLimiting: {
         enabled: false,
         maxRequests: 100,
-        windowMs: 60000 // 1 minute
+        windowMs: 60000, // 1 minute
+        store: 'memory'
       },
       // Non-secret AI defaults; secrets (API keys) are provided via env only
       ai: {
