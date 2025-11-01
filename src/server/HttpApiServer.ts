@@ -388,40 +388,45 @@ export class HttpApiServer {
   private setupRoutes(): void {
     // Static file serving for GUI
     const __dirname = dirname(fileURLToPath(import.meta.url));
-    const guiDistPath = join(__dirname, '../../gui/dist');
+    // Prefer projectRoot/dist-gui (vite output), fallback to legacy gui/dist
+    const projectRoot = join(__dirname, '../../..');
+    const distGuiPath = join(projectRoot, 'dist-gui');
+    const legacyGuiDistPath = join(__dirname, '../../gui/dist');
+    const fsSync = require('fs');
+    const staticRoot = fsSync.existsSync(distGuiPath) ? distGuiPath : legacyGuiDistPath;
 
     this.server.register(fastifyStatic, {
-      root: guiDistPath,
+      root: staticRoot,
       prefix: '/static/'
     });
 
     // Serve index.html for root and SPA routes
     this.server.get('/', async (request, reply) => {
-      return reply.type('text/html').sendFile('index.html', guiDistPath);
+      return reply.type('text/html').sendFile('index.html', staticRoot);
     });
 
     this.server.get('/dashboard*', async (request, reply) => {
-      return reply.type('text/html').sendFile('index.html', guiDistPath);
+      return reply.type('text/html').sendFile('index.html', staticRoot);
     });
 
     this.server.get('/services*', async (request, reply) => {
-      return reply.type('text/html').sendFile('index.html', guiDistPath);
+      return reply.type('text/html').sendFile('index.html', staticRoot);
     });
 
     this.server.get('/templates*', async (request, reply) => {
-      return reply.type('text/html').sendFile('index.html', guiDistPath);
+      return reply.type('text/html').sendFile('index.html', staticRoot);
     });
 
     this.server.get('/auth*', async (request, reply) => {
-      return reply.type('text/html').sendFile('index.html', guiDistPath);
+      return reply.type('text/html').sendFile('index.html', staticRoot);
     });
 
     this.server.get('/monitoring*', async (request, reply) => {
-      return reply.type('text/html').sendFile('index.html', guiDistPath);
+      return reply.type('text/html').sendFile('index.html', staticRoot);
     });
 
     this.server.get('/settings*', async (request, reply) => {
-      return reply.type('text/html').sendFile('index.html', guiDistPath);
+      return reply.type('text/html').sendFile('index.html', staticRoot);
     });
 
     // Health check endpoint
