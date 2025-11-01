@@ -39,7 +39,10 @@ import {
   ConfigRoutes,
   LogRoutes,
   TemplateRoutes,
-  MonitoringRoutes
+  MonitoringRoutes,
+  RoutingRoutes,
+  ExternalImportRoutes,
+  GeneratorRoutes
 } from './routes/index.js';
 
 interface RouteRequestBody {
@@ -545,8 +548,8 @@ export class HttpApiServer {
     // Authentication endpoints (modularized)
     new AuthRoutes(routeContext).setupRoutes();
 
-    // Routing and proxy endpoints
-    this.setupRoutingRoutes();
+    // Routing and proxy endpoints (modularized)
+    new RoutingRoutes(routeContext).setupRoutes();
 
     // Monitoring and metrics endpoints (modularized)
     new MonitoringRoutes(routeContext).setupRoutes();
@@ -557,20 +560,20 @@ export class HttpApiServer {
     // Configuration management endpoints (modularized)
     new ConfigRoutes(routeContext).setupRoutes();
 
+    // External MCP config import endpoints (modularized)
+    new ExternalImportRoutes(routeContext).setupRoutes();
+
+    // MCP Generator endpoints (modularized)
+    new GeneratorRoutes(routeContext).setupRoutes();
+
     // AI provider configuration & test endpoints
     this.setupAiRoutes();
-
-    // External MCP config import endpoints
-    this.setupExternalImportRoutes();
 
     // Sandbox inspection & install endpoints
     this.setupSandboxRoutes();
 
     // Orchestrator observability endpoints
     this.setupOrchestratorRoutes();
-
-    // MCP Generator endpoints
-    this.setupGeneratorRoutes();
 
     // Local MCP Proxy endpoints per docs/LOCAL-MCP-PROXY.md
     this.setupLocalMcpProxyRoutes();
@@ -1279,206 +1282,7 @@ export class HttpApiServer {
     });
   }
 
-  private setupExternalImportRoutes(): void {
-    // Lazy import to avoid startup cost if unused
-    const getImporter = () => {
-      const { ExternalMcpConfigImporter } = require('../config/ExternalMcpConfigImporter.js');
-      return new ExternalMcpConfigImporter(this.logger);
-    };
-
-    // Preview discovered configs
-    this.server.get('/api/config/import/preview', async (_request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const importer = getImporter();
-        const discovered = await importer.discoverAll();
-        reply.send({ success: true, discovered });
-      } catch (error) {
-        reply.code(500).send({ success: false, error: (error as Error).message });
-      }
-    });
-
-    // Apply imported configs as templates
-    this.server.post('/api/config/import/apply', async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const importer = getImporter();
-        const discovered = await importer.discoverAll();
-        let applied = 0;
-        for (const group of discovered) {
-          for (const tmpl of group.items) {
-            try {
-              // Save as template via ServiceRegistry
-              await this.serviceRegistry.registerTemplate(tmpl as any);
-              applied += 1;
-            } catch (e) {
-              this.logger.warn('Failed to apply imported template', { name: tmpl.name, error: (e as Error).message });
-            }
-          }
-        }
-        reply.send({ success: true, applied });
-      } catch (error) {
-        reply.code(500).send({ success: false, error: (error as Error).message });
-      }
-    });
-  }
-
-  // MCP Generator Routes
-  private setupGeneratorRoutes(): void {
-    // Generate MCP from various sources
-    this.server.post('/api/generator/generate', async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        if (!this.mcpGenerator) {
-          return this.respondError(reply, 503, 'MCP Generator not initialized', { code: 'NOT_READY', recoverable: true });
-        }
-
-        const body = request.body as GenerateRequest;
-        const result = await this.mcpGenerator.generate(body);
-
-        if (result.success) {
-          this.logger.info('MCP service generated successfully', { name: result.template?.name });
-        }
-
-        reply.send(result);
-      } catch (error) {
-        this.logger.error('Failed to generate MCP service', error);
-        reply.code(500).send({
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        });
-      }
-    });
-
-    // Export template in various formats
-    this.server.post('/api/generator/export', async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        if (!this.mcpGenerator) {
-          return reply.code(503).send({
-            success: false,
-            error: 'MCP Generator not initialized'
-          });
-        }
-
-        const body = request.body as ExportRequest;
-        const result = await this.mcpGenerator.export(body);
-
-        if (result.success) {
-          this.logger.info('Template exported successfully', { name: body.templateName, format: body.format });
-        }
-
-        reply.send(result);
-      } catch (error) {
-        this.logger.error('Failed to export template', error);
-        reply.code(500).send({
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        });
-      }
-    });
-
-    // Import template from external source
-    this.server.post('/api/generator/import', async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        if (!this.mcpGenerator) {
-          return reply.code(503).send({
-            success: false,
-            error: 'MCP Generator not initialized'
-          });
-        }
-
-        const body = request.body as ImportRequest;
-        const result = await this.mcpGenerator.import(body);
-
-        if (result.success) {
-          this.logger.info('Template imported successfully', { name: result.template?.name });
-        }
-
-        reply.send(result);
-      } catch (error) {
-        this.logger.error('Failed to import template', error);
-        reply.code(500).send({
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        });
-      }
-    });
-
-    // Download exported file
-    this.server.get('/api/generator/download/:filename', async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const { filename } = request.params as { filename: string };
-        const path = await import('path');
-        const exportDir = path.join(process.cwd(), 'generated');
-
-        reply.sendFile(filename, exportDir);
-      } catch (error) {
-        this.logger.error('Failed to download file', error);
-        return this.respondError(reply, 404, 'File not found', { code: 'NOT_FOUND', recoverable: true });
-      }
-    });
-
-    // Marketplace - List available templates (static source)
-    this.server.get('/api/generator/marketplace', async (_request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const items = await this.loadMarketplaceItems();
-        reply.send({ templates: items });
-      } catch (error) {
-        this.logger.warn('Marketplace list failed', error);
-        return this.respondError(reply, 500, (error as Error).message || 'Marketplace list failed', { code: 'MARKETPLACE_ERROR' });
-      }
-    });
-
-    // Marketplace - Search templates (matches docs: GET /api/generator/marketplace/search)
-    this.server.get('/api/generator/marketplace/search', async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const { q } = (request.query as any) || {};
-        const query = String(q || '').toLowerCase();
-        const items = await this.loadMarketplaceItems();
-        const results = !query
-          ? items
-          : items.filter((it: any) => {
-              const hay = `${it.name} ${it.description || ''} ${(it.tags || []).join(' ')}`.toLowerCase();
-              return hay.includes(query);
-            });
-        reply.send({ success: true, query, results });
-      } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || 'Marketplace search failed', { code: 'MARKETPLACE_ERROR' });
-      }
-    });
-
-    // Marketplace - Publish template (matches docs: POST /api/generator/marketplace/publish)
-    this.server.post('/api/generator/marketplace/publish', async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        // Placeholder: return not implemented while keeping doc-consistent route
-        return this.respondError(reply, 501, 'Publish not implemented yet', { code: 'NOT_IMPLEMENTED', recoverable: true });
-      } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || 'Marketplace publish failed', { code: 'MARKETPLACE_ERROR' });
-      }
-    });
-
-    // Marketplace - Install template (from static source)
-    this.server.post('/api/generator/marketplace/install', async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const body = request.body as { templateId?: string; name?: string };
-        const items = await this.loadMarketplaceItems();
-        const idOrName = body.templateId || body.name;
-        if (!idOrName) {
-          return this.respondError(reply, 400, 'templateId or name is required', { code: 'BAD_REQUEST', recoverable: true });
-        }
-        const item = items.find((it: any) => it.id === idOrName || it.name === idOrName);
-        if (!item) {
-          return this.respondError(reply, 404, 'Template not found', { code: 'NOT_FOUND', recoverable: true });
-        }
-        const config = item.template || item.config;
-        if (!config) {
-          return this.respondError(reply, 422, 'Template config missing', { code: 'UNPROCESSABLE', recoverable: true });
-        }
-        await this.serviceRegistry.registerTemplate(config);
-        this.addLogEntry('info', `Marketplace installed: ${config.name}`, 'marketplace');
-        reply.send({ success: true, name: config.name });
-      } catch (error) {
-        return this.respondError(reply, 500, error instanceof Error ? error.message : 'Marketplace install failed', { code: 'MARKETPLACE_ERROR' });
-      }
-    });
-  }
+  // MCP Generator Routes (placeholder - moved to GeneratorRoutes module)
 
   private setupSandboxRoutes(): void {
     // Status
@@ -2216,132 +2020,6 @@ export class HttpApiServer {
     return await this.inspectSandbox();
   }
 
-  private setupRoutingRoutes(): void {
-    // Route request to appropriate service
-    this.server.post('/api/route', async (request: FastifyRequest, reply: FastifyReply) => {
-      const body = request.body as RouteRequestBody;
-
-      if (!body.method) {
-        return this.respondError(reply, 400, 'method is required', { code: 'BAD_REQUEST', recoverable: true });
-      }
-
-      try {
-        // Get available services
-        const services = await this.serviceRegistry.listServices();
-        const serviceHealthMap = new Map<string, ServiceHealth>();
-
-        // Get health for each service
-        for (const service of services) {
-          try {
-            const health = await this.serviceRegistry.checkHealth(service.id);
-            serviceHealthMap.set(service.id, this.convertHealthResult(health));
-          } catch (error) {
-            // Service might be down, skip it
-            serviceHealthMap.set(service.id, {
-              status: 'unhealthy',
-              responseTime: Infinity,
-              lastCheck: new Date(),
-              error: error instanceof Error ? error.message : 'Unknown error'
-            });
-          }
-        }
-
-        const routeRequest: RouteRequest = {
-          method: body.method,
-          params: body.params,
-          serviceGroup: body.serviceGroup,
-          contentType: body.contentType,
-          contentLength: body.contentLength,
-          clientIp: request.ip,
-          availableServices: services,
-          serviceHealthMap
-        };
-
-        const routeResponse = await this.router.route(routeRequest);
-
-        if (!routeResponse.success) {
-          reply.code(503).send({
-            error: 'No services available',
-            message: routeResponse.error
-          });
-          return;
-        }
-
-        reply.send({
-          success: true,
-          selectedService: routeResponse.selectedService,
-          routingDecision: routeResponse.routingDecision
-        });
-      } catch (error) {
-        reply.code(500).send({
-          error: 'Routing failed',
-          message: error instanceof Error ? error.message : 'Unknown error'
-        });
-      }
-    });
-
-    // Proxy MCP requests to services
-    this.server.post('/api/proxy/:serviceId', async (request: FastifyRequest, reply: FastifyReply) => {
-      const { serviceId } = request.params as { serviceId: string };
-      const mcpMessage = request.body as any;
-
-      try {
-        const service = await this.serviceRegistry.getService(serviceId);
-
-        if (!service) {
-          return this.respondError(reply, 404, 'Service not found', { code: 'NOT_FOUND', recoverable: true });
-        }
-
-        // Create adapter and send message
-        const adapter = await this.protocolAdapters.createAdapter(service.config);
-        await adapter.connect();
-
-        // wire adapter events into log buffer for richer service logs
-        (adapter as any).on?.('stderr', (line: string) => {
-          this.addLogEntry('warn', `stderr: ${line}`, serviceId);
-        });
-        (adapter as any).on?.('sent', (msg: any) => {
-          this.addLogEntry('debug', `${msg?.method || 'unknown'} id=${msg?.id ?? 'auto'}`, serviceId);
-        });
-        (adapter as any).on?.('message', (msg: any) => {
-          this.addLogEntry('debug', `${msg?.method || (msg?.result ? 'result' : 'message')} id=${msg?.id ?? 'n/a'}`, serviceId);
-        });
-
-        // Mark sandbox usage & per-call logging
-        const isPortable = (service.config.env as any)?.SANDBOX === 'portable';
-        const startTs = Date.now();
-        this.addLogEntry('info', `Proxy call ${mcpMessage?.method || 'unknown'} (id=${mcpMessage?.id ?? 'auto'})${isPortable ? ' [SANDBOX: portable]' : ''}`, serviceId, { request: mcpMessage });
-        try {
-          const preview = JSON.stringify(mcpMessage?.params ?? {}).slice(0, 800);
-          this.addLogEntry('debug', `params: ${preview}${preview.length === 800 ? '…' : ''}`, serviceId);
-        } catch {}
-
-        try {
-          const response = await (adapter as any).sendAndReceive?.(mcpMessage) ||
-                           await adapter.send(mcpMessage);
-          const duration = Date.now() - startTs;
-          this.addLogEntry('info', `Proxy response ${mcpMessage?.method || 'unknown'} (id=${mcpMessage?.id ?? 'auto'}) in ${duration}ms`, serviceId, { response });
-          try {
-            const preview = JSON.stringify(response?.result ?? response?.error ?? {}).slice(0, 800);
-            this.addLogEntry('debug', `result: ${preview}${preview.length === 800 ? '…' : ''}`, serviceId);
-          } catch {}
-          reply.send(response);
-        } finally {
-          await adapter.disconnect();
-        }
-      } catch (error) {
-        this.addLogEntry('error', `Proxy failed: ${(error as Error)?.message || 'unknown error'}`, (request.params as any)?.serviceId);
-        reply.code(500).send({
-          error: 'Proxy request failed',
-          message: error instanceof Error ? error.message : 'Unknown error'
-        });
-      }
-    });
-
-    
-
-
-  }
 
   private setupErrorHandlers(): void {
     this.server.setErrorHandler(async (error, request, reply) => {
