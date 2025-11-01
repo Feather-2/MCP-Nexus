@@ -104,6 +104,58 @@ export class OrchestratorRoutes extends BaseRouteHandler {
       }
     });
 
+    // Quick group - Generate template and create subagent in one step
+    server.post('/api/orchestrator/quick-group', async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const status = this.ctx.orchestratorManager?.getStatus();
+        if (!status?.enabled || !this.ctx.orchestratorManager) {
+          return this.respondError(reply, 503, 'Orchestrator disabled', { code: 'DISABLED', recoverable: true });
+        }
+        if (!this.ctx.mcpGenerator) {
+          return this.respondError(reply, 503, 'MCP Generator not initialized', { code: 'NOT_READY' });
+        }
+        const body = (request.body || {}) as { groupName?: string; source: any; options?: any; auth?: any };
+        if (!body.source) {
+          return this.respondError(reply, 400, 'source is required', { code: 'BAD_REQUEST', recoverable: true });
+        }
+        // Generate & auto-register template
+        const genRes = await this.ctx.mcpGenerator.generate({
+          source: body.source,
+          options: { ...(body.options || {}), autoRegister: true, testMode: false }
+        } as any);
+        if (!genRes.success || !genRes.template) {
+          return this.respondError(reply, 400, genRes.error || 'Generation failed', { code: 'BAD_REQUEST', recoverable: true });
+        }
+        const templateName = genRes.template.name;
+        const actions = Array.isArray(genRes.template.tools) && genRes.template.tools.length
+          ? genRes.template.tools.map((t: any) => t.name).filter(Boolean)
+          : [];
+
+        const subDir = status.subagentsDir;
+        const fs = await import('fs/promises');
+        const path = await import('path');
+        await fs.mkdir(subDir, { recursive: true });
+        const subagentName = body.groupName || templateName;
+        const subagentCfg: SubagentConfig = {
+          name: subagentName,
+          tools: [templateName],
+          actions,
+          maxConcurrency: 2,
+          weights: { cost: 0.5, performance: 0.5 },
+          policy: { domains: ['generated'] }
+        } as any;
+        await fs.writeFile(path.join(subDir, `${subagentName}.json`), JSON.stringify(subagentCfg, null, 2), 'utf-8');
+
+        if (!this.subagentLoader) this.subagentLoader = new SubagentLoader(subDir, this.ctx.logger);
+        await this.subagentLoader.loadAll();
+
+        reply.code(201).send({ success: true, name: subagentName, template: templateName });
+      } catch (error) {
+        this.ctx.logger.error('Quick group creation failed', error);
+        reply.code(500).send({ success: false, error: (error as Error).message });
+      }
+    });
+
     // Create/update subagent
     server.post('/api/orchestrator/subagents', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
