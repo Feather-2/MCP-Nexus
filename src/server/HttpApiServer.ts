@@ -323,15 +323,36 @@ export class HttpApiServer {
     this.server.register(cors, {
       origin: (origin, cb) => {
         try {
-          if (!this.config.enableCors) return cb(null, false);
-          if (!origin) return cb(null, true); // non-browser or same-origin
+          // Always allow requests without origin (same-origin, non-browser, curl, etc.)
+          if (!origin) return cb(null, true);
+
+          // If CORS is disabled, only allow same-origin
+          if (!this.config.enableCors) {
+            const selfOrigin = `http://${this.config.host || '127.0.0.1'}:${this.config.port || 19233}`;
+            const isSameOrigin = origin === selfOrigin ||
+                                 origin === selfOrigin.replace('127.0.0.1', 'localhost') ||
+                                 origin === selfOrigin.replace('localhost', '127.0.0.1');
+            return cb(null, isSameOrigin);
+          }
+
+          // Check if origin is the server itself
+          const selfOrigin = `http://${this.config.host || '127.0.0.1'}:${this.config.port || 19233}`;
+          if (origin === selfOrigin ||
+              origin === selfOrigin.replace('127.0.0.1', 'localhost') ||
+              origin === selfOrigin.replace('localhost', '127.0.0.1')) {
+            return cb(null, true);
+          }
+
+          // Check configured origins
           const allowed = new Set(this.config.corsOrigins || []);
           if (allowed.has(origin)) return cb(null, true);
-          // allow subpath variants without trailing slash issues
+
+          // Allow subpath variants without trailing slash issues
           const o = origin.replace(/\/$/, '');
           for (const a of allowed) {
             if (o === a.replace(/\/$/, '')) return cb(null, true);
           }
+
           return cb(new Error('CORS origin not allowed'), false);
         } catch (e) {
           return cb(e as Error, false);
@@ -399,12 +420,14 @@ export class HttpApiServer {
 
     this.server.register(fastifyStatic, {
       root: staticRoot,
-      prefix: '/static/'
+      prefix: '/static/',
+      decorateReply: true // Only the first registration decorates reply
     });
     // Serve vite assets under /assets/ to match index.html references
     this.server.register(fastifyStatic, {
       root: join(staticRoot, 'assets'),
-      prefix: '/assets/'
+      prefix: '/assets/',
+      decorateReply: false // Prevent duplicate decorator error
     });
 
     // Serve index.html for root and SPA routes
@@ -2740,12 +2763,15 @@ export class HttpApiServer {
 
   private setupErrorHandlers(): void {
     this.server.setErrorHandler(async (error, request, reply) => {
-      this.logger.error('HTTP API error:', {
+      const errorDetails = {
         method: request.method,
         url: request.url,
         message: (error as any)?.message || String(error),
-        stack: (error as any)?.stack
-      });
+        stack: (error as any)?.stack,
+        code: (error as any)?.code,
+        statusCode: (error as any)?.statusCode
+      };
+      this.logger.error('HTTP API error:', errorDetails);
 
       reply.code(500).send({
         error: 'Internal Server Error',

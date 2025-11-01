@@ -36,11 +36,21 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
     }
 
     try {
-      this.logger.debug(`Starting stdio process: ${command} ${args.join(' ')}`);
+      // Normalize command for Windows (npm -> npm.cmd, npx -> npx.cmd, etc.)
+      let normalizedCommand = command;
+      if (process.platform === 'win32') {
+        const baseName = path.basename(command).toLowerCase();
+        if (['npm', 'npx', 'node'].includes(baseName) && !baseName.endsWith('.cmd') && !baseName.endsWith('.exe')) {
+          // For npm/npx, add .cmd; for node, add .exe
+          normalizedCommand = baseName === 'node' ? command + '.exe' : command + '.cmd';
+        }
+      }
+
+      this.logger.debug(`Starting stdio process: ${normalizedCommand} ${args.join(' ')}`);
 
       // Basic command allowlist to reduce injection surface when shell=true (Windows)
-      const ALLOWED_COMMANDS = new Set(['node', 'npx', 'npm', 'python', 'python3', 'deno']);
-      const baseCmd = path.basename(command).toLowerCase();
+      const ALLOWED_COMMANDS = new Set(['node', 'node.exe', 'npx', 'npx.cmd', 'npm', 'npm.cmd', 'python', 'python.exe', 'python3', 'python3.exe', 'deno', 'deno.exe']);
+      const baseCmd = path.basename(normalizedCommand).toLowerCase().replace(/\\/g, '/');
       if (process.platform === 'win32' && !ALLOWED_COMMANDS.has(baseCmd)) {
         throw new Error(`Command not allowed: ${baseCmd}`);
       }
@@ -69,7 +79,7 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
         opts.cwd = workingDirectory;
       }
 
-      this.process = spawn(command, args, opts);
+      this.process = spawn(normalizedCommand, args, opts);
 
       if (!this.process.pid) {
         throw new Error(`Failed to start process: ${command}`);
