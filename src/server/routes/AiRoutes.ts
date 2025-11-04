@@ -1,5 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseRouteHandler, RouteContext } from './RouteContext.js';
+import { z } from 'zod';
+import { AiConfigSchema } from '../../types/index.js';
 
 /**
  * AI provider configuration, testing, and chat routes
@@ -19,7 +21,7 @@ export class AiRoutes extends BaseRouteHandler {
         const cfg = await this.ctx.configManager.get('ai');
         reply.send({ config: cfg || { provider: 'none' } });
       } catch (error) {
-        reply.code(500).send({ error: (error as Error).message });
+        return this.respondError(reply, 500, (error as Error).message || 'Failed to load AI config', { code: 'AI_CONFIG_ERROR' });
       }
     });
 
@@ -27,28 +29,34 @@ export class AiRoutes extends BaseRouteHandler {
     server.put('/api/ai/config', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const body = (request.body as any) || {};
-        const allowed: any = {};
-        if (typeof body.provider === 'string') allowed.provider = body.provider;
-        if (typeof body.model === 'string') allowed.model = body.model;
-        if (typeof body.endpoint === 'string') allowed.endpoint = body.endpoint;
-        if (typeof body.timeoutMs === 'number') allowed.timeoutMs = body.timeoutMs;
-        if (typeof body.streaming === 'boolean') allowed.streaming = body.streaming;
-
-        const updated = await this.ctx.configManager.updateConfig({ ai: { ...(await this.ctx.configManager.get('ai')), ...allowed } as any });
+        // 仅允许 AiConfigSchema 中定义的非敏感字段
+        const parsed = AiConfigSchema.partial().parse(body);
+        const current = (await this.ctx.configManager.get('ai')) || {};
+        const updated = await this.ctx.configManager.updateConfig({ ai: { ...current, ...parsed } as any });
         reply.send({ success: true, config: (updated as any).ai });
       } catch (error) {
-        reply.code(500).send({ success: false, error: (error as Error).message });
+        if (error instanceof z.ZodError) {
+          return this.respondError(reply, 400, 'Invalid AI config', { code: 'BAD_REQUEST', recoverable: true, meta: error.errors });
+        }
+        return this.respondError(reply, 500, (error as Error).message || 'Failed to update AI config', { code: 'AI_CONFIG_ERROR' });
       }
     });
 
     // Test AI connectivity/settings without persisting secrets
     server.post('/api/ai/test', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const body = (request.body as any) || {};
-        const provider = String(body.provider || (await this.ctx.configManager.get<any>('ai'))?.provider || 'none');
-        const endpoint = String(body.endpoint || (await this.ctx.configManager.get<any>('ai'))?.endpoint || '');
-        const model = String(body.model || (await this.ctx.configManager.get<any>('ai'))?.model || '');
-        const mode = (body.mode as string) || 'env-only';
+        const TestSchema = z.object({
+          provider: z.string().optional(),
+          endpoint: z.string().optional(),
+          model: z.string().optional(),
+          mode: z.enum(['env-only', 'ping']).optional().default('env-only')
+        });
+        const body = TestSchema.parse((request.body as any) || {});
+        const baseCfg = (await this.ctx.configManager.get<any>('ai')) || {};
+        const provider = String(body.provider || baseCfg.provider || 'none');
+        const endpoint = String(body.endpoint || baseCfg.endpoint || '');
+        const model = String(body.model || baseCfg.model || '');
+        const mode = body.mode || 'env-only';
 
         const envStatus = this.checkAiEnv(provider);
 
@@ -80,15 +88,24 @@ export class AiRoutes extends BaseRouteHandler {
           ping: pingResult
         });
       } catch (error) {
-        reply.code(500).send({ success: false, error: (error as Error).message });
+        if (error instanceof z.ZodError) {
+          return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: error.errors });
+        }
+        return this.respondError(reply, 500, (error as Error).message || 'AI test error', { code: 'AI_ERROR' });
       }
     });
 
     // Simple chat endpoint (non-streaming). If provider/env not configured, returns a heuristic assistant reply.
     server.post('/api/ai/chat', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const body = (request.body as any) || {};
-        const messages: Array<{ role: string; content: string }> = Array.isArray(body.messages) ? body.messages : [];
+        const MsgSchema = z.object({
+          messages: z.array(z.object({
+            role: z.enum(['system','user','assistant']).default('user'),
+            content: z.string()
+          })).min(1)
+        });
+        const body = MsgSchema.parse((request.body as any) || {});
+        const messages: Array<{ role: string; content: string }> = body.messages;
         const ai = (await this.ctx.configManager.get<any>('ai')) || {};
         const provider = String(ai.provider || 'none');
 
@@ -104,6 +121,9 @@ export class AiRoutes extends BaseRouteHandler {
         const assistant = this.buildHeuristicPlan(messages);
         reply.send({ success: true, message: { role: 'assistant', content: assistant }, provider });
       } catch (error) {
+        if (error instanceof z.ZodError) {
+          return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: error.errors });
+        }
         return this.respondError(reply, 500, (error as Error).message || 'AI chat error', { code: 'AI_ERROR' });
       }
     });
@@ -111,8 +131,9 @@ export class AiRoutes extends BaseRouteHandler {
     // Streaming chat (SSE): GET /api/ai/chat/stream?q=...
     server.get('/api/ai/chat/stream', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const { q } = (request.query as any) || {};
-        const user = String(q || '');
+        const QSchema = z.object({ q: z.string().optional().default('') });
+        const qBody = QSchema.parse((request.query as any) || {});
+        const user = String(qBody.q || '');
         const ai = (await this.ctx.configManager.get<any>('ai')) || {};
         const provider = String(ai.provider || 'none');
 
@@ -155,7 +176,8 @@ export class AiRoutes extends BaseRouteHandler {
         }, 120);
       } catch (error) {
         try {
-          reply.raw.write(`data: ${JSON.stringify({ event: 'error', error: (error as Error).message })}\n\n`);
+          const msg = error instanceof z.ZodError ? 'Invalid request query' : (error as Error).message;
+          reply.raw.write(`data: ${JSON.stringify({ event: 'error', error: msg })}\n\n`);
         } catch {}
         try { reply.raw.end(); } catch {}
       }

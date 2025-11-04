@@ -114,11 +114,12 @@ export class SandboxRoutes extends BaseRouteHandler {
     server.post('/api/sandbox/repair', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         if (this.ctx.sandboxInstalling) {
-          return reply.code(409).send({ success: false, error: 'Sandbox installer busy', code: 'BUSY' } as any);
+          return this.respondError(reply, 409, 'Sandbox installer busy', { code: 'BUSY', recoverable: true });
         }
         this.ctx.sandboxInstalling = true;
-        const body = (request.body as any) || {};
-        const wants: string[] = Array.isArray(body.components) && body.components.length ? body.components : ['node','python','go','packages'];
+        const Body = z.object({ components: z.array(z.string()).optional() });
+        const parsed = Body.safeParse((request.body as any) || {});
+        const wants: string[] = parsed.success && parsed.data.components && parsed.data.components.length ? parsed.data.components : ['node','python','go','packages'];
         const status = await this.inspectSandbox();
         const missing: string[] = [];
         if (wants.includes('node') && !status.nodeReady) missing.push('node');
@@ -133,7 +134,7 @@ export class SandboxRoutes extends BaseRouteHandler {
         reply.send({ success: true, result });
       } catch (error) {
         this.ctx.logger.error('Sandbox repair failed:', error);
-        reply.code(500).send({ success: false, error: (error as Error).message });
+        return this.respondError(reply, 500, (error as Error).message || 'Sandbox repair failed', { code: 'SANDBOX_REPAIR_FAILED' });
       } finally {
         this.ctx.sandboxInstalling = false;
       }

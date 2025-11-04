@@ -24,12 +24,12 @@ export class ExternalImportRoutes extends BaseRouteHandler {
         const discovered = await importer.discoverAll();
         reply.send({ success: true, discovered });
       } catch (error) {
-        reply.code(500).send({ success: false, error: (error as Error).message });
+        return this.respondError(reply, 500, (error as Error).message || 'Import preview failed', { code: 'IMPORT_PREVIEW_FAILED' });
       }
     });
 
     // Apply imported configs as templates
-    server.post('/api/config/import/apply', async (request: FastifyRequest, reply: FastifyReply) => {
+    server.post('/api/config/import/apply', async (_request: FastifyRequest, reply: FastifyReply) => {
       try {
         const importer = getImporter();
         const discovered = await importer.discoverAll();
@@ -46,7 +46,7 @@ export class ExternalImportRoutes extends BaseRouteHandler {
         }
         reply.send({ success: true, applied });
       } catch (error) {
-        reply.code(500).send({ success: false, error: (error as Error).message });
+        return this.respondError(reply, 500, (error as Error).message || 'Import apply failed', { code: 'IMPORT_APPLY_FAILED' });
       }
     });
   }

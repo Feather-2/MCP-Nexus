@@ -1,5 +1,6 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseRouteHandler, RouteContext } from './RouteContext.js';
+import { z } from 'zod';
 import { RouteRequest, ServiceHealth, HealthCheckResult } from '../../types/index.js';
 
 interface RouteRequestBody {
@@ -23,10 +24,16 @@ export class RoutingRoutes extends BaseRouteHandler {
 
     // Route request to appropriate service
     server.post('/api/route', async (request: FastifyRequest, reply: FastifyReply) => {
-      const body = request.body as RouteRequestBody;
-
-      if (!body.method) {
-        return this.respondError(reply, 400, 'method is required', { code: 'BAD_REQUEST', recoverable: true });
+      const Body = z.object({
+        method: z.string().min(1),
+        params: z.any().optional(),
+        serviceGroup: z.string().optional(),
+        contentType: z.string().optional(),
+        contentLength: z.coerce.number().int().positive().optional()
+      });
+      let body: z.infer<typeof Body>;
+      try { body = Body.parse((request.body as any) || {}); } catch (e) {
+        const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid route request', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
       }
 
       try {
@@ -61,11 +68,7 @@ export class RoutingRoutes extends BaseRouteHandler {
         const routeResponse = await this.ctx.router.route(routeRequest);
 
         if (!routeResponse.success) {
-          reply.code(503).send({
-            error: 'No services available',
-            message: routeResponse.error
-          });
-          return;
+          return this.respondError(reply, 503, routeResponse.error || 'No services available', { code: 'NO_SERVICE' });
         }
 
         reply.send({
@@ -74,17 +77,16 @@ export class RoutingRoutes extends BaseRouteHandler {
           routingDecision: routeResponse.routingDecision
         });
       } catch (error) {
-        reply.code(500).send({
-          error: 'Routing failed',
-          message: error instanceof Error ? error.message : 'Unknown error'
-        });
+        return this.respondError(reply, 500, error instanceof Error ? error.message : 'Routing failed', { code: 'ROUTING_ERROR' });
       }
     });
 
     // Proxy MCP requests to services
     server.post('/api/proxy/:serviceId', async (request: FastifyRequest, reply: FastifyReply) => {
-      const { serviceId } = request.params as { serviceId: string };
-      const mcpMessage = request.body as any;
+      const Params = z.object({ serviceId: z.string().min(1) });
+      let serviceId: string;
+      try { ({ serviceId } = Params.parse(request.params as any)); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid service id', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors }); }
+      const mcpMessage = (request.body as any) || {};
 
       try {
         const service = await this.ctx.serviceRegistry.getService(serviceId);
@@ -116,8 +118,7 @@ export class RoutingRoutes extends BaseRouteHandler {
         } catch {}
 
         try {
-          const response = await (adapter as any).sendAndReceive?.(mcpMessage) ||
-                           await adapter.send(mcpMessage);
+          const response = await ((adapter as any).sendAndReceive?.(mcpMessage) ?? adapter.send(mcpMessage));
           const duration = Date.now() - startTs;
           this.ctx.addLogEntry('info', `Proxy response ${mcpMessage?.method || 'unknown'} (id=${mcpMessage?.id ?? 'auto'}) in ${duration}ms`, serviceId, { response });
           try {
@@ -130,10 +131,7 @@ export class RoutingRoutes extends BaseRouteHandler {
         }
       } catch (error) {
         this.ctx.addLogEntry('error', `Proxy failed: ${(error as Error)?.message || 'unknown error'}`, (request.params as any)?.serviceId);
-        reply.code(500).send({
-          error: 'Proxy request failed',
-          message: error instanceof Error ? error.message : 'Unknown error'
-        });
+        return this.respondError(reply, 500, error instanceof Error ? error.message : 'Proxy request failed', { code: 'PROXY_ERROR' });
       }
     });
   }
