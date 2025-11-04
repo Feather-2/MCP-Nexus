@@ -1,6 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseRouteHandler, RouteContext } from './RouteContext.js';
-import { GenerateRequest, ExportRequest, ImportRequest } from '../../types/index.js';
+import { GenerateRequest, ExportRequest, ImportRequest, GenerateRequestSchema, ExportRequestSchema, ImportRequestSchema } from '../../types/index.js';
+import { z } from 'zod';
 import { createHmac } from 'crypto';
 
 /**
@@ -19,12 +20,11 @@ export class GeneratorRoutes extends BaseRouteHandler {
     // Generate MCP from various sources
     server.post('/api/generator/generate', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
+        const body = GenerateRequestSchema.parse((request.body as any) || {});
         if (!this.ctx.mcpGenerator) {
           return this.respondError(reply, 503, 'MCP Generator not initialized', { code: 'NOT_READY', recoverable: true });
         }
-
-        const body = request.body as GenerateRequest;
-        const result = await this.ctx.mcpGenerator.generate(body);
+        const result = await this.ctx.mcpGenerator.generate(body as GenerateRequest);
 
         if (result.success) {
           this.ctx.logger.info('MCP service generated successfully', { name: result.template?.name });
@@ -32,26 +32,22 @@ export class GeneratorRoutes extends BaseRouteHandler {
 
         reply.send(result);
       } catch (error) {
+        if (error instanceof z.ZodError) {
+          return this.respondError(reply, 400, 'Invalid generate request', { code: 'BAD_REQUEST', recoverable: true, meta: error.errors });
+        }
         this.ctx.logger.error('Failed to generate MCP service', error);
-        reply.code(500).send({
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        });
+        return this.respondError(reply, 500, error instanceof Error ? error.message : 'Unknown error', { code: 'GEN_ERROR' });
       }
     });
 
     // Export template in various formats
     server.post('/api/generator/export', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
+        const body = ExportRequestSchema.parse((request.body as any) || {});
         if (!this.ctx.mcpGenerator) {
-          return reply.code(503).send({
-            success: false,
-            error: 'MCP Generator not initialized'
-          });
+          return this.respondError(reply, 503, 'MCP Generator not initialized', { code: 'NOT_READY', recoverable: true });
         }
-
-        const body = request.body as ExportRequest;
-        const result = await this.ctx.mcpGenerator.export(body);
+        const result = await this.ctx.mcpGenerator.export(body as ExportRequest);
 
         if (result.success) {
           this.ctx.logger.info('Template exported successfully', { name: body.templateName, format: body.format });
@@ -59,26 +55,22 @@ export class GeneratorRoutes extends BaseRouteHandler {
 
         reply.send(result);
       } catch (error) {
+        if (error instanceof z.ZodError) {
+          return this.respondError(reply, 400, 'Invalid export request', { code: 'BAD_REQUEST', recoverable: true, meta: error.errors });
+        }
         this.ctx.logger.error('Failed to export template', error);
-        reply.code(500).send({
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        });
+        return this.respondError(reply, 500, error instanceof Error ? error.message : 'Unknown error', { code: 'EXPORT_ERROR' });
       }
     });
 
     // Import template from external source
     server.post('/api/generator/import', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
+        const body = ImportRequestSchema.parse((request.body as any) || {});
         if (!this.ctx.mcpGenerator) {
-          return reply.code(503).send({
-            success: false,
-            error: 'MCP Generator not initialized'
-          });
+          return this.respondError(reply, 503, 'MCP Generator not initialized', { code: 'NOT_READY', recoverable: true });
         }
-
-        const body = request.body as ImportRequest;
-        const result = await this.ctx.mcpGenerator.import(body);
+        const result = await this.ctx.mcpGenerator.import(body as ImportRequest);
 
         if (result.success) {
           this.ctx.logger.info('Template imported successfully', { name: result.template?.name });
@@ -86,33 +78,28 @@ export class GeneratorRoutes extends BaseRouteHandler {
 
         reply.send(result);
       } catch (error) {
+        if (error instanceof z.ZodError) {
+          return this.respondError(reply, 400, 'Invalid import request', { code: 'BAD_REQUEST', recoverable: true, meta: error.errors });
+        }
         this.ctx.logger.error('Failed to import template', error);
-        reply.code(500).send({
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        });
+        return this.respondError(reply, 500, error instanceof Error ? error.message : 'Unknown error', { code: 'IMPORT_ERROR' });
       }
     });
 
     // Download exported file
     server.get('/api/generator/download/:filename', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const { filename } = request.params as { filename: string };
+        const Params = z.object({ filename: z.string().min(1) });
+        const { filename } = Params.parse(request.params as any);
 
         if (!this.ctx.mcpGenerator) {
-          return reply.code(503).send({
-            success: false,
-            error: 'MCP Generator not initialized'
-          });
+          return this.respondError(reply, 503, 'MCP Generator not initialized', { code: 'NOT_READY', recoverable: true });
         }
 
         const content = await (this.ctx.mcpGenerator as any).getExportedFile(filename);
 
         if (!content) {
-          return reply.code(404).send({
-            success: false,
-            error: 'File not found'
-          });
+          return this.respondError(reply, 404, 'File not found', { code: 'NOT_FOUND', recoverable: true });
         }
 
         const ext = filename.split('.').pop();
@@ -126,10 +113,7 @@ export class GeneratorRoutes extends BaseRouteHandler {
           .send(content);
       } catch (error) {
         this.ctx.logger.error('Failed to download exported file', error);
-        reply.code(500).send({
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        });
+        return this.respondError(reply, 500, error instanceof Error ? error.message : 'Unknown error', { code: 'DOWNLOAD_ERROR' });
       }
     });
 
@@ -147,7 +131,8 @@ export class GeneratorRoutes extends BaseRouteHandler {
     // Marketplace - Search templates (matches docs: GET /api/generator/marketplace/search)
     server.get('/api/generator/marketplace/search', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const { q } = (request.query as any) || {};
+        const Q = z.object({ q: z.string().optional().default('') });
+        const { q } = Q.parse((request.query as any) || {});
         const query = String(q || '').toLowerCase();
         const items = await this.loadMarketplaceItems();
         const results = !query
@@ -175,12 +160,10 @@ export class GeneratorRoutes extends BaseRouteHandler {
     // Marketplace - Install template (from static source)
     server.post('/api/generator/marketplace/install', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const body = request.body as { templateId?: string; name?: string };
+        const Body = z.object({ templateId: z.string().optional(), name: z.string().optional() }).refine(v => !!(v.templateId || v.name), { message: 'templateId or name is required' });
+        const body = Body.parse((request.body as any) || {});
         const items = await this.loadMarketplaceItems();
         const idOrName = body.templateId || body.name;
-        if (!idOrName) {
-          return this.respondError(reply, 400, 'templateId or name is required', { code: 'BAD_REQUEST', recoverable: true });
-        }
         const item = items.find((it: any) => it.id === idOrName || it.name === idOrName);
         if (!item) {
           return this.respondError(reply, 404, 'Template not found', { code: 'NOT_FOUND', recoverable: true });
@@ -193,6 +176,9 @@ export class GeneratorRoutes extends BaseRouteHandler {
         this.ctx.addLogEntry('info', `Marketplace installed: ${config.name}`, 'marketplace');
         reply.send({ success: true, name: config.name });
       } catch (error) {
+        if (error instanceof z.ZodError) {
+          return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: error.errors });
+        }
         return this.respondError(reply, 500, error instanceof Error ? error.message : 'Marketplace install failed', { code: 'MARKETPLACE_ERROR' });
       }
     });
