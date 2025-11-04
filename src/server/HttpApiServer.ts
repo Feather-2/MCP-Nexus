@@ -6,7 +6,7 @@ import fastifyStatic from '@fastify/static';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import { existsSync } from 'fs';
-import { randomBytes, createHash, pbkdf2Sync, scryptSync, randomUUID } from 'crypto';
+// Local MCP 加密/握手逻辑已下放到路由模块，无需在此引入 crypto
 import {
   Logger,
   GatewayConfig,
@@ -58,6 +58,7 @@ interface RouteRequestBody {
 }
 
 export class HttpApiServer {
+  private static readonly MAX_LOG_BUFFER_SIZE = 200;
   private server: FastifyInstance;
   private serviceRegistry: ServiceRegistryImpl;
   private authLayer: AuthenticationLayerImpl;
@@ -74,16 +75,9 @@ export class HttpApiServer {
   private subagentLoader?: SubagentLoader;
   private mcpGenerator?: McpGenerator;
   private sandboxStreamClients: Set<FastifyReply> = new Set();
-
-  // Local MCP Proxy state (handshake + token + code rotation)
-  private currentVerificationCode: string = '';
-  private previousVerificationCode: string = '';
-  private codeExpiresAt: number = 0;
-  private codeRotationMs: number = 60_000; // 60s
-  private codeRotationTimer?: ReturnType<typeof setInterval>;
-  private handshakeStore: Map<string, { id: string; origin: string; clientNonce: string; serverNonce: string; kdf: 'pbkdf2' | 'scrypt'; kdfParams: any; approved: boolean; expiresAt: number } > = new Map();
-  private tokenStore: Map<string, { origin: string; expiresAt: number }> = new Map();
-  private rateCounters: Map<string, number[]> = new Map(); // key -> timestamps
+  // Demo 日志与 SSE 清理定时器
+  private demoLogTimer?: ReturnType<typeof setInterval>;
+  private sseCleanupTimer?: ReturnType<typeof setInterval>;
 
   constructor(
     private config: GatewayConfig,
@@ -153,7 +147,7 @@ export class HttpApiServer {
     this.addLogEntry('info', '监控服务已启动', 'monitor');
 
     // Set up periodic log generation for demo
-    setInterval(() => {
+    this.demoLogTimer = setInterval(() => {
       const messages = [
         '处理客户端连接请求',
         '服务健康检查完成',
@@ -173,7 +167,7 @@ export class HttpApiServer {
     }, 3000 + Math.random() * 7000); // Random interval between 3-10 seconds
 
     // Periodic cleanup of disconnected SSE clients
-    setInterval(() => {
+    this.sseCleanupTimer = setInterval(() => {
       try {
         for (const client of Array.from(this.logStreamClients)) {
           const raw: any = client.raw as any;
@@ -200,9 +194,9 @@ export class HttpApiServer {
       data
     };
 
-    // Keep only last 200 log entries
+    // Keep only last MAX_LOG_BUFFER_SIZE log entries
     this.logBuffer.push(logEntry);
-    if (this.logBuffer.length > 200) {
+    if (this.logBuffer.length > HttpApiServer.MAX_LOG_BUFFER_SIZE) {
       this.logBuffer.shift();
     }
 
@@ -243,11 +237,6 @@ export class HttpApiServer {
         registry: this.serviceRegistry
       });
 
-      // Initialize and rotate Local MCP Proxy verification code
-      // 保证 /local-proxy/code 与握手流程有可用验证码
-      this.rotateVerificationCode();
-      this.codeRotationTimer = setInterval(() => this.rotateVerificationCode(), this.codeRotationMs);
-
       const host = this.config.host || '127.0.0.1';
       const port = this.config.port || 19233;
 
@@ -261,11 +250,9 @@ export class HttpApiServer {
 
   async stop(): Promise<void> {
     try {
-      // 清理本地 MCP 验证码轮换定时器
-      if (this.codeRotationTimer) {
-        clearInterval(this.codeRotationTimer);
-        this.codeRotationTimer = undefined;
-      }
+      // 清理日志与 SSE 相关定时器
+      if (this.demoLogTimer) clearInterval(this.demoLogTimer);
+      if (this.sseCleanupTimer) clearInterval(this.sseCleanupTimer);
 
       await this.server.close();
       this.logger.info('HTTP API server stopped');
@@ -279,6 +266,7 @@ export class HttpApiServer {
    * Create route context for modular route handlers
    */
   private createRouteContext(): RouteContext {
+    const self = this;
     return {
       server: this.server,
       logger: this.logger,
@@ -287,8 +275,9 @@ export class HttpApiServer {
       router: this.router,
       protocolAdapters: this.protocolAdapters,
       configManager: this.configManager,
-      orchestratorManager: this.orchestratorManager,
-      mcpGenerator: this.mcpGenerator,
+      get orchestratorManager() { return self.orchestratorManager; },
+      get mcpGenerator() { return self.mcpGenerator; },
+      getOrchestratorStatus: () => self.orchestratorStatus,
       logBuffer: this.logBuffer,
       logStreamClients: this.logStreamClients,
       sandboxStreamClients: this.sandboxStreamClients,
@@ -296,7 +285,25 @@ export class HttpApiServer {
       sandboxInstalling: this.sandboxInstalling,
       addLogEntry: this.addLogEntry.bind(this),
       respondError: this.respondError.bind(this)
+    } as any;
+  }
+
+  // SSE headers helper to reflect CORS policy
+  public writeSseHeaders(reply: FastifyReply, request: FastifyRequest): void {
+    const origin = (request.headers.origin as string | undefined) || '';
+    const allowed = new Set(this.config.corsOrigins || []);
+    const headers: Record<string, string> = {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      'Connection': 'keep-alive'
     };
+    if (origin && allowed.has(origin)) {
+      headers['Access-Control-Allow-Origin'] = origin;
+      headers['Vary'] = 'Origin';
+    }
+    try {
+      (reply as any).raw.writeHead(200, headers);
+    } catch {}
   }
 
   private setupMiddleware(): void {
@@ -425,6 +432,24 @@ export class HttpApiServer {
       const elapsed = (reply as any).elapsedTime ?? undefined;
       this.logger.debug(`${request.method} ${request.url} - ${reply.statusCode}`, { responseTime: elapsed });
     });
+  }
+
+  // SSE headers helper to reflect CORS policy (used by tests and streaming routes)
+  public writeSseHeaders(reply: FastifyReply, request: FastifyRequest): void {
+    const origin = (request.headers.origin as string | undefined) || '';
+    const allowed = new Set(this.config.corsOrigins || []);
+    const headers: Record<string, string> = {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      'Connection': 'keep-alive'
+    };
+    if (origin && allowed.has(origin)) {
+      headers['Access-Control-Allow-Origin'] = origin;
+      headers['Vary'] = 'Origin';
+    }
+    try {
+      (reply as any).raw.writeHead(200, headers);
+    } catch {}
   }
 
   private setupRoutes(): void {
@@ -672,78 +697,4 @@ export class HttpApiServer {
     return this.router;
   }
 
-  // ============ Local MCP Proxy per docs/LOCAL-MCP-PROXY.md ============
-  private extractLocalMcpToken(request: FastifyRequest): string | undefined {
-    const auth = request.headers.authorization as string | undefined;
-    if (!auth) return undefined;
-    const prefix = 'LocalMCP ';
-    if (auth.startsWith(prefix)) return auth.substring(prefix.length).trim();
-    return undefined;
-  }
-
-  private validateToken(token: string, origin?: string): boolean {
-    const rec = this.tokenStore.get(token);
-    if (!rec) return false;
-    if (!origin || rec.origin !== origin) return false;
-    if (Date.now() > rec.expiresAt) {
-      this.tokenStore.delete(token);
-      return false;
-    }
-    return true;
-  }
-
-  private async findTargetService(serviceId?: string | null) {
-    if (serviceId) {
-      const svc = await this.serviceRegistry.getService(serviceId);
-      return svc || null;
-    }
-    const list = await this.serviceRegistry.listServices();
-    // Prefer running stdio services
-    const running = list.filter(s => s.state === 'running');
-    const stdioFirst = running.find(s => s.config.transport === 'stdio') || running[0];
-    return stdioFirst || list[0] || null;
-  }
-
-  private isLocalHost(hostHeader?: string): boolean {
-    if (!hostHeader) return false;
-    const host = hostHeader.toLowerCase();
-    return host.startsWith('127.0.0.1:') || host.startsWith('localhost:');
-  }
-
-  private requireAndValidateOrigin(request: FastifyRequest, reply: FastifyReply): string | undefined {
-    const host = request.headers['host'];
-    if (!this.isLocalHost(typeof host === 'string' ? host : undefined)) {
-      reply.code(403).send({ success: false, error: 'Host not allowed', code: 'HOST_FORBIDDEN' });
-      return undefined;
-    }
-    const origin = request.headers['origin'];
-    if (!origin || typeof origin !== 'string') {
-      reply.code(400).send({ success: false, error: 'Origin required', code: 'ORIGIN_REQUIRED' });
-      return undefined;
-    }
-    // Basic Sec-Fetch-Site check
-    const sfs = request.headers['sec-fetch-site'];
-    if (sfs && typeof sfs === 'string' && sfs.toLowerCase() === 'cross-site') {
-      reply.code(403).send({ success: false, error: 'Cross-site not allowed', code: 'FETCH_SITE_FORBIDDEN' });
-      return undefined;
-    }
-    return origin;
-  }
-
-  private rotateVerificationCode(): void {
-    const newCode = (Math.floor(Math.random() * 1_0000_0000)).toString().padStart(8, '0');
-    this.previousVerificationCode = this.currentVerificationCode;
-    this.currentVerificationCode = newCode;
-    this.codeExpiresAt = Date.now() + this.codeRotationMs;
-    this.addLogEntry('info', 'mcp.local.code_rotate');
-  }
-
-  private checkRateLimit(key: string, maxCount: number, windowMs: number): boolean {
-    const now = Date.now();
-    const arr = this.rateCounters.get(key) || [];
-    const recent = arr.filter(ts => now - ts < windowMs);
-    recent.push(now);
-    this.rateCounters.set(key, recent);
-    return recent.length <= maxCount;
-  }
 }

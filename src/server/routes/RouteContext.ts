@@ -7,6 +7,7 @@ import { ProtocolAdaptersImpl } from '../../adapters/ProtocolAdaptersImpl.js';
 import { ConfigManagerImpl } from '../../config/ConfigManagerImpl.js';
 import { OrchestratorManager } from '../../orchestrator/OrchestratorManager.js';
 import { McpGenerator } from '../../generator/McpGenerator.js';
+import type { OrchestratorStatus } from '../../orchestrator/OrchestratorManager.js';
 
 /**
  * Context shared across all route handlers
@@ -21,6 +22,7 @@ export interface RouteContext {
   configManager: ConfigManagerImpl;
   orchestratorManager?: OrchestratorManager;
   mcpGenerator?: McpGenerator;
+  getOrchestratorStatus?: () => OrchestratorStatus | null;
 
   // Shared state
   logBuffer: Array<{ timestamp: string; level: string; message: string; service?: string; data?: any }>;
