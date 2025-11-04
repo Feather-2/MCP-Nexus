@@ -1,5 +1,6 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseRouteHandler, RouteContext } from './RouteContext.js';
+import { z } from 'zod';
 
 interface ServiceRequestBody {
   templateName?: string;
@@ -26,7 +27,11 @@ export class ServiceRoutes extends BaseRouteHandler {
 
     // Get service by ID
     server.get('/api/services/:id', async (request: FastifyRequest, reply: FastifyReply) => {
-      const { id } = request.params as { id: string };
+      const Params = z.object({ id: z.string().min(1) });
+      let id: string;
+      try { ({ id } = Params.parse(request.params as any)); } catch (e) {
+        const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid service id', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
+      }
       const service = await this.ctx.serviceRegistry.getService(id);
 
       if (!service) {
@@ -38,10 +43,10 @@ export class ServiceRoutes extends BaseRouteHandler {
 
     // Create service from template
     server.post('/api/services', async (request: FastifyRequest, reply: FastifyReply) => {
-      const body = request.body as ServiceRequestBody;
-
-      if (!body.templateName) {
-        return this.respondError(reply, 400, 'Template name is required', { code: 'BAD_REQUEST', recoverable: true });
+      const Body = z.object({ templateName: z.string().min(1), instanceArgs: z.record(z.any()).optional() });
+      let body: z.infer<typeof Body>;
+      try { body = Body.parse((request.body as any) || {}); } catch (e) {
+        const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
       }
 
       try {
@@ -63,11 +68,11 @@ export class ServiceRoutes extends BaseRouteHandler {
 
     // Update service environment variables
     server.patch('/api/services/:id/env', async (request: FastifyRequest, reply: FastifyReply) => {
-      const { id } = request.params as { id: string };
-      const body = request.body as { env: Record<string, string> };
-
-      if (!body.env || typeof body.env !== 'object') {
-        return this.respondError(reply, 400, 'Environment variables object is required', { code: 'BAD_REQUEST', recoverable: true });
+      const Params = z.object({ id: z.string().min(1) });
+      const Body = z.object({ env: z.record(z.string()).refine(obj => Object.keys(obj).length >= 0) });
+      let id: string; let body: z.infer<typeof Body>;
+      try { ({ id } = Params.parse(request.params as any)); body = Body.parse((request.body as any) || {}); } catch (e) {
+        const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid request', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
       }
 
       try {
@@ -79,8 +84,7 @@ export class ServiceRoutes extends BaseRouteHandler {
         const templateName = service.config.name;
         const stopped = await this.ctx.serviceRegistry.stopService(id);
         if (!stopped) {
-          reply.code(500).send({ error: 'Failed to stop service for restart' });
-          return;
+          return this.respondError(reply, 500, 'Failed to stop service for restart', { code: 'RESTART_FAILED' });
         }
 
         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -96,7 +100,8 @@ export class ServiceRoutes extends BaseRouteHandler {
 
     // Stop service
     server.delete('/api/services/:id', async (request: FastifyRequest, reply: FastifyReply) => {
-      const { id } = request.params as { id: string };
+      const Params = z.object({ id: z.string().min(1) });
+      let id: string; try { ({ id } = Params.parse(request.params as any)); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid service id', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors }); }
 
       try {
         const success = await this.ctx.serviceRegistry.stopService(id);
@@ -113,20 +118,23 @@ export class ServiceRoutes extends BaseRouteHandler {
 
     // Get service health
     server.get('/api/services/:id/health', async (request: FastifyRequest, reply: FastifyReply) => {
-      const { id } = request.params as { id: string };
+      const Params = z.object({ id: z.string().min(1) });
+      let id: string; try { ({ id } = Params.parse(request.params as any)); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid service id', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors }); }
       try {
         const health = await this.ctx.serviceRegistry.checkHealth(id);
         reply.send({ health });
       } catch (error) {
-        reply.code(500).send({ error: 'Failed to check service health', message: (error as any)?.message || 'Unknown error' });
+        return this.respondError(reply, 500, (error as any)?.message || 'Failed to check service health', { code: 'HEALTH_FAILED' });
       }
     });
 
     // Get service logs
     server.get('/api/services/:id/logs', async (request: FastifyRequest, reply: FastifyReply) => {
-      const { id } = request.params as { id: string };
-      const { limit } = request.query as { limit?: string };
-      const logLimit = limit ? parseInt(limit) : 50;
+      const Params = z.object({ id: z.string().min(1) });
+      const Query = z.object({ limit: z.coerce.number().int().positive().max(1000).optional().default(50) });
+      let id: string; let q: z.infer<typeof Query>;
+      try { ({ id } = Params.parse(request.params as any)); q = Query.parse((request.query as any) || {}); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid request', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors }); }
+      const logLimit = q.limit ?? 50;
 
       try {
         const serviceLogs = this.ctx.logBuffer
@@ -159,10 +167,7 @@ export class ServiceRoutes extends BaseRouteHandler {
           reply.send(serviceLogs);
         }
       } catch (error) {
-        reply.code(500).send({
-          error: 'Failed to get service logs',
-          message: error instanceof Error ? error.message : 'Unknown error'
-        });
+        return this.respondError(reply, 500, error instanceof Error ? error.message : 'Failed to get service logs', { code: 'LOGS_FAILED' });
       }
     });
   }
