@@ -34,6 +34,12 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Install GUI dependencies
+        run: npm ci --prefix gui
+
+      - name: Build GUI
+        run: npm run build --prefix gui
+
       - name: Audit (moderate or higher)
         run: |
           npm audit --audit-level=moderate || true
