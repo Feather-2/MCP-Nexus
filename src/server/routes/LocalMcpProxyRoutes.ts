@@ -318,6 +318,13 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
     const now = Date.now();
     const arr = this.rateCounters.get(key) || [];
     const recent = arr.filter(ts => now - ts < windowMs);
+
+    // Immediately cleanup if no recent entries
+    if (recent.length === 0) {
+      this.rateCounters.delete(key);
+      return true; // No recent requests, allow
+    }
+
     recent.push(now);
     this.rateCounters.set(key, recent);
     return recent.length <= maxCount;

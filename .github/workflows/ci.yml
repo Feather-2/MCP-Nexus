@@ -30,6 +30,8 @@ jobs:
 
       - name: Test with coverage
         run: npm run test:coverage
+        env:
+          CI: true
 
       - name: Build
         run: npm run build
@@ -40,6 +42,8 @@ jobs:
       - name: Build GUI
         run: npm run build --prefix gui
 
-      - name: Audit (moderate or higher)
-        run: |
-          npm audit --audit-level=moderate || true
+      - name: Security audit (backend)
+        run: npm audit --audit-level=moderate
+
+      - name: Security audit (GUI)
+        run: npm audit --audit-level=moderate --prefix gui

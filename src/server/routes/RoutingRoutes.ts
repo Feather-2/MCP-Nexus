@@ -86,7 +86,19 @@ export class RoutingRoutes extends BaseRouteHandler {
       const Params = z.object({ serviceId: z.string().min(1) });
       let serviceId: string;
       try { ({ serviceId } = Params.parse(request.params as any)); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid service id', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors }); }
-      const mcpMessage = (request.body as any) || {};
+
+      // Validate MCP message structure
+      const McpMessageSchema = z.object({
+        jsonrpc: z.literal('2.0').optional().default('2.0'),
+        method: z.string().min(1),
+        params: z.any().optional(),
+        id: z.union([z.string(), z.number()]).optional()
+      });
+
+      let mcpMessage: z.infer<typeof McpMessageSchema>;
+      try { mcpMessage = McpMessageSchema.parse((request.body as any) || {}); } catch (e) {
+        const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid MCP message format', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
+      }
 
       try {
         const service = await this.ctx.serviceRegistry.getService(serviceId);
