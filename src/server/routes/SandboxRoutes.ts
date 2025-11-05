@@ -1,6 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseRouteHandler, RouteContext } from './RouteContext.js';
 import { join } from 'path';
+import { z } from 'zod';
 
 /**
  * Sandbox runtime installation and management routes

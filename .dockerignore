@@ -1,9 +1,9 @@
 node_modules
+gui/node_modules
 dist
 dist-simple
 .git
 .github
-gui
 mcp-sandbox
 generated
 templates
@@ -14,3 +14,4 @@ config/*.backup*
 .DS_Store
 coverage
 vitest*.json
+gui/dist

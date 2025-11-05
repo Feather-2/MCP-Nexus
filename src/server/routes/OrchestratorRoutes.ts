@@ -75,6 +75,9 @@ export class OrchestratorRoutes extends BaseRouteHandler {
       }
       try {
         const status = this.ctx.getOrchestratorStatus ? this.ctx.getOrchestratorStatus() : undefined;
+        if (!status) {
+          return this.respondError(reply, 503, 'Orchestrator not initialized', { code: 'NOT_INITIALIZED' });
+        }
         if (!this.subagentLoader) {
           this.subagentLoader = new SubagentLoader(status.subagentsDir, this.ctx.logger);
         }

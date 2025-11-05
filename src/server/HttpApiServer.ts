@@ -288,23 +288,7 @@ export class HttpApiServer {
     } as any;
   }
 
-  // SSE headers helper to reflect CORS policy
-  public writeSseHeaders(reply: FastifyReply, request: FastifyRequest): void {
-    const origin = (request.headers.origin as string | undefined) || '';
-    const allowed = new Set(this.config.corsOrigins || []);
-    const headers: Record<string, string> = {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
-      'Connection': 'keep-alive'
-    };
-    if (origin && allowed.has(origin)) {
-      headers['Access-Control-Allow-Origin'] = origin;
-      headers['Vary'] = 'Origin';
-    }
-    try {
-      (reply as any).raw.writeHead(200, headers);
-    } catch {}
-  }
+  
 
   private setupMiddleware(): void {
     // Distributed-friendly rate limiting (fallback to memory store by default)
