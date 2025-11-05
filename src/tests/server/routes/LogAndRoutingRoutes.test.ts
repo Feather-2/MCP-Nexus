@@ -77,7 +77,12 @@ describe('LogRoutes & RoutingRoutes - validation', () => {
   it('POST /api/proxy/:serviceId validates param and returns 404 for missing service', async () => {
     const bad = await (server as any).server.inject({ method: 'POST', url: '/api/proxy//', payload: {} });
     expect([400,404]).toContain(bad.statusCode);
-    const missing = await (server as any).server.inject({ method: 'POST', url: '/api/proxy/abc', payload: {} });
+    // Send valid MCP message structure to test service not found (not input validation)
+    const missing = await (server as any).server.inject({
+      method: 'POST',
+      url: '/api/proxy/abc',
+      payload: { method: 'tools/list', params: {} }
+    });
     expect(missing.statusCode).toBe(404);
   });
 });
