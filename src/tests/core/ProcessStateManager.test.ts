@@ -11,7 +11,8 @@ describe('ProcessStateManager', () => {
       debug: vi.fn(),
       info: vi.fn(),
       warn: vi.fn(),
-      error: vi.fn()
+      error: vi.fn(),
+      trace: vi.fn()
     };
     stateManager = new ProcessStateManager(mockLogger);
   });

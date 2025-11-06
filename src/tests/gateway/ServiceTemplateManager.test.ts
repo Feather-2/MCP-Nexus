@@ -27,7 +27,8 @@ describe('ServiceTemplateManager', () => {
       debug: vi.fn(),
       info: vi.fn(),
       warn: vi.fn(),
-      error: vi.fn()
+      error: vi.fn(),
+      trace: vi.fn()
     };
 
     // Mock path.join to return a predictable path

@@ -43,7 +43,9 @@ export class PbMcpGateway extends EventEmitter {
     try {
       const templatesDir = join(process.cwd(), 'config', 'templates');
       process.env.PB_TEMPLATES_DIR = templatesDir;
-    } catch {}
+    } catch (error) {
+      this.logger.warn('Failed to set templates directory:', error);
+    }
     this.configManager = new ConfigManagerImpl(defaultConfigPath, this.logger);
     this.orchestratorManager = new OrchestratorManager(defaultConfigPath, this.logger);
 
@@ -362,7 +364,7 @@ export class PbMcpGateway extends EventEmitter {
     }
 
     const routerMetrics = this.router.getMetrics();
-    const registryStats = await this._serviceRegistry.getRegistryStats();
+    await this._serviceRegistry.getRegistryStats(); // Fetch stats but don't need to use them here
 
     return {
       gateway: {
@@ -380,8 +382,8 @@ export class PbMcpGateway extends EventEmitter {
   }
 
   getMetrics(): {
-    registry: any;
-    router: any;
+    registry: ReturnType<ServiceRegistryImpl['getRegistryStats']>;
+    router: ReturnType<GatewayRouterImpl['getMetrics']>;
     auth: { activeTokens: number; activeApiKeys: number };
   } {
     this.ensureStarted();

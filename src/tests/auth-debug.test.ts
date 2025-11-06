@@ -12,7 +12,8 @@ describe('AuthenticationLayerImpl API Key Fix', () => {
       debug: vi.fn(),
       info: vi.fn(),
       warn: vi.fn(),
-      error: vi.fn()
+      error: vi.fn(),
+      trace: vi.fn()
     };
 
     mockConfig = {
