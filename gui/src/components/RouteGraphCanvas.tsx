@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Minus, Plus, RotateCcw } from "lucide-react";
 
 type Subagent = {
   name: string;
@@ -115,10 +117,16 @@ export default function RouteGraphCanvas({ subagents = [] as Subagent[] }: { sub
 
   return (
     <div ref={containerRef} className="relative w-full">
-      <div className="absolute right-2 top-2 z-10 flex items-center gap-1">
-        <button className="px-2 py-1 text-sm rounded border bg-card" onClick={() => setScale((s) => Math.max(0.5, s * 0.9))}>-</button>
-        <button className="px-2 py-1 text-sm rounded border bg-card" onClick={() => setScale((s) => Math.min(2, s * 1.1))}>+</button>
-        <button className="px-2 py-1 text-sm rounded border bg-card" onClick={resetView}>重置</button>
+      <div className="absolute right-2 top-2 z-10 flex items-center gap-1 bg-background/50 p-1 rounded-md border backdrop-blur-sm">
+        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setScale((s) => Math.max(0.5, s * 0.9))}>
+          <Minus className="h-4 w-4" />
+        </Button>
+        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setScale((s) => Math.min(2, s * 1.1))}>
+          <Plus className="h-4 w-4" />
+        </Button>
+        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={resetView}>
+          <RotateCcw className="h-4 w-4" />
+        </Button>
       </div>
 
       <svg

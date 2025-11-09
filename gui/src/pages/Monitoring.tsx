@@ -3,6 +3,17 @@ import { apiClient, type HealthStatus } from '../api/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import PageHeader from '@/components/PageHeader';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n';
@@ -17,7 +28,8 @@ import {
   AlertTriangle,
   CheckCircle,
   Pause,
-  Play
+  Play,
+  Download
 } from 'lucide-react';
 
 const Monitoring: React.FC = () => {
@@ -367,71 +379,100 @@ const Monitoring: React.FC = () => {
         </CardHeader>
         <CardContent>
           {/* Toolbar */}
-          <div className="flex flex-wrap items-center gap-3 mb-3 text-sm">
-            <div className="flex items-center gap-2">
-              <span className="text-muted-foreground">{t('mon.sortBy') || 'Sort by'}</span>
-              <select className="h-8 rounded border bg-background px-2" value={sortKey} onChange={(e) => setSortKey(e.target.value as any)}>
-                <option value="latency">{t('mon.latency') || 'Latency'}</option>
-                <option value="p95">{t('mon.p95') || 'P95'}</option>
-                <option value="p99">{t('mon.p99') || 'P99'}</option>
-                <option value="errorRate">{t('mon.errorRate') || 'Error Rate'}</option>
-              </select>
-              <select className="h-8 rounded border bg-background px-2" value={sortOrder} onChange={(e) => setSortOrder(e.target.value as any)}>
-                <option value="desc">{t('mon.orderDesc') || t('mon.desc') || 'Desc'}</option>
-                <option value="asc">{t('mon.orderAsc') || t('mon.asc') || 'Asc'}</option>
-              </select>
+          <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2">
+                <Select value={sortKey} onValueChange={(v) => setSortKey(v as any)}>
+                  <SelectTrigger className="w-[130px] h-8 text-xs">
+                    <SelectValue placeholder={t('mon.sortBy')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="latency">{t('mon.latency') || 'Latency'}</SelectItem>
+                    <SelectItem value="p95">{t('mon.p95') || 'P95'}</SelectItem>
+                    <SelectItem value="p99">{t('mon.p99') || 'P99'}</SelectItem>
+                    <SelectItem value="errorRate">{t('mon.errorRate') || 'Error Rate'}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as any)}>
+                  <SelectTrigger className="w-[90px] h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="desc">{t('mon.orderDesc') || 'Desc'}</SelectItem>
+                    <SelectItem value="asc">{t('mon.orderAsc') || 'Asc'}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  value={filterText}
+                  onChange={(e) => setFilterText(e.target.value)}
+                  className="h-8 w-[180px] text-xs"
+                  placeholder={t('mon.filter') || 'Filter services...'}
+                />
+              </div>
+              <div className="flex items-center space-x-2">
+                <Checkbox id="only-unhealthy" checked={onlyUnhealthy} onCheckedChange={(c) => setOnlyUnhealthy(!!c)} />
+                <label
+                  htmlFor="only-unhealthy"
+                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                >
+                  {t('mon.onlyUnhealthy') || 'Only unhealthy'}
+                </label>
+              </div>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-muted-foreground">{t('mon.filter') || 'Filter'}</span>
-              <input value={filterText} onChange={(e) => setFilterText(e.target.value)} className="h-8 rounded border bg-background px-2" placeholder={t('mon.service') || 'Service'} />
-            </div>
-            <label className="flex items-center gap-2"><input type="checkbox" checked={onlyUnhealthy} onChange={(e) => setOnlyUnhealthy(e.target.checked)} />{t('mon.onlyUnhealthy') || 'Only unhealthy'}</label>
-            <div className="ml-auto flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={exportHealthJSON} disabled={exporting}>JSON</Button>
-              <Button variant="outline" size="sm" onClick={exportHealthCSV} disabled={exporting}>CSV</Button>
+              <Button variant="outline" size="sm" onClick={exportHealthJSON} disabled={exporting} className="h-8 gap-1">
+                <Download className="h-3.5 w-3.5" /> JSON
+              </Button>
+              <Button variant="outline" size="sm" onClick={exportHealthCSV} disabled={exporting} className="h-8 gap-1">
+                <Download className="h-3.5 w-3.5" /> CSV
+              </Button>
             </div>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="text-center p-4 bg-muted/30 rounded-lg">
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className="text-center p-4 bg-muted/30 rounded-lg border">
               <div className="text-2xl font-semibold mb-1">
                 {healthStatus?.services?.total || 0}
               </div>
-              <div className="text-sm text-muted-foreground">{t('mon.totalServices')}</div>
+              <div className="text-xs text-muted-foreground uppercase tracking-wider">{t('mon.totalServices')}</div>
             </div>
-            <div className="text-center p-4 bg-muted/30 rounded-lg">
-              <div className="text-2xl font-semibold mb-1">
+            <div className="text-center p-4 bg-emerald-50/50 dark:bg-emerald-950/20 rounded-lg border border-emerald-100 dark:border-emerald-900/50">
+              <div className="text-2xl font-semibold mb-1 text-emerald-600 dark:text-emerald-400">
                 {healthStatus?.services?.running || 0}
               </div>
-              <div className="text-sm text-muted-foreground">{t('status.running')}</div>
+              <div className="text-xs text-emerald-600/80 dark:text-emerald-400/80 uppercase tracking-wider">{t('status.running')}</div>
             </div>
-            <div className="text-center p-4 bg-muted/30 rounded-lg">
+            <div className="text-center p-4 bg-muted/30 rounded-lg border">
               <div className="text-2xl font-semibold mb-1">
                 {healthStatus?.services?.stopped || 0}
               </div>
-              <div className="text-sm text-muted-foreground">{t('status.stopped')}</div>
+              <div className="text-xs text-muted-foreground uppercase tracking-wider">{t('status.stopped')}</div>
             </div>
-            <div className="text-center p-4 bg-muted/30 rounded-lg">
-              <div className="text-2xl font-semibold mb-1">
+            <div className="text-center p-4 bg-red-50/50 dark:bg-red-950/20 rounded-lg border border-red-100 dark:border-red-900/50">
+              <div className="text-2xl font-semibold mb-1 text-red-600 dark:text-red-400">
                 {healthStatus?.services?.error || 0}
               </div>
-              <div className="text-sm text-muted-foreground">{t('status.error')}</div>
+              <div className="text-xs text-red-600/80 dark:text-red-400/80 uppercase tracking-wider">{t('status.error')}</div>
             </div>
           </div>
+
           {/* Health table */}
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-muted-foreground">
-                  <th className="py-2 pr-4">{t('mon.service') || 'Service'}</th>
-                  <th className="py-2 pr-4">{t('mon.latency') || 'Latency'}</th>
-                  <th className="py-2 pr-4">{t('mon.p95') || 'P95'}</th>
-                  <th className="py-2 pr-4">{t('mon.p99') || 'P99'}</th>
-                  <th className="py-2 pr-4">{t('mon.errorRate') || 'Error Rate'}</th>
-                  <th className="py-2 pr-4">{t('mon.latencyTrend') || 'Latency Trend'}</th>
-                  <th className="py-2 pr-4">{t('mon.lastError') || 'Last Error'}</th>
-                </tr>
-              </thead>
-              <tbody>
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('mon.service') || 'Service'}</TableHead>
+                  <TableHead>{t('mon.latency') || 'Latency'}</TableHead>
+                  <TableHead>{t('mon.p95') || 'P95'}</TableHead>
+                  <TableHead>{t('mon.p99') || 'P99'}</TableHead>
+                  <TableHead>{t('mon.errorRate') || 'Error Rate'}</TableHead>
+                  <TableHead>{t('mon.latencyTrend') || 'Latency Trend'}</TableHead>
+                  <TableHead>{t('mon.lastError') || 'Last Error'}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {agg.perService && [...agg.perService]
                   .filter((s: any) => {
                     const svc = svcMetrics.find(v => v.serviceId === s.id);
@@ -451,16 +492,16 @@ const Monitoring: React.FC = () => {
                     const lastLatency = s.last?.latency;
                     const latArr: number[] = Array.isArray(s.latencies) ? s.latencies : [];
                     return (
-                      <tr key={s.id} className="border-t">
-                        <td className="py-2 pr-4 whitespace-nowrap">{name}</td>
-                        <td className="py-2 pr-4">{formatTime(lastLatency)}</td>
-                        <td className="py-2 pr-4">{formatTime(s.p95)}</td>
-                        <td className="py-2 pr-4">{formatTime(s.p99)}</td>
-                        <td className="py-2 pr-4">{formatPercentage(s.errorRate)}</td>
-                        <td className="py-2 pr-4">
+                      <TableRow key={s.id}>
+                        <TableCell className="font-medium">{name}</TableCell>
+                        <TableCell>{formatTime(lastLatency)}</TableCell>
+                        <TableCell>{formatTime(s.p95)}</TableCell>
+                        <TableCell>{formatTime(s.p99)}</TableCell>
+                        <TableCell>{formatPercentage(s.errorRate)}</TableCell>
+                        <TableCell>
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <div>
+                              <div className="py-1">
                                 <Sparkline data={latArr} width={120} height={24} />
                               </div>
                             </TooltipTrigger>
@@ -468,16 +509,22 @@ const Monitoring: React.FC = () => {
                               {latArr.length ? latArr.map((v,i) => <span key={i}>{i ? ', ' : ''}{v.toFixed ? v.toFixed(0) : v}ms</span>) : <span>-</span>}
                             </TooltipContent>
                           </Tooltip>
-                        </td>
-                        <td className="py-2 pr-4 max-w-[360px] truncate" title={s.lastError || ''}>{s.lastError || '-'}</td>
-                      </tr>
+                        </TableCell>
+                        <TableCell className="max-w-[300px] truncate text-muted-foreground" title={s.lastError || ''}>
+                          {s.lastError || '-'}
+                        </TableCell>
+                      </TableRow>
                     )
                   })}
                 {(!agg.perService || agg.perService.length === 0) && (
-                  <tr><td className="py-2 text-muted-foreground" colSpan={7}>{t('mon.noHealthData') || 'No health data yet'}</td></tr>
+                  <TableRow>
+                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                      {t('mon.noHealthData') || 'No health data yet'}
+                    </TableCell>
+                  </TableRow>
                 )}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </CardContent>
       </Card>

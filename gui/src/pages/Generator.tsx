@@ -7,6 +7,9 @@ import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Wand2,
   Check,
@@ -169,40 +172,40 @@ export default function Generator() {
             {/* Transport */}
             <div className="space-y-2">
               <Label htmlFor="transport">{t('generator.transport')}</Label>
-              <select
-                id="transport"
-                value={transport}
-                onChange={(e) => setTransport(e.target.value as any)}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              >
-                <option value="auto">{t('generator.transportAuto')}</option>
-                <option value="http">HTTP</option>
-                <option value="stdio">Stdio</option>
-                <option value="streamable-http">StreamableHTTP</option>
-              </select>
+              <Select value={transport} onValueChange={(v: any) => setTransport(v)}>
+                <SelectTrigger id="transport">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">{t('generator.transportAuto')}</SelectItem>
+                  <SelectItem value="http">HTTP</SelectItem>
+                  <SelectItem value="stdio">Stdio</SelectItem>
+                  <SelectItem value="streamable-http">StreamableHTTP</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             {/* Auto Register */}
             <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
+              <Checkbox
                 id="autoRegister"
                 checked={autoRegister}
-                onChange={(e) => setAutoRegister(e.target.checked)}
-                className="rounded border-input"
+                onCheckedChange={(c) => setAutoRegister(!!c)}
               />
-              <Label htmlFor="autoRegister">{t('generator.autoRegister')}</Label>
+              <Label htmlFor="autoRegister" className="cursor-pointer font-normal">
+                {t('generator.autoRegister')}
+              </Label>
             </div>
 
             {/* Markdown Input */}
             <div className="space-y-2">
               <Label htmlFor="markdown">{t('generator.markdown')}</Label>
-              <textarea
+              <Textarea
                 id="markdown"
                 value={markdown}
-                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setMarkdown(e.target.value)}
+                onChange={(e) => setMarkdown(e.target.value)}
                 placeholder={t('generator.markdownPlaceholder')}
-                className="w-full font-mono text-xs min-h-[400px] rounded-md border border-input bg-background px-3 py-2"
+                className="font-mono text-xs min-h-[400px]"
               />
             </div>
 

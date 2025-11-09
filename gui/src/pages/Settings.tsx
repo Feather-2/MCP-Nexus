@@ -659,24 +659,28 @@ const Settings: React.FC = () => {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="text-sm font-medium">{t('settings.logging.level')}</label>
-              <select
-                className="w-full h-9 px-3 rounded-md border bg-background"
+            <div className="space-y-2">
+              <Label>{t('settings.logging.level')}</Label>
+              <Select
                 value={settings.logging.level}
-                onChange={(e) => setSettings({
+                onValueChange={(v) => setSettings({
                   ...settings,
-                  logging: { ...settings.logging, level: e.target.value }
+                  logging: { ...settings.logging, level: v }
                 })}
               >
-                <option value="debug">Debug</option>
-                <option value="info">Info</option>
-                <option value="warn">Warning</option>
-                <option value="error">Error</option>
-              </select>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="debug">Debug</SelectItem>
+                  <SelectItem value="info">Info</SelectItem>
+                  <SelectItem value="warn">Warning</SelectItem>
+                  <SelectItem value="error">Error</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-            <div>
-              <label className="text-sm font-medium">{t('settings.logging.maxFileSize')}</label>
+            <div className="space-y-2">
+              <Label>{t('settings.logging.maxFileSize')}</Label>
               <Input
                 value={settings.logging.maxFileSize}
                 onChange={(e) => setSettings({
@@ -685,8 +689,8 @@ const Settings: React.FC = () => {
                 })}
               />
             </div>
-            <div>
-              <label className="text-sm font-medium">{t('settings.logging.maxFiles')}</label>
+            <div className="space-y-2">
+              <Label>{t('settings.logging.maxFiles')}</Label>
               <Input
                 type="number"
                 value={settings.logging.maxFiles}
@@ -714,16 +718,16 @@ const Settings: React.FC = () => {
         <CardContent className="space-y-4">
           {/* GUI Authentication (for API calls) */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm font-medium">API Key (X-API-Key)</label>
+            <div className="space-y-2">
+              <Label>API Key (X-API-Key)</Label>
               <Input
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder="pbk_xxx..."
               />
             </div>
-            <div>
-              <label className="text-sm font-medium">Bearer Token (Authorization)</label>
+            <div className="space-y-2">
+              <Label>Bearer Token (Authorization)</Label>
               <Input
                 value={bearer}
                 onChange={(e) => setBearer(e.target.value)}
@@ -732,16 +736,24 @@ const Settings: React.FC = () => {
             </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="text-sm font-medium">{t('settings.security.enableAuth')}</label>
-              <div className="mt-2">
-                <Badge variant={settings.security.enableAuth ? "default" : "secondary"}>
+            <div className="flex flex-col space-y-3">
+              <Label>{t('settings.security.enableAuth')}</Label>
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="sec-auth"
+                  checked={settings.security.enableAuth}
+                  onCheckedChange={(v) => setSettings({
+                    ...settings,
+                    security: { ...settings.security, enableAuth: v }
+                  })}
+                />
+                <Label htmlFor="sec-auth" className="font-normal text-muted-foreground">
                   {settings.security.enableAuth ? t('common.enabled') : t('common.disabled')}
-                </Badge>
+                </Label>
               </div>
             </div>
-            <div>
-              <label className="text-sm font-medium">{t('settings.security.sessionTimeout')}</label>
+            <div className="space-y-2">
+              <Label>{t('settings.security.sessionTimeout')}</Label>
               <Input
                 type="number"
                 value={settings.security.sessionTimeout}
@@ -751,8 +763,8 @@ const Settings: React.FC = () => {
                 })}
               />
             </div>
-            <div>
-              <label className="text-sm font-medium">{t('settings.security.maxLoginAttempts')}</label>
+            <div className="space-y-2">
+              <Label>{t('settings.security.maxLoginAttempts')}</Label>
               <Input
                 type="number"
                 value={settings.security.maxLoginAttempts}
@@ -779,24 +791,28 @@ const Settings: React.FC = () => {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm font-medium">{t('settings.lb.strategy')}</label>
-              <select
-                className="w-full h-9 px-3 rounded-md border bg-background"
+            <div className="space-y-2">
+              <Label>{t('settings.lb.strategy')}</Label>
+              <Select
                 value={settings.loadBalancing.strategy}
-                onChange={(e) => setSettings({
+                onValueChange={(v) => setSettings({
                   ...settings,
-                  loadBalancing: { ...settings.loadBalancing, strategy: e.target.value }
+                  loadBalancing: { ...settings.loadBalancing, strategy: v }
                 })}
               >
-                <option value="round-robin">{t('settings.lb.strategyRoundRobin')}</option>
-                <option value="performance">{t('settings.lb.strategyPerformance')}</option>
-                <option value="cost">{t('settings.lb.strategyCost')}</option>
-                <option value="content-aware">{t('settings.lb.strategyContentAware')}</option>
-              </select>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="round-robin">{t('settings.lb.strategyRoundRobin')}</SelectItem>
+                  <SelectItem value="performance">{t('settings.lb.strategyPerformance')}</SelectItem>
+                  <SelectItem value="cost">{t('settings.lb.strategyCost')}</SelectItem>
+                  <SelectItem value="content-aware">{t('settings.lb.strategyContentAware')}</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-            <div>
-              <label className="text-sm font-medium">{t('settings.lb.healthInterval')}</label>
+            <div className="space-y-2">
+              <Label>{t('settings.lb.healthInterval')}</Label>
               <Input
                 type="number"
                 value={settings.loadBalancing.healthCheckInterval}
@@ -806,8 +822,8 @@ const Settings: React.FC = () => {
                 })}
               />
             </div>
-            <div>
-              <label className="text-sm font-medium">{t('settings.lb.maxRetries')}</label>
+            <div className="space-y-2">
+              <Label>{t('settings.lb.maxRetries')}</Label>
               <Input
                 type="number"
                 value={settings.loadBalancing.maxRetries}
@@ -817,20 +833,20 @@ const Settings: React.FC = () => {
                 })}
               />
             </div>
-            <div>
-              <label className="text-sm font-medium">{t('settings.lb.enableFailover')}</label>
-              <div className="mt-2">
-                <button
-                  onClick={() => setSettings({
+            <div className="flex flex-col space-y-3">
+              <Label>{t('settings.lb.enableFailover')}</Label>
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="lb-failover"
+                  checked={settings.loadBalancing.enableFailover}
+                  onCheckedChange={(v) => setSettings({
                     ...settings,
-                    loadBalancing: { ...settings.loadBalancing, enableFailover: !settings.loadBalancing.enableFailover }
+                    loadBalancing: { ...settings.loadBalancing, enableFailover: v }
                   })}
-                  className="flex items-center gap-2"
-                >
-                  <Badge variant={settings.loadBalancing.enableFailover ? "default" : "secondary"}>
-                    {settings.loadBalancing.enableFailover ? t('common.enabled') : t('common.disabled')}
-                  </Badge>
-                </button>
+                />
+                <Label htmlFor="lb-failover" className="font-normal text-muted-foreground">
+                  {settings.loadBalancing.enableFailover ? t('common.enabled') : t('common.disabled')}
+                </Label>
               </div>
             </div>
           </div>
@@ -850,23 +866,27 @@ const Settings: React.FC = () => {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm font-medium">{t('settings.mcp.version')}</label>
-              <select
-                className="w-full h-9 px-3 rounded-md border bg-background"
+            <div className="space-y-2">
+              <Label>{t('settings.mcp.version')}</Label>
+              <Select
                 value={settings.mcp.protocolVersion}
-                onChange={(e) => setSettings({
+                onValueChange={(v) => setSettings({
                   ...settings,
-                  mcp: { ...settings.mcp, protocolVersion: e.target.value }
+                  mcp: { ...settings.mcp, protocolVersion: v }
                 })}
               >
-                <option value="2024-11-26">2024-11-26</option>
-                <option value="2025-03-26">2025-03-26</option>
-                <option value="2025-06-18">2025-06-18</option>
-              </select>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="2024-11-26">2024-11-26</SelectItem>
+                  <SelectItem value="2025-03-26">2025-03-26</SelectItem>
+                  <SelectItem value="2025-06-18">2025-06-18</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-            <div>
-              <label className="text-sm font-medium">{t('settings.mcp.timeoutMs')}</label>
+            <div className="space-y-2">
+              <Label>{t('settings.mcp.timeoutMs')}</Label>
               <Input
                 type="number"
                 value={settings.mcp.requestTimeout}
@@ -876,49 +896,52 @@ const Settings: React.FC = () => {
                 })}
               />
             </div>
-            <div>
-              <label className="text-sm font-medium">{t('settings.mcp.enableTools')}</label>
-              <div className="mt-2">
-                <button
-                  onClick={() => setSettings({
+            <div className="flex flex-col space-y-3">
+              <Label>{t('settings.mcp.enableTools')}</Label>
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="mcp-tools"
+                  checked={settings.mcp.enableTools}
+                  onCheckedChange={(v) => setSettings({
                     ...settings,
-                    mcp: { ...settings.mcp, enableTools: !settings.mcp.enableTools }
+                    mcp: { ...settings.mcp, enableTools: v }
                   })}
-                >
-                  <Badge variant={settings.mcp.enableTools ? "default" : "secondary"}>
-                    {settings.mcp.enableTools ? t('common.enabled') : t('common.disabled')}
-                  </Badge>
-                </button>
+                />
+                <Label htmlFor="mcp-tools" className="font-normal text-muted-foreground">
+                  {settings.mcp.enableTools ? t('common.enabled') : t('common.disabled')}
+                </Label>
               </div>
             </div>
-            <div>
-              <label className="text-sm font-medium">{t('settings.mcp.enableResources')}</label>
-              <div className="mt-2">
-                <button
-                  onClick={() => setSettings({
+            <div className="flex flex-col space-y-3">
+              <Label>{t('settings.mcp.enableResources')}</Label>
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="mcp-resources"
+                  checked={settings.mcp.enableResources}
+                  onCheckedChange={(v) => setSettings({
                     ...settings,
-                    mcp: { ...settings.mcp, enableResources: !settings.mcp.enableResources }
+                    mcp: { ...settings.mcp, enableResources: v }
                   })}
-                >
-                  <Badge variant={settings.mcp.enableResources ? "default" : "secondary"}>
-                    {settings.mcp.enableResources ? t('common.enabled') : t('common.disabled')}
-                  </Badge>
-                </button>
+                />
+                <Label htmlFor="mcp-resources" className="font-normal text-muted-foreground">
+                  {settings.mcp.enableResources ? t('common.enabled') : t('common.disabled')}
+                </Label>
               </div>
             </div>
-            <div>
-              <label className="text-sm font-medium">{t('settings.mcp.enablePrompts')}</label>
-              <div className="mt-2">
-                <button
-                  onClick={() => setSettings({
+            <div className="flex flex-col space-y-3">
+              <Label>{t('settings.mcp.enablePrompts')}</Label>
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="mcp-prompts"
+                  checked={settings.mcp.enablePrompts}
+                  onCheckedChange={(v) => setSettings({
                     ...settings,
-                    mcp: { ...settings.mcp, enablePrompts: !settings.mcp.enablePrompts }
+                    mcp: { ...settings.mcp, enablePrompts: v }
                   })}
-                >
-                  <Badge variant={settings.mcp.enablePrompts ? "default" : "secondary"}>
-                    {settings.mcp.enablePrompts ? t('common.enabled') : t('common.disabled')}
-                  </Badge>
-                </button>
+                />
+                <Label htmlFor="mcp-prompts" className="font-normal text-muted-foreground">
+                  {settings.mcp.enablePrompts ? t('common.enabled') : t('common.disabled')}
+                </Label>
               </div>
             </div>
           </div>

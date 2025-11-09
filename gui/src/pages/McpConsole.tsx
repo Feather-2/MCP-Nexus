@@ -8,9 +8,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import RightPanel from '@/components/RightPanel';
 import { useI18n } from '@/i18n';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
-// import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Terminal, Send, RefreshCw, Wand2, Edit2 } from 'lucide-react';
 
 const DEFAULT_METHODS = [
@@ -199,28 +200,32 @@ const McpConsole: React.FC = () => {
           {prop.description && <p className="text-xs text-slate-500">{prop.description}</p>}
 
           {prop.type === 'boolean' ? (
-            <select
-              id={`field-${key}`}
-              className="w-full h-9 px-3 rounded-md border bg-background"
-              value={value}
-              onChange={(e) => setToolFormData({ ...toolFormData, [key]: e.target.value === 'true' })}
+            <Select
+              value={value === true ? "true" : value === false ? "false" : ""}
+              onValueChange={(v) => setToolFormData({ ...toolFormData, [key]: v === 'true' })}
             >
-              <option value="">Select...</option>
-              <option value="true">true</option>
-              <option value="false">false</option>
-            </select>
+              <SelectTrigger id={`field-${key}`}>
+                <SelectValue placeholder="Select..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="true">true</SelectItem>
+                <SelectItem value="false">false</SelectItem>
+              </SelectContent>
+            </Select>
           ) : prop.enum ? (
-            <select
-              id={`field-${key}`}
-              className="w-full h-9 px-3 rounded-md border bg-background"
+            <Select
               value={value}
-              onChange={(e) => setToolFormData({ ...toolFormData, [key]: e.target.value })}
+              onValueChange={(v) => setToolFormData({ ...toolFormData, [key]: v })}
             >
-              <option value="">Select...</option>
-              {prop.enum.map((v: string) => (
-                <option key={v} value={v}>{v}</option>
-              ))}
-            </select>
+              <SelectTrigger id={`field-${key}`}>
+                <SelectValue placeholder="Select..." />
+              </SelectTrigger>
+              <SelectContent>
+                {prop.enum.map((v: string) => (
+                  <SelectItem key={v} value={v}>{v}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           ) : prop.type === 'number' || prop.type === 'integer' ? (
             <Input
               id={`field-${key}`}
@@ -230,9 +235,9 @@ const McpConsole: React.FC = () => {
               onChange={(e) => setToolFormData({ ...toolFormData, [key]: parseFloat(e.target.value) || '' })}
             />
           ) : prop.type === 'array' || prop.type === 'object' ? (
-            <textarea
+            <Textarea
               id={`field-${key}`}
-              className="w-full min-h-20 p-2 rounded-md border font-mono text-xs bg-slate-50 dark:bg-slate-900/60"
+              className="min-h-20 font-mono text-xs"
               placeholder={`JSON ${prop.type}`}
               value={typeof value === 'string' ? value : JSON.stringify(value, null, 2)}
               onChange={(e) => {
@@ -353,8 +358,8 @@ const McpConsole: React.FC = () => {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-            <div>
-              <label className="text-sm font-medium">{t('console.serviceInstance')}</label>
+            <div className="space-y-1">
+              <Label className="text-sm font-medium">{t('console.serviceInstance')}</Label>
               <Select value={selectedService} onValueChange={setSelectedService}>
                 <SelectTrigger>
                   <SelectValue placeholder={t('console.selectServicePlaceholder')} />
@@ -368,8 +373,8 @@ const McpConsole: React.FC = () => {
                 </SelectContent>
               </Select>
             </div>
-            <div>
-              <label className="text-sm font-medium">{t('console.methodPreset')}</label>
+            <div className="space-y-1">
+              <Label className="text-sm font-medium">{t('console.methodPreset')}</Label>
               <Select value={method} onValueChange={setMethod}>
                 <SelectTrigger>
                   <SelectValue />
@@ -586,21 +591,21 @@ const McpConsole: React.FC = () => {
             {/* Quick forms */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium">tools/call</label>
-                <input className="w-full h-9 px-3 rounded-md border bg-background" placeholder={t('console.toolNamePlaceholder')} value={toolName} onChange={(e)=>setToolName(e.target.value)} />
-                <textarea className="w-full min-h-20 p-2 rounded-md border font-mono text-xs bg-slate-50 dark:bg-slate-900/60" placeholder='{"query": "..."}' value={toolArgs} onChange={(e)=>setToolArgs(e.target.value)} />
+                <Label>tools/call</Label>
+                <Input placeholder={t('console.toolNamePlaceholder')} value={toolName} onChange={(e)=>setToolName(e.target.value)} />
+                <Textarea className="min-h-20 font-mono text-xs" placeholder='{"query": "..."}' value={toolArgs} onChange={(e)=>setToolArgs(e.target.value)} />
                 <Button variant="outline" size="sm" onClick={buildAndSendToolsCall}>{t('console.sendToolsCall')}</Button>
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">resources/read</label>
-                <input className="w-full h-9 px-3 rounded-md border bg-background" placeholder={t('console.resourceUriPlaceholder')} value={resourceUri} onChange={(e)=>setResourceUri(e.target.value)} />
+                <Label>resources/read</Label>
+                <Input placeholder={t('console.resourceUriPlaceholder')} value={resourceUri} onChange={(e)=>setResourceUri(e.target.value)} />
                 <div>
                   <Button variant="outline" size="sm" onClick={buildAndSendResourceRead}>{t('console.sendResourcesRead')}</Button>
                 </div>
               </div>
             </div>
-            <textarea
-              className="w-full h-96 font-mono text-sm p-3 rounded-md border bg-slate-50 dark:bg-slate-900/60"
+            <Textarea
+              className="h-96 font-mono text-sm"
               value={requestJson}
               onChange={(e) => setRequestJson(e.target.value)}
             />
@@ -627,9 +632,9 @@ const McpConsole: React.FC = () => {
           <CardDescription>{t('console.historyDescription')}</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-2 mb-3">
-            <div>
-              <label className="text-xs text-slate-500">{t('console.filterByService')}</label>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-3 items-end">
+            <div className="space-y-1">
+              <Label className="text-xs text-slate-500">{t('console.filterByService')}</Label>
               <Select value={historyServiceFilter} onValueChange={setHistoryServiceFilter}>
                 <SelectTrigger className="h-8">
                   <SelectValue />
@@ -642,14 +647,19 @@ const McpConsole: React.FC = () => {
                 </SelectContent>
               </Select>
             </div>
-            <div className="md:col-span-2">
-              <label className="text-xs text-slate-500">{t('console.keywordSearch')}</label>
-              <input className="w-full h-8 px-2 rounded border" placeholder={t('console.keywordPlaceholder')} value={historyKeyword} onChange={(e)=>setHistoryKeyword(e.target.value)} />
+            <div className="md:col-span-2 space-y-1">
+              <Label className="text-xs text-muted-foreground">{t('console.keywordSearch')}</Label>
+              <Input className="h-8" placeholder={t('console.keywordPlaceholder')} value={historyKeyword} onChange={(e)=>setHistoryKeyword(e.target.value)} />
             </div>
-            <div className="flex items-end gap-2">
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={onlyFavorites} onChange={(e)=>setOnlyFavorites(e.target.checked)} /> {t('console.onlyFavorites')}
-              </label>
+            <div className="flex items-center space-x-2 h-8">
+              <Checkbox
+                id="only-favorites"
+                checked={onlyFavorites}
+                onCheckedChange={(checked) => setOnlyFavorites(!!checked)}
+              />
+              <Label htmlFor="only-favorites" className="text-sm cursor-pointer">
+                {t('console.onlyFavorites')}
+              </Label>
             </div>
           </div>
           <div className="flex gap-2 mb-3">

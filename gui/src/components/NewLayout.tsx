@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { PreferencesManager } from '../utils/persistence';
 import { UserPreferencesDialog } from './UserPreferencesDialog';
 import { Input } from './ui/input';
+import { Button } from './ui/button';
 import {
   BarChart3,
   Settings,
@@ -79,39 +80,47 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   return (
     <div className="min-h-screen bg-background transition-colors duration-300">
       {/* Topbar */}
-      <header className="sticky top-0 z-40 w-full border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60 shadow-sm">
+      <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <button className="md:hidden p-2 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => setSidebarOpen(true)} aria-label="打开菜单">
+              <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setSidebarOpen(true)} aria-label="打开菜单">
                 <Menu className="h-5 w-5" />
-              </button>
-              <Zap className="h-5 w-5 text-primary" />
+              </Button>
+              <div className="flex items-center justify-center h-8 w-8 rounded-md bg-primary text-primary-foreground">
+                <Zap className="h-5 w-5" />
+              </div>
               <div className="hidden sm:block">
-                <h1 className="text-[17px] font-semibold text-foreground tracking-tight">PB MCP Nexus</h1>
+                <h1 className="text-lg font-semibold tracking-tight">PB MCP Nexus</h1>
               </div>
             </div>
-            <div className="flex-1 hidden md:flex items-center max-w-2xl">
+            <div className="flex-1 hidden md:flex items-center max-w-md ml-6">
               <div className="relative w-full">
-                <Input className="pl-10" placeholder="搜索：服务、模板、日志..." />
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  type="search"
+                  placeholder="搜索..."
+                  className="w-full bg-muted/50 pl-9 md:w-[300px] lg:w-[400px] rounded-lg focus-visible:bg-background transition-colors"
+                />
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <button
+              <Button
+                variant="ghost"
+                size="icon"
                 onClick={() => setShowPreferences(true)}
-                className="p-2 rounded-md text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 transition-colors"
                 title="用户偏好设置"
               >
                 <User className="h-5 w-5" />
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
                 onClick={toggleTheme}
-                className="p-2 rounded-md text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 transition-colors"
                 title={isDarkMode ? '切换到明亮模式' : '切换到暗黑模式'}
               >
                 {isDarkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-              </button>
+              </Button>
               <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center text-foreground/70">
                 <User className="h-4 w-4" />
               </div>
@@ -125,61 +134,61 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         <div className="grid grid-cols-1 md:grid-cols-[260px_1fr] gap-6 py-6">
           {/* Sidebar desktop */}
           <aside className="hidden md:block">
-            <div className="sticky top-24 p-3 bg-card rounded-lg border">
-              <nav className="space-y-4">
+            <div className="sticky top-20">
+              <nav className="space-y-6 px-2">
                 <div>
-                  <div className="px-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">总览</div>
-                  <div className="mt-2 space-y-1">
+                  <div className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-foreground/70">总览</div>
+                  <div className="space-y-1">
                     {navItems.slice(0,3).map(({ path, label, icon: Icon }) => (
                       <button
                         key={path}
-                        className={`group w-full flex items-center gap-3 px-3 py-2 text-left transition-colors duration-150 border-l-2 ${
+                        className={`group flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ${
                           location.pathname === path
-                            ? 'border-l-primary text-foreground bg-muted/20'
-                            : 'border-l-transparent text-foreground/80 hover:bg-muted/30 hover:text-foreground'
+                            ? 'bg-primary text-primary-foreground shadow-sm'
+                            : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                         }`}
                         onClick={() => navigate(path)}
                       >
-                        <Icon className="h-4.5 w-4.5" />
-                        <span className="text-sm">{label}</span>
+                        <Icon className="h-4 w-4" />
+                        <span>{label}</span>
                       </button>
                     ))}
                   </div>
                 </div>
                 <div>
-                  <div className="px-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">MCP</div>
-                  <div className="mt-2 space-y-1">
+                  <div className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-foreground/70">MCP</div>
+                  <div className="space-y-1">
                     {navItems.slice(3,7).map(({ path, label, icon: Icon }) => (
                       <button
                         key={path}
-                        className={`group w-full flex items-center gap-3 px-3 py-2 text-left transition-colors duration-150 border-l-2 ${
+                        className={`group flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ${
                           location.pathname === path
-                            ? 'border-l-primary text-foreground bg-muted/20'
-                            : 'border-l-transparent text-foreground/80 hover:bg-muted/30 hover:text-foreground'
+                            ? 'bg-primary text-primary-foreground shadow-sm'
+                            : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                         }`}
                         onClick={() => navigate(path)}
                       >
-                        <Icon className="h-4.5 w-4.5" />
-                        <span className="text-sm">{label}</span>
+                        <Icon className="h-4 w-4" />
+                        <span>{label}</span>
                       </button>
                     ))}
                   </div>
                 </div>
                 <div>
-                  <div className="px-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">系统</div>
-                  <div className="mt-2 space-y-1">
+                  <div className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-foreground/70">系统</div>
+                  <div className="space-y-1">
                     {navItems.slice(7).map(({ path, label, icon: Icon }) => (
                       <button
                         key={path}
-                        className={`group w-full flex items-center gap-3 px-3 py-2 text-left transition-colors duration-150 border-l-2 ${
+                        className={`group flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ${
                           location.pathname === path
-                            ? 'border-l-primary text-foreground bg-muted/20'
-                            : 'border-l-transparent text-foreground/80 hover:bg-muted/30 hover:text-foreground'
+                            ? 'bg-primary text-primary-foreground shadow-sm'
+                            : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                         }`}
                         onClick={() => navigate(path)}
                       >
-                        <Icon className="h-4.5 w-4.5" />
-                        <span className="text-sm">{label}</span>
+                        <Icon className="h-4 w-4" />
+                        <span>{label}</span>
                       </button>
                     ))}
                   </div>
@@ -189,10 +198,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           </aside>
 
           {/* Main Content */}
-          <main className="min-h-[70vh]">
-            <div className="p-6 md:p-8 bg-card rounded-lg border">
-              {children}
-            </div>
+          <main className="min-h-[80vh] py-4">
+            {children}
           </main>
         </div>
       </div>
@@ -209,9 +216,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 </div>
                 <span className="font-semibold">PB MCP Nexus</span>
               </div>
-              <button className="p-2 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => setSidebarOpen(false)}>
+              <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(false)}>
                 <X className="h-5 w-5" />
-              </button>
+              </Button>
             </div>
             <div className="space-y-1 overflow-auto">
               {navItems.map(({ path, label, icon: Icon }) => (

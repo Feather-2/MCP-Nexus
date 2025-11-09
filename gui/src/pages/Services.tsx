@@ -2,16 +2,32 @@
 
 import { useEffect, useMemo, useState, useRef } from "react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
+import { Card } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
-import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { Loader2, Plus, RefreshCw, StopCircle, Eye, PlayCircle } from "lucide-react"
+import { Plus, RefreshCw, StopCircle, Eye, PlayCircle, Trash2, MoreHorizontal, Settings2 } from "lucide-react"
 import PageHeader from "@/components/PageHeader"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { apiClient, type ServiceInstance, type ServiceTemplate } from '../api/client';
 import { UIStateManager } from "@/utils/persistence";
 // import { useI18n } from "@/lib/i18n"
@@ -248,21 +264,17 @@ export default function ServicesSection() {
     <div className="space-y-6">
       <PageHeader
         title={t('svc.title')}
+        description="管理和监控所有运行中的 MCP 服务实例。"
         actions={(
           <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={load} disabled={loading}>
-              <RefreshCw className={`mr-2 size-4 ${loading ? "animate-spin" : ""}`} />
+            <Button variant="outline" size="sm" onClick={load} disabled={loading} className="h-9">
+              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
               {t('common.refresh')}
             </Button>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <input id="row-click-select" type="checkbox" className="h-3 w-3" checked={rowClickSelect}
-                onChange={(e) => { setRowClickSelect(e.target.checked); UIStateManager.setUIState({ rowClickSelect: e.target.checked }); }} />
-              <label htmlFor="row-click-select">行点击选中</label>
-            </div>
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
               <DialogTrigger asChild>
-                <Button>
-                  <Plus className="mr-2 size-4" />
+                <Button size="sm" className="h-9">
+                  <Plus className="mr-2 h-4 w-4" />
                   {t('svc.create')}
                 </Button>
               </DialogTrigger>
@@ -270,11 +282,11 @@ export default function ServicesSection() {
                 <DialogHeader>
                   <DialogTitle>{t('svc.create')}</DialogTitle>
                 </DialogHeader>
-                <div className="space-y-4">
-                  <div className="space-y-2">
+                <div className="grid gap-4 py-4">
+                  <div className="grid gap-2">
                     <Label>{t('svc.template')}</Label>
                     <Select value={newSvcTemplate} onValueChange={setNewSvcTemplate}>
-                      <SelectTrigger className="w-full">
+                      <SelectTrigger>
                         <SelectValue placeholder={t('svc.selectTemplate')} />
                       </SelectTrigger>
                       <SelectContent>
@@ -284,10 +296,10 @@ export default function ServicesSection() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="space-y-2">
+                  <div className="grid gap-2">
                     <Label>实例模式</Label>
                     <Select value={instanceMode} onValueChange={(v) => setInstanceMode(v as any)}>
-                      <SelectTrigger className="w-full">
+                      <SelectTrigger>
                         <SelectValue placeholder="keep-alive / managed" />
                       </SelectTrigger>
                       <SelectContent>
@@ -296,8 +308,10 @@ export default function ServicesSection() {
                       </SelectContent>
                     </Select>
                   </div>
+                </div>
+                <div className="flex justify-end">
                   <Button onClick={createService} disabled={!newSvcTemplate}>
-                    <PlayCircle className="mr-2 size-4" />
+                    <PlayCircle className="mr-2 h-4 w-4" />
                     {t('common.create')}
                   </Button>
                 </div>
@@ -306,102 +320,162 @@ export default function ServicesSection() {
           </div>
         )}
       />
+
       <Card>
-        <CardContent>
-          <div className="rounded-lg border">
-            <div className="grid grid-cols-[40px_1fr_200px_160px_160px_200px] gap-2 px-3 py-2 text-[12px] leading-6 text-muted-foreground">
-              <div className="flex items-center">
-                <Checkbox checked={anySelected} onCheckedChange={toggleAll} aria-label="Select all" />
-              </div>
-              <div>{t('common.name')}</div>
-              <div>{t('svc.template')}</div>
-              <div>{t('common.status')}</div>
-              <div>{t('common.createdAt')}</div>
-              <div className="text-right">{t('common.actions')}</div>
-            </div>
-            <Separator />
-            {services.map((s) => (
-              <div
-                key={s.id}
-                className="grid grid-cols-[40px_1fr_200px_160px_160px_200px] gap-2 px-3 py-3 items-center hover:bg-muted/40"
-                onClick={(ev) => {
-                  // 仅在启用“行点击选中”且点击非交互元素区域时切换选中
-                  if (!rowClickSelect) return;
-                  const tag = (ev.target as HTMLElement).tagName.toLowerCase();
-                  const interactive = ['button','a','input','svg','path','textarea','select'].includes(tag);
-                  if (interactive) return;
-                  setSelected(prev => ({ ...prev, [s.id]: !prev[s.id] }));
-                }}
-              >
-                <div className="flex items-center">
-                  <Checkbox
-                    checked={!!selected[s.id]}
-                    onCheckedChange={(v: boolean) => setSelected((prev) => ({ ...prev, [s.id]: !!v }))}
-                    aria-label={`Select ${s.config?.name || s.id}`}
-                  />
-                </div>
-                <div className="truncate">{s.config?.name || s.id}</div>
-                <div className="truncate text-[12px] text-muted-foreground">{s.config?.transport || t('common.unknown')}</div>
-                <div>
-                  {s.state === "running" ? (
-                    <Badge variant="secondary" className="bg-emerald-50 text-emerald-700 border-emerald-200">
-                      {t('status.running')}
-                    </Badge>
-                  ) : (
-                    <Badge variant="secondary" className="bg-rose-50 text-rose-700 border-rose-200">
-                      {t('status.stopped')}
-                    </Badge>
-                  )}
-                </div>
-                <div className="text-[12px] text-muted-foreground">
-                  {s.startedAt ? new Date(s.startedAt).toLocaleString() : '-'}
-                </div>
-                <div className="flex items-center gap-2 justify-end">
-                  {/* Quick ENV Fix button when missing keys or recent probe error */}
-                  {(() => { const missing = getMissingEnvKeys(s); return missing.length || (s.metadata as any)?.lastProbeError ? (
-                    <Button variant="outline" size="sm" onClick={() => openEnvFix(s)}>
-                      {t('common.configure')}
-                    </Button>
-                  ) : null })()}
-                  <Button variant="outline" size="sm" onClick={() => openLogs(s.id)}>
-                    <Eye className="mr-2 size-4" />
-                    {t('svc.logs')}
-                  </Button>
-                  {s.state === "running" && (
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={async () => {
-                        try {
-                          await apiClient.deleteService(s.id)
-                          await load()
-                        } catch (error) {
-                          console.error('Error stopping service:', error)
-                        }
-                      }}
-                    >
-                      <StopCircle className="mr-2 size-4" />
-                      {t('common.stop')}
-                    </Button>
-                  )}
-                </div>
-              </div>
-            ))}
-            {services.length === 0 && (
-              <div className="p-6 text-sm text-muted-foreground flex items-center gap-2">
-                <Loader2 className={`size-4 ${loading ? "animate-spin" : ""}`} />
-                {t('svc.empty')}
-              </div>
+        <div className="flex items-center justify-between p-4">
+          <div className="flex items-center gap-2">
+            {anySelected && (
+              <Button variant="destructive" size="sm" onClick={stopSelected} className="h-8">
+                <StopCircle className="mr-2 h-4 w-4" />
+                {t('svc.stopSelected')}
+              </Button>
             )}
           </div>
-
-          <div className="mt-3 flex items-center gap-2">
-            <Button variant="destructive" disabled={!anySelected} onClick={stopSelected}>
-              <StopCircle className="mr-2 size-4" />
-              {t('svc.stopSelected')}
-            </Button>
+          <div className="flex items-center gap-2">
+             <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                  <Settings2 className="h-4 w-4" />
+                  <span className="sr-only">View options</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>视图选项</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="row-click-select"
+                      checked={rowClickSelect}
+                      onCheckedChange={(checked) => {
+                        setRowClickSelect(!!checked);
+                        UIStateManager.setUIState({ rowClickSelect: !!checked });
+                      }}
+                    />
+                    <label htmlFor="row-click-select" className="text-sm cursor-pointer">行点击选中</label>
+                  </div>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
-        </CardContent>
+        </div>
+        <div className="border-t">
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="w-[40px] px-4">
+                  <Checkbox checked={anySelected} onCheckedChange={toggleAll} aria-label="Select all" />
+                </TableHead>
+                <TableHead>{t('common.name')}</TableHead>
+                <TableHead>{t('svc.template')}</TableHead>
+                <TableHead>{t('common.status')}</TableHead>
+                <TableHead className="hidden md:table-cell">{t('common.createdAt')}</TableHead>
+                <TableHead className="text-right px-4">{t('common.actions')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {services.map((s) => {
+                const missingEnv = getMissingEnvKeys(s);
+                const hasError = missingEnv.length > 0 || (s.metadata as any)?.lastProbeError;
+                return (
+                  <TableRow
+                    key={s.id}
+                    className="hover:bg-muted/50 cursor-default"
+                    onClick={(ev) => {
+                      if (!rowClickSelect) return;
+                      const tag = (ev.target as HTMLElement).tagName.toLowerCase();
+                      if (['button','a','input','svg','path','textarea','select'].includes(tag)) return;
+                      setSelected(prev => ({ ...prev, [s.id]: !prev[s.id] }));
+                    }}
+                  >
+                    <TableCell className="px-4">
+                      <Checkbox
+                        checked={!!selected[s.id]}
+                        onCheckedChange={(v: boolean) => setSelected((prev) => ({ ...prev, [s.id]: !!v }))}
+                        aria-label={`Select ${s.config?.name || s.id}`}
+                      />
+                    </TableCell>
+                    <TableCell className="font-medium">
+                      <div className="truncate max-w-[200px]" title={s.config?.name || s.id}>
+                        {s.config?.name || s.id}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="font-mono text-xs">
+                        {s.config?.transport || t('common.unknown')}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {s.state === "running" ? (
+                        <Badge variant="secondary" className="bg-emerald-50 text-emerald-700 hover:bg-emerald-50 border-emerald-200">
+                          {t('status.running')}
+                        </Badge>
+                      ) : (
+                        <Badge variant="secondary" className="bg-rose-50 text-rose-700 hover:bg-rose-50 border-rose-200">
+                          {t('status.stopped')}
+                        </Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell text-muted-foreground text-xs">
+                      {s.startedAt ? new Date(s.startedAt).toLocaleString() : '-'}
+                    </TableCell>
+                    <TableCell className="text-right px-4">
+                      <div className="flex items-center justify-end gap-2">
+                        {hasError && (
+                          <Button variant="outline" size="sm" className="h-8 px-2 text-amber-600 border-amber-200 hover:bg-amber-50" onClick={() => openEnvFix(s)}>
+                            {t('common.configure')}
+                          </Button>
+                        )}
+                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => openLogs(s.id)}>
+                          <Eye className="h-4 w-4" />
+                          <span className="sr-only">{t('svc.logs')}</span>
+                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                              <MoreHorizontal className="h-4 w-4" />
+                              <span className="sr-only">更多</span>
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuLabel>操作</DropdownMenuLabel>
+                            <DropdownMenuItem onClick={() => openLogs(s.id)}>
+                              <Eye className="mr-2 h-4 w-4" /> {t('svc.logs')}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => openEnvFix(s)}>
+                              <Settings2 className="mr-2 h-4 w-4" /> {t('common.configure')}
+                            </DropdownMenuItem>
+                            {s.state === "running" && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  className="text-destructive focus:text-destructive"
+                                  onClick={async () => {
+                                    try { await apiClient.deleteService(s.id); await load(); }
+                                    catch (error) { console.error('Error stopping service:', error); }
+                                  }}
+                                >
+                                  <StopCircle className="mr-2 h-4 w-4" /> {t('common.stop')}
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+              {services.length === 0 && !loading && (
+                <TableRow>
+                  <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                    {t('svc.empty')}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
       </Card>
 
       <Dialog
@@ -443,12 +517,12 @@ export default function ServicesSection() {
           )}
           <div className="space-y-2">
             {envEntries.map((e, idx) => (
-              <div key={idx} className="grid grid-cols-2 gap-2 items-center">
-                <input className="border rounded px-2 py-1 text-sm" placeholder="KEY" value={e.key} onChange={(ev) => updateEnvEntry(idx, 'key', ev.target.value)} />
-                <input className="border rounded px-2 py-1 text-sm" placeholder="VALUE" value={e.value} onChange={(ev) => updateEnvEntry(idx, 'value', ev.target.value)} />
-                <div className="col-span-2 text-right">
-                  <Button variant="ghost" size="sm" onClick={() => removeEnvRow(idx)}>删除</Button>
-                </div>
+              <div key={idx} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
+                <Input className="h-8 text-xs" placeholder="KEY" value={e.key} onChange={(ev) => updateEnvEntry(idx, 'key', ev.target.value)} />
+                <Input className="h-8 text-xs" placeholder="VALUE" value={e.value} onChange={(ev) => updateEnvEntry(idx, 'value', ev.target.value)} />
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => removeEnvRow(idx)}>
+                  <Trash2 className="h-4 w-4" />
+                </Button>
               </div>
             ))}
             <div className="flex items-center justify-between mt-2">

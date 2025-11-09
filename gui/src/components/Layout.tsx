@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { Button } from "@/components/ui/button";
+import { Moon, Sun } from "lucide-react";
 import './Layout.css';
 
 interface LayoutProps {
@@ -37,9 +39,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           </div>
 
           <div className="header-actions">
-            <button className="theme-toggle" onClick={toggleTheme}>
-              {isDarkMode ? '🌞' : '🌙'}
-            </button>
+            <Button variant="ghost" size="icon" onClick={toggleTheme}>
+              {isDarkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+            </Button>
             <div className="user-menu">
               <span className="user-avatar">👤</span>
             </div>
@@ -50,16 +52,17 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       <div className="app-body">
         {/* Sidebar */}
         <nav className="sidebar">
-          <div className="nav-items">
+          <div className="nav-items space-y-1 p-2">
             {navItems.map(({ path, label, icon }) => (
-              <button
+              <Button
                 key={path}
-                className={`nav-item ${location.pathname === path ? 'active' : ''}`}
+                variant={location.pathname === path ? "secondary" : "ghost"}
+                className="w-full justify-start"
                 onClick={() => navigate(path)}
               >
-                <span className="nav-icon">{icon}</span>
-                <span className="nav-label">{label}</span>
-              </button>
+                <span className="mr-2">{icon}</span>
+                {label}
+              </Button>
             ))}
           </div>
         </nav>

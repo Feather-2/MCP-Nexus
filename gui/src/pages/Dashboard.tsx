@@ -5,14 +5,11 @@ import type React from "react"
 import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
 import { Activity, LayoutGrid, ShieldHalf, Terminal } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { apiClient, type ServiceInstance, type ServiceTemplate, type HealthStatus, type OrchestratorStatus } from '../api/client';
 import { useI18n } from "@/i18n"
-
-import { CardDescription } from "@/components/ui/card"
 
 type Props = {
   onNavigate?: (
@@ -67,205 +64,205 @@ export default function DashboardSection({ onNavigate }: Props) {
   const orchModeKey = orchestrator?.mode ?? 'manager-only'
   const orchModeLabel = t(`dash.mode.${orchModeKey}`)
   const orchStatusLabel = orchestrator?.enabled ? t('common.enabled') : t('common.disabled')
-  const orchReason = orchestrator?.reason ?? (!orchestrator ? t('dash.orchestratorStatusUnavailable') : undefined)
   const orchSubagents = orchestrator?.subagentsDir ?? t('dash.orchestratorNoSubagents')
 
   return (
-    <div className="space-y-6">
-      <Card className="rounded-2xl p-6 bg-gradient-to-br from-emerald-50 to-background border">
-        <CardHeader className="p-0">
-          <div className="flex flex-wrap items-center gap-4">
-            <div>
-              <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">{t('dash.welcome')}</h1>
-              <CardDescription>{t('dash.subtitle')}</CardDescription>
-            </div>
-            <div className="ml-auto flex items-center gap-2">
-              <Button variant="secondary" onClick={refresh} disabled={loading}>
-                <Activity className={cn("mr-2 size-4", loading && "animate-spin")} />
-                {t('dashboard.refresh') || t('common.refresh')}
-              </Button>
-              <Button variant="default" onClick={() => onNavigate?.("services")}>
-                <Terminal className="mr-2 size-4" />
-                {t('dash.createService')}
-              </Button>
-            </div>
-          </div>
-        </CardHeader>
-      </Card>
+    <div className="space-y-8">
+      {/* Hero Section */}
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between rounded-xl bg-muted/30 p-6 border border-muted/50">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">{t('dash.welcome')}</h1>
+          <p className="text-muted-foreground mt-1">{t('dash.subtitle')}</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <Button variant="outline" size="sm" onClick={refresh} disabled={loading} className="h-9">
+            <Activity className={cn("mr-2 h-4 w-4", loading && "animate-spin")} />
+            {t('dashboard.refresh') || t('common.refresh')}
+          </Button>
+          <Button size="sm" onClick={() => onNavigate?.("services")} className="h-9">
+            <Terminal className="mr-2 h-4 w-4" />
+            {t('dash.createService')}
+          </Button>
+        </div>
+      </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-[13px] text-muted-foreground">{t('dash.runningServices')}</CardTitle>
+      {/* Stats Grid */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Card className="shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">{t('dash.runningServices')}</CardTitle>
+            <Activity className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent className="text-2xl font-semibold">
-            {runningServices}{" "}
-            <span className="text-base text-muted-foreground">/ {totalServices}</span>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {runningServices}
+              <span className="text-xs text-muted-foreground font-normal ml-1">/ {totalServices}</span>
+            </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-[13px] text-muted-foreground">{t('dash.templates')}</CardTitle>
+        <Card className="shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">{t('dash.templates')}</CardTitle>
+            <LayoutGrid className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent className="text-2xl font-semibold">{templates.length}</CardContent>
+          <CardContent>
+            <div className="text-2xl font-bold">{templates.length}</div>
+          </CardContent>
         </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-[13px] text-muted-foreground">{t('dash.apiKeys')}</CardTitle>
+        <Card className="shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">{t('dash.apiKeys')}</CardTitle>
+            <ShieldHalf className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent className="text-2xl font-semibold">{health?.apiKeys ?? 0}</CardContent>
+          <CardContent>
+            <div className="text-2xl font-bold">{health?.apiKeys ?? 0}</div>
+          </CardContent>
         </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-[13px] text-muted-foreground">{t('dash.sandboxInstalled')}</CardTitle>
+        <Card className="shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">{t('dash.sandboxInstalled')}</CardTitle>
+            <Terminal className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent className="text-2xl font-semibold">{health?.sandboxInstalled ? t('common.yes') : t('common.no')}</CardContent>
+          <CardContent>
+            <div className="text-2xl font-bold">{health?.sandboxInstalled ? t('common.yes') : t('common.no')}</div>
+          </CardContent>
         </Card>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card className="md:col-span-2">
+      {/* Quick Actions & Status */}
+      <div className="grid gap-6 md:grid-cols-7">
+        <Card className="md:col-span-4 shadow-sm border-muted/60">
           <CardHeader>
-            <CardTitle>{t('dash.healthOverview')}</CardTitle>
+            <CardTitle className="text-base font-medium">{t('dash.quickActions')}</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="text-center text-muted-foreground py-12">
-              {t('dash.systemOk')}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('dash.quickActions')}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <ActionItem
-              icon={<LayoutGrid className="size-4" />}
+          <CardContent className="grid sm:grid-cols-3 gap-4">
+            <ActionCard
+              icon={<LayoutGrid className="h-5 w-5" />}
               title={t('dash.manageTemplates')}
-              desc={t('dash.manageTemplatesDesc')}
               onClick={() => onNavigate?.("templates")}
             />
-            <Separator />
-            <ActionItem
-              icon={<ShieldHalf className="size-4" />}
+            <ActionCard
+              icon={<ShieldHalf className="h-5 w-5" />}
               title={t('dash.generateToken')}
-              desc={t('dash.generateTokenDesc')}
               onClick={() => onNavigate?.("auth")}
             />
-            <Separator />
-            <ActionItem
-              icon={<Activity className="size-4" />}
+            <ActionCard
+              icon={<Activity className="h-5 w-5" />}
               title={t('dash.openMonitoring')}
-              desc={t('dash.openMonitoringDesc')}
               onClick={() => onNavigate?.("monitoring")}
             />
           </CardContent>
         </Card>
-      </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('dash.orchestratorStatus')}</CardTitle>
-          <CardDescription>{t('dash.orchestratorStatusDesc')}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <Badge variant={orchestrator?.enabled ? "default" : "secondary"} className="uppercase tracking-wide">
-              {orchStatusLabel}
-            </Badge>
-            <span className="text-sm text-muted-foreground">
-              {t('dash.orchestratorModeLabel')}{' '}
-              <span className="font-medium text-foreground">{orchModeLabel}</span>
-            </span>
-          </div>
-          {orchReason && (
-            <p className="text-sm text-muted-foreground">
-              {t('dash.orchestratorReasonLabel')}{orchReason}
-            </p>
-          )}
-          <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
-            <span>
-              {t('dash.orchestratorSubagentsLabel')}
-              <code className="ml-1 text-xs text-foreground bg-muted/70 px-1.5 py-0.5 rounded">
-                {orchSubagents}
-              </code>
-            </span>
-            <Button variant="outline" size="sm" onClick={() => onNavigate?.("orchestrator")}>
+        <Card className="md:col-span-3 shadow-sm border-muted/60">
+          <CardHeader>
+            <CardTitle className="text-base font-medium">{t('dash.orchestratorStatus')}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">{t('dash.orchestratorModeLabel')}</span>
+              <Badge variant="outline" className="font-mono text-xs">
+                {orchModeLabel}
+              </Badge>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">状态</span>
+              <Badge variant={orchestrator?.enabled ? "default" : "secondary"} className="text-xs">
+                {orchStatusLabel}
+              </Badge>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">{t('dash.orchestratorSubagentsLabel')}</span>
+              <span className="text-sm font-medium">{orchSubagents}</span>
+            </div>
+            <Button variant="outline" size="sm" className="w-full mt-2" onClick={() => onNavigate?.("orchestrator")}>
               {t('dash.configureOrchestrator')}
             </Button>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('dash.overview')}</CardTitle>
-        </CardHeader>
-        <CardContent className="grid md:grid-cols-2 gap-4">
-          <div>
-            <div className="text-sm text-muted-foreground mb-2">{t('dash.recentServices')}</div>
-            <ul className="space-y-1.5">
-              {services.slice(0, 5).map((s) => (
-                <li key={s.id} className="text-sm flex items-center justify-between rounded-md px-2 py-1 hover:bg-muted/40">
-                  <span className="truncate">
-                    {s.config?.name || s.id}{" "}
-                    <span className="text-muted-foreground">
-                      {" · "}
-                      {s.config?.transport || t('common.unknown')}
+      {/* Recent Activity */}
+      <div className="grid gap-6 md:grid-cols-2">
+        <Card className="shadow-sm border-muted/60">
+          <CardHeader>
+            <CardTitle className="text-base font-medium">{t('dash.recentServices')}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {services.length > 0 ? (
+              <div className="space-y-1">
+                {services.slice(0, 5).map((s) => (
+                  <div key={s.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 transition-colors">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={cn("h-2 w-2 rounded-full shrink-0", s.state === "running" ? "bg-emerald-500" : "bg-rose-500")} />
+                      <div className="truncate">
+                        <div className="text-sm font-medium truncate">{s.config?.name || s.id}</div>
+                        <div className="text-xs text-muted-foreground truncate">{s.config?.transport}</div>
+                      </div>
+                    </div>
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5">
+                      {s.state}
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground text-center py-6">暂无服务</div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-sm border-muted/60">
+          <CardHeader>
+            <CardTitle className="text-base font-medium">{t('dash.recentTemplates')}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {templates.length > 0 ? (
+              <div className="space-y-1">
+                {templates.slice(0, 5).map((tpl) => (
+                  <div key={tpl.name} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 transition-colors">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted">
+                        <LayoutGrid className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                      <div className="truncate">
+                        <div className="text-sm font-medium truncate">{tpl.name}</div>
+                      </div>
+                    </div>
+                    <span className="text-xs text-muted-foreground whitespace-nowrap ml-2">
+                      {tpl.updatedAt ? new Date(tpl.updatedAt).toLocaleDateString() : ''}
                     </span>
-                  </span>
-                  <span
-                    className={cn(
-                      "text-[11px] px-2 py-0.5 rounded-full border",
-                      s.state === "running"
-                        ? "text-emerald-600 border-emerald-200 bg-emerald-50"
-                        : "text-rose-600 border-rose-200 bg-rose-50",
-                    )}
-                  >
-                    {s.state}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div>
-            <div className="text-sm text-muted-foreground mb-2">{t('dash.recentTemplates')}</div>
-            <ul className="space-y-1.5">
-              {templates.slice(0, 5).map((tpl) => (
-                <li key={tpl.name} className="text-sm flex items-center justify-between rounded-md px-2 py-1 hover:bg-muted/40">
-                  <span className="truncate">{tpl.name}</span>
-                  <span className="text-[12px] text-muted-foreground">{tpl.updatedAt ? new Date(tpl.updatedAt).toLocaleString() : '-'}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </CardContent>
-      </Card>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground text-center py-6">暂无模板</div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }
 
-function ActionItem({
+function ActionCard({
   icon,
   title,
-  desc,
   onClick,
 }: {
   icon: React.ReactNode
   title: string
-  desc: string
   onClick?: () => void
 }) {
   return (
-    <button onClick={onClick} className="w-full text-left rounded-xl border p-3 hover:bg-muted/40 transition-colors">
-      <div className="flex items-start gap-3">
-        <div className="mt-1">{icon}</div>
-        <div>
-          <div className="font-medium">{title}</div>
-          <div className="text-xs text-muted-foreground">{desc}</div>
-        </div>
+    <button
+      onClick={onClick}
+      className="flex flex-col items-center justify-center gap-2 p-4 rounded-lg border bg-card hover:bg-accent hover:text-accent-foreground transition-colors text-center"
+    >
+      <div className="p-2 rounded-full bg-primary/10 text-primary">
+        {icon}
       </div>
+      <span className="text-sm font-medium">{title}</span>
     </button>
   )
 }

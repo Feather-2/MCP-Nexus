@@ -99,13 +99,18 @@ const McpCatalog: React.FC = () => {
           <CardDescription>{t('catalog.discoverDesc')}</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-            <div>
-              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('catalog.searchPlaceholder')} />
+          <div className="flex flex-wrap items-center gap-4 mb-6">
+            <div className="flex-1 min-w-[200px] max-w-md">
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={t('catalog.searchPlaceholder')}
+                className="h-9"
+              />
             </div>
-            <div>
+            <div className="w-[200px]">
               <Select value={transport} onValueChange={(v) => setTransport(v as any)}>
-                <SelectTrigger>
+                <SelectTrigger className="h-9">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

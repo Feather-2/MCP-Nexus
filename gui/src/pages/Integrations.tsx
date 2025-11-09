@@ -5,6 +5,8 @@ import { useI18n } from '@/i18n';
 import { useToastHelpers } from '@/components/ui/toast';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Copy, Plug } from 'lucide-react';
 
@@ -282,8 +284,8 @@ const Integrations: React.FC = () => {
             </div>
             <div>
               <label className="text-sm font-medium">{t('integrations.apiKey.create')}</label>
-              <div className="flex gap-2">
-                <input className="w-1/2 text-sm px-3 py-2 rounded-md border bg-background" placeholder={t('integrations.apiKey.name') || '名称'} value={newKeyName} onChange={e => setNewKeyName(e.target.value)} />
+              <div className="flex gap-2 mt-1">
+                <Input className="w-1/2" placeholder={t('integrations.apiKey.name') || '名称'} value={newKeyName} onChange={e => setNewKeyName(e.target.value)} />
                 <Select value={newKeyPerm} onValueChange={setNewKeyPerm}>
                   <SelectTrigger className="w-1/4">
                     <SelectValue placeholder={t('integrations.apiKey.perm')} />
@@ -314,7 +316,7 @@ const Integrations: React.FC = () => {
                   <div className="text-sm font-medium">{label}</div>
                   <Button variant="outline" size="sm" className="gap-2" onClick={() => copy((snippets as any)[key])}><Copy className="h-4 w-4" />{t('common.copy') || '复制'}</Button>
                 </div>
-                <textarea rows={key === 'curl' ? 5 : 10} value={(snippets as any)[key]} readOnly className="w-full text-sm font-mono p-3 rounded-md border bg-background" />
+                <Textarea rows={key === 'curl' ? 5 : 10} value={(snippets as any)[key]} readOnly className="font-mono text-xs" />
               </div>
             ))}
           </div>
@@ -375,9 +377,9 @@ const Integrations: React.FC = () => {
             </div>
             <div className="space-y-2">
               <div className="text-sm font-medium">{t('integrations.localProxy.callTool')}</div>
-              <input className="w-full text-sm px-3 py-2 rounded-md border bg-background" placeholder={t('integrations.localProxy.toolName') || '工具名称'} value={toolName} onChange={e => setToolName(e.target.value)} />
-              <textarea className="w-full text-sm font-mono p-3 rounded-md border bg-background" rows={5} placeholder="{}" value={toolArgs} onChange={e => setToolArgs(e.target.value)} />
-              <Button onClick={callTool}>{t('integrations.localProxy.call')}</Button>
+              <Input placeholder={t('integrations.localProxy.toolName') || '工具名称'} value={toolName} onChange={e => setToolName(e.target.value)} />
+              <Textarea className="font-mono text-xs" rows={5} placeholder="{}" value={toolArgs} onChange={e => setToolArgs(e.target.value)} />
+              <Button onClick={callTool} className="w-full">{t('integrations.localProxy.call')}</Button>
             </div>
           </div>
         </CardContent>

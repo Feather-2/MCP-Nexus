@@ -4,6 +4,8 @@ import PageHeader from '@/components/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
 import { useI18n } from '@/i18n'
 import { apiClient } from '@/api/client'
 import { useToastHelpers } from '@/components/ui/toast'
@@ -214,7 +216,10 @@ const GeneratorV2: React.FC = () => {
               <div className="flex items-center justify-between text-xs">
                 <div className="flex items-center gap-2"><HistoryIcon className="h-4 w-4" />{t('common.history') || '历史'}</div>
                 <div className="flex items-center gap-2">
-                  <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={streaming} onChange={(e) => setStreaming(e.target.checked)} />stream</label>
+                  <div className="flex items-center gap-2">
+                    <Checkbox id="stream-mode" checked={streaming} onCheckedChange={(c) => setStreaming(!!c)} />
+                    <Label htmlFor="stream-mode" className="text-xs cursor-pointer">stream</Label>
+                  </div>
                   <Button variant="outline" size="sm" onClick={clearHistory} className="gap-1"><Trash2 className="h-3 w-3" />{t('common.clearHistory')}</Button>
                 </div>
               </div>
