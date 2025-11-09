@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { OrchestratorManager } from '../../orchestrator/OrchestratorManager.js';
 import type { Logger, OrchestratorConfig } from '../../types/index.js';
 import path from 'path';

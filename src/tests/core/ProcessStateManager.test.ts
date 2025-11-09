@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ProcessStateManager } from '../../core/ProcessStateManager.js';
 import { ServiceState, Logger } from '../../types/index.js';
 

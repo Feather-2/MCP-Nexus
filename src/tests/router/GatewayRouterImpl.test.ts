@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { GatewayRouterImpl } from '../../router/GatewayRouterImpl.js';
 import { 
   RouteRequest, 
@@ -28,7 +27,7 @@ describe('GatewayRouterImpl', () => {
     state,
     errorCount: 0,
     metadata: {},
-    createdAt: new Date(),
+    startedAt: new Date(),
     lastHealthCheck: new Date()
   });
 
@@ -76,12 +75,10 @@ describe('GatewayRouterImpl', () => {
     it('should route to available service successfully', async () => {
       const request: RouteRequest = {
         method: 'POST',
-        path: '/api/tools/list',
         serviceGroup: 'test-service',
         availableServices: mockServices.slice(0, 2), // Only test-service instances
-        headers: {},
-        body: { test: true },
-        timestamp: new Date()
+        clientIp: '127.0.0.1',
+        serviceHealthMap: new Map()
       };
 
       const response = await router.route(request);
@@ -102,11 +99,10 @@ describe('GatewayRouterImpl', () => {
     it('should fail when no services are available', async () => {
       const request: RouteRequest = {
         method: 'GET',
-        path: '/api/test',
         serviceGroup: 'non-existent-service',
         availableServices: [],
-        headers: {},
-        timestamp: new Date()
+        clientIp: '127.0.0.1',
+        serviceHealthMap: new Map()
       };
 
       const response = await router.route(request);
@@ -124,11 +120,10 @@ describe('GatewayRouterImpl', () => {
 
       const request: RouteRequest = {
         method: 'GET',
-        path: '/api/test',
         serviceGroup: 'test-service',
         availableServices: mockServices,
-        headers: {},
-        timestamp: new Date()
+        clientIp: '127.0.0.1',
+        serviceHealthMap: new Map()
       };
 
       const response = await router.route(request);
@@ -210,13 +205,13 @@ describe('GatewayRouterImpl', () => {
       router.updateCostMetrics('fast-service', {
         costPerRequest: 0.05,
         totalCost: 2.50,
-        costEfficiencyScore: 0.8
+        costEfficiency: 0.8
       });
 
       router.updateCostMetrics('slow-service', {
         costPerRequest: 0.02,
         totalCost: 0.20,
-        costEfficiencyScore: 0.9
+        costEfficiency: 0.9
       });
 
       const selected = router.selectService(mockServices);
@@ -230,9 +225,10 @@ describe('GatewayRouterImpl', () => {
       
       // Set up content analysis
       router.updateContentAnalysis('fast-service', {
-        supportedMethods: ['GET', 'POST'],
-        contentTypes: ['application/json'],
-        specialization: ['api', 'json']
+        supportedContentTypes: ['application/json'],
+        specializedMethods: ['GET', 'POST'],
+        maxContentLength: 1024 * 1024,
+        averageProcessingTime: 100
       });
 
       const selected = router.selectService(mockServices);
@@ -249,16 +245,12 @@ describe('GatewayRouterImpl', () => {
 
     it('should add and apply custom routing rules', () => {
       const rule: RoutingRule = {
-        id: 'dev-rule',
         name: 'Development Rule',
         priority: 10,
-        conditions: {
-          pathPattern: '/dev/*',
-          headers: { 'X-Environment': 'development' }
-        },
-        actions: {
-          routeTo: ['development-service'],
-          addHeaders: { 'X-Routed-By': 'dev-rule' }
+        condition: {},
+        action: {
+          type: 'filter',
+          criteria: { name: 'development-service' }
         },
         enabled: true
       };
@@ -267,15 +259,14 @@ describe('GatewayRouterImpl', () => {
 
       const request: RouteRequest = {
         method: 'GET',
-        path: '/dev/test',
         serviceGroup: 'any',
         availableServices: mockServices,
-        headers: { 'X-Environment': 'development' },
-        timestamp: new Date()
+        clientIp: '127.0.0.1',
+        serviceHealthMap: new Map()
       };
 
-      const filteredServices = router.applyRoutingRules(request);
-      
+      const filteredServices = (router as any).applyRoutingRules(request);
+
       // Should only include development service
       expect(filteredServices).toHaveLength(1);
       expect(filteredServices[0].config.name).toBe('development-service');
@@ -283,6 +274,7 @@ describe('GatewayRouterImpl', () => {
 
     it('should remove routing rules', () => {
       const rule: RoutingRule = {
+        // @ts-expect-error - RoutingRule doesn't have id property
         id: 'temp-rule',
         name: 'Temporary Rule',
         priority: 5,
@@ -292,14 +284,17 @@ describe('GatewayRouterImpl', () => {
       };
 
       router.addRoutingRule(rule);
+      // @ts-expect-error - RoutingRule doesn't have id property
       expect(router.getRoutingRules().some(r => r.id === 'temp-rule')).toBe(true);
 
       router.removeRoutingRule('temp-rule');
+      // @ts-expect-error - RoutingRule doesn't have id property
       expect(router.getRoutingRules().some(r => r.id === 'temp-rule')).toBe(false);
     });
 
     it('should disable/enable routing rules', () => {
       const rule: RoutingRule = {
+        // @ts-expect-error - RoutingRule doesn't have id property
         id: 'toggle-rule',
         name: 'Toggle Rule',
         priority: 5,
@@ -309,18 +304,21 @@ describe('GatewayRouterImpl', () => {
       };
 
       router.addRoutingRule(rule);
-      
+
       router.disableRoutingRule('toggle-rule');
+      // @ts-expect-error - RoutingRule doesn't have id property
       const disabledRule = router.getRoutingRules().find(r => r.id === 'toggle-rule');
       expect(disabledRule?.enabled).toBe(false);
 
       router.enableRoutingRule('toggle-rule');
+      // @ts-expect-error - RoutingRule doesn't have id property
       const enabledRule = router.getRoutingRules().find(r => r.id === 'toggle-rule');
       expect(enabledRule?.enabled).toBe(true);
     });
 
     it('should apply rules in priority order', () => {
       const lowPriorityRule: RoutingRule = {
+        // @ts-expect-error - RoutingRule doesn't have id property
         id: 'low-priority',
         name: 'Low Priority Rule',
         priority: 1,
@@ -330,6 +328,7 @@ describe('GatewayRouterImpl', () => {
       };
 
       const highPriorityRule: RoutingRule = {
+        // @ts-expect-error - RoutingRule doesn't have id property
         id: 'high-priority',
         name: 'High Priority Rule',
         priority: 10,
@@ -343,14 +342,14 @@ describe('GatewayRouterImpl', () => {
 
       const request: RouteRequest = {
         method: 'GET',
-        path: '/api/test',
         serviceGroup: 'any',
         availableServices: mockServices,
-        headers: {},
-        timestamp: new Date()
-      };
+        clientIp: '127.0.0.1',
+        serviceHealthMap: new Map(),
+        path: '/api/users'  // Add path to match pathPattern condition
+      } as any;
 
-      const filteredServices = router.applyRoutingRules(request);
+      const filteredServices = (router as any).applyRoutingRules(request);
       
       // High priority rule should take precedence
       expect(filteredServices).toHaveLength(1);
@@ -378,7 +377,7 @@ describe('GatewayRouterImpl', () => {
       const costMetrics = {
         costPerRequest: 0.03,
         totalCost: 3.00,
-        costEfficiencyScore: 0.85
+        costEfficiency: 0.85
       };
 
       router.updateCostMetrics('test-service', costMetrics);
@@ -389,9 +388,10 @@ describe('GatewayRouterImpl', () => {
 
     it('should update and retrieve content analysis', () => {
       const contentAnalysis = {
-        supportedMethods: ['GET', 'POST', 'PUT'],
-        contentTypes: ['application/json', 'text/plain'],
-        specialization: ['api', 'crud', 'json']
+        supportedContentTypes: ['application/json', 'text/plain'],
+        specializedMethods: ['GET', 'POST', 'PUT'],
+        maxContentLength: 1024 * 1024,
+        averageProcessingTime: 100
       };
 
       router.updateContentAnalysis('test-service', contentAnalysis);
@@ -489,15 +489,14 @@ describe('GatewayRouterImpl', () => {
       router.updateServiceHealth('service-1', {
         status: 'healthy',
         responseTime: 100,
-        lastCheck: new Date(),
-        consecutiveFailures: 0
+        lastCheck: new Date()
       });
 
       router.updateServiceHealth('service-2', {
         status: 'unhealthy',
         responseTime: 1000,
         lastCheck: new Date(),
-        consecutiveFailures: 3
+        error: 'Service unhealthy'
       });
 
       const selected = router.selectService(services);
@@ -513,11 +512,10 @@ describe('GatewayRouterImpl', () => {
       
       const request: RouteRequest = {
         method: 'GET',
-        path: '/api/test',
         serviceGroup: 'test-service',
         availableServices: services,
-        headers: {},
-        timestamp: new Date()
+        clientIp: '127.0.0.1',
+        serviceHealthMap: new Map()
       };
 
       // Make multiple identical requests
@@ -537,11 +535,10 @@ describe('GatewayRouterImpl', () => {
       const services = [createMockService('service-1', 'test-service')];
       const request: RouteRequest = {
         method: 'GET',
-        path: '/api/test',
         serviceGroup: 'test-service',
         availableServices: services,
-        headers: {},
-        timestamp: new Date()
+        clientIp: '127.0.0.1',
+        serviceHealthMap: new Map()
       };
 
       await router.route(request);

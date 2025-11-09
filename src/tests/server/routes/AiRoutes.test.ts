@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { HttpApiServer } from '../../../server/HttpApiServer.js';
 import type { GatewayConfig, Logger } from '../../../types/index.js';
 
@@ -59,15 +58,13 @@ describe('AiRoutes - config and chat validation', () => {
     logLevel: 'info'
   };
 
-  const logger: Logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  const logger: Logger = { trace: vi.fn(), debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 
   const aiConfig = { provider: 'none', model: '', endpoint: '', timeoutMs: 1000, streaming: true };
   const configManagerStub = {
     getConfig: vi.fn().mockReturnValue(config),
-    updateConfig: vi.fn(),
     get: vi.fn().mockImplementation((key: string) => key === 'ai' ? aiConfig : undefined),
     update: vi.fn(),
-    updateConfigPartial: vi.fn(),
     updateConfig: vi.fn().mockImplementation(async (patch: any) => ({ ...config, ...patch }))
   } as any;
 

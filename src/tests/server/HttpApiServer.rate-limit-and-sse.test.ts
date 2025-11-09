@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach } from 'vitest';
 import { HttpApiServer } from '../../server/HttpApiServer.js';
 import type { GatewayConfig, Logger } from '../../types/index.js';
 

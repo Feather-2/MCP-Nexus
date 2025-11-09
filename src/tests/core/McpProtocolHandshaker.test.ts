@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { McpProtocolHandshaker } from '../../core/McpProtocolHandshaker.js';
 import { McpVersion, McpMessage, McpProtocolStack, Logger } from '../../types/index.js';
 

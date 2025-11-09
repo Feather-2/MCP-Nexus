@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { AuthenticationLayerImpl } from '../../auth/AuthenticationLayerImpl.js';
 import { AuthRequest, AuthMode, Logger, GatewayConfig } from '../../types/index.js';
 

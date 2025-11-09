@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { HttpApiServer } from '../../../server/HttpApiServer.js';
 import type { GatewayConfig, Logger } from '../../../types/index.js';
 
@@ -53,7 +52,7 @@ describe('MonitoringRoutes - health and metrics', () => {
     logLevel: 'info'
   };
 
-  const logger: Logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  const logger: Logger = { trace: vi.fn(), debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 
   it('GET /api/health/ratelimit returns memory when disabled', async () => {
     const configManagerStub = { getConfig: vi.fn().mockReturnValue(baseConfig) } as any;

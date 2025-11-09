@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { StreamableHttpAdapter } from '../../adapters/StreamableHttpAdapter.js';
 import { McpServiceConfig, Logger } from '../../types/index.js';
 
@@ -96,7 +95,7 @@ class MockEventSource {
 }
 
 // Mock EventSource and fetch globally using vitest
-const MockEventSourceConstructor = vi.fn().mockImplementation((url, options) => new MockEventSource(url, options));
+const MockEventSourceConstructor: any = vi.fn().mockImplementation((url, options) => new MockEventSource(url, options));
 MockEventSourceConstructor.CONNECTING = 0;
 MockEventSourceConstructor.OPEN = 1;
 MockEventSourceConstructor.CLOSED = 2;
@@ -133,10 +132,10 @@ describe('StreamableHttpAdapter', () => {
     };
 
     // Set up default EventSource mock
-    MockEventSourceConstructor.mockImplementation((url, options) => new MockEventSource(url, options));
+    MockEventSourceConstructor.mockImplementation((url: any, options: any) => new MockEventSource(url, options));
     
     // Set up default fetch mock
-    mockFetch = vi.mocked(global.fetch);
+    mockFetch = vi.mocked(global.fetch) as any;
     mockFetch.mockResolvedValue(new Response('{"result": "success"}', {
       status: 200,
       headers: { 'Content-Type': 'application/json' }
@@ -200,7 +199,7 @@ describe('StreamableHttpAdapter', () => {
       let connectionErrorHandler: (error: Event) => void;
       
       // Mock EventSource that fires error event quickly
-      MockEventSourceConstructor.mockImplementation((url, options) => {
+      MockEventSourceConstructor.mockImplementation((url: any, options: any) => {
         const mockES = new MockEventSource(url, options);
         // Prevent auto-open so error happens first
         mockES.cancelAutoOpen();
@@ -437,7 +436,7 @@ describe('StreamableHttpAdapter', () => {
     });
 
     it('should generate ID if not provided', async () => {
-      const message = {
+      const message: any = {
         jsonrpc: '2.0' as const,
         method: 'test/method',
         params: { test: true }

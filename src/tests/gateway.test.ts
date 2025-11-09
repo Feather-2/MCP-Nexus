@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createGateway, PbMcpGateway } from '../index.js';
 
 describe('PaperBurnerGateway', () => {

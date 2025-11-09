@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { ServiceTemplateManager } from '../../gateway/ServiceTemplateManager.js';
 import { McpServiceConfig, Logger } from '../../types/index.js';
 import * as fs from 'fs/promises';
@@ -31,15 +30,19 @@ describe('ServiceTemplateManager', () => {
       trace: vi.fn()
     };
 
+    // Clear and reset all mocks explicitly
+    vi.clearAllMocks();
+    vi.resetAllMocks();
+
     // Mock path.join to return a predictable path
-    vi.mocked(path.join).mockImplementation((...segments) => segments.join('/'));
-    
-    // Mock fs operations
-    vi.mocked(fs.mkdir).mockResolvedValue(undefined);
-    vi.mocked(fs.writeFile).mockResolvedValue(undefined);
-    vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify(mockTemplate));
-    vi.mocked(fs.readdir).mockResolvedValue([]);
-    vi.mocked(fs.unlink).mockResolvedValue(undefined);
+    vi.mocked(path.join).mockClear().mockImplementation((...segments) => segments.join('/'));
+
+    // Mock fs operations with explicit clears
+    vi.mocked(fs.mkdir).mockClear().mockResolvedValue(undefined);
+    vi.mocked(fs.writeFile).mockClear().mockResolvedValue(undefined);
+    vi.mocked(fs.readFile).mockClear().mockResolvedValue(JSON.stringify(mockTemplate));
+    vi.mocked(fs.readdir).mockClear().mockResolvedValue([]);
+    vi.mocked(fs.unlink).mockClear().mockResolvedValue(undefined);
 
     templateManager = new ServiceTemplateManager(mockLogger);
   });

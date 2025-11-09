@@ -145,11 +145,11 @@ export const McpServiceConfigSchema = z.object({
 });
 
 const RateLimitingConfigSchema = z.object({
-  enabled: z.boolean().default(false),
-  maxRequests: z.number().default(100),
-  windowMs: z.number().default(60000),
-  // 允许缺省，静态类型上为可选；运行时默认 memory
-  store: z.enum(['memory', 'redis']).optional().default('memory'),
+  enabled: z.boolean(),
+  maxRequests: z.number(),
+  windowMs: z.number(),
+  // 允许缺省，运行时默认 memory
+  store: z.enum(['memory', 'redis']),
   redis: z.object({
     url: z.string().optional(),
     host: z.string().optional(),
@@ -159,6 +159,11 @@ const RateLimitingConfigSchema = z.object({
     db: z.number().optional(),
     tls: z.boolean().optional()
   }).optional()
+}).partial().default({
+  enabled: false,
+  maxRequests: 100,
+  windowMs: 60000,
+  store: 'memory'
 });
 
 export const GatewayConfigSchema = z.object({

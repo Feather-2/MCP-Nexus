@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { HttpTransportAdapter } from '../../adapters/HttpTransportAdapter.js';
 import { McpServiceConfig, Logger } from '../../types/index.js';
 

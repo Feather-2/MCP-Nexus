@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { McpProtocolStackImpl } from '../../core/McpProtocolStackImpl.js';
 import { McpServiceConfig, Logger, ServiceState } from '../../types/index.js';
 import { spawn } from 'child_process';
@@ -84,9 +83,13 @@ describe('McpProtocolStackImpl', () => {
       workingDirectory: '/tmp'
     };
 
+    // Clear all mocks and reset spawn mock explicitly
+    vi.clearAllMocks();
+    vi.resetAllMocks();
+
     // Setup child process mock
     mockChildProcess = new MockChildProcess();
-    vi.mocked(spawn).mockReturnValue(mockChildProcess as any);
+    vi.mocked(spawn).mockClear().mockReturnValue(mockChildProcess as any);
 
     // Create protocol stack instance
     protocolStack = new McpProtocolStackImpl(mockLogger);
@@ -425,11 +428,11 @@ describe('McpProtocolStackImpl', () => {
       vi.mocked(mockHandshaker.McpProtocolHandshaker.prototype.negotiateVersion)
         .mockResolvedValue('2024-11-26');
 
-      const version = await protocolStack.negotiateVersion(serviceId, ['2024-11-26', '2024-06-18']);
-      
+      const version = await protocolStack.negotiateVersion(serviceId, ['2024-11-26', '2025-06-18']);
+
       expect(version).toBe('2024-11-26');
       expect(mockHandshaker.McpProtocolHandshaker.prototype.negotiateVersion)
-        .toHaveBeenCalledWith(serviceId, ['2024-11-26', '2024-06-18']);
+        .toHaveBeenCalledWith(serviceId, ['2024-11-26', '2025-06-18']);
     });
 
     it('should get capabilities', async () => {

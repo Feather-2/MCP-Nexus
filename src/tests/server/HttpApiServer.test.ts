@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { HttpApiServer } from '../../server/HttpApiServer.js';
 import type { GatewayConfig, Logger } from '../../types/index.js';
 
@@ -84,6 +83,7 @@ describe('HttpApiServer orchestrator routes', () => {
   };
 
   const logger: Logger = {
+    trace: vi.fn(),
     debug: vi.fn(),
     info: vi.fn(),
     warn: vi.fn(),
@@ -105,7 +105,7 @@ describe('HttpApiServer orchestrator routes', () => {
     intervalSpy = vi.spyOn(global, 'setInterval').mockReturnValue({
       ref() { return this; },
       unref() { return this; }
-    } as any);
+    } as any) as any;
     server = new HttpApiServer(config, logger, configManagerStub);
     orchestratorStub = {
       getConfig: vi.fn().mockReturnValue({ enabled: false, mode: 'manager-only', subagentsDir: './config/subagents' }),

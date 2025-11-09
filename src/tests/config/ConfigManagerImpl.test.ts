@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { ConfigManagerImpl } from '../../config/ConfigManagerImpl.js';
 import { GatewayConfig, Logger } from '../../types/index.js';
 import * as fs from 'fs/promises';

@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { HttpApiServer } from '../../../server/HttpApiServer.js';
 import type { GatewayConfig, Logger } from '../../../types/index.js';
 import crypto from 'crypto';
@@ -79,7 +78,7 @@ describe('LocalMcpProxyRoutes - input validation and flow', () => {
   };
 
   const logger: Logger = {
-    debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn()
+    trace: vi.fn(), debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn()
   };
 
   const configManagerStub = {

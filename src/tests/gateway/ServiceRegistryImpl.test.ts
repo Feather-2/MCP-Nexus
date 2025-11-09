@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ServiceRegistryImpl } from '../../gateway/ServiceRegistryImpl.js';
 import { ServiceTemplateManager } from '../../gateway/ServiceTemplateManager.js';
 import { ServiceInstanceManager } from '../../gateway/ServiceInstanceManager.js';
@@ -165,14 +164,10 @@ describe('ServiceRegistryImpl', () => {
       id: 'instance-123',
       config: mockTemplate,
       state: 'idle',
-      createdAt: new Date(),
+      startedAt: new Date(),
       lastHealthCheck: new Date(),
-      metrics: {
-        requestCount: 0,
-        errorCount: 0,
-        avgResponseTime: 0,
-        uptime: 0
-      }
+      errorCount: 0,
+      metadata: {}
     };
 
     it('should create instance from template', async () => {
@@ -257,10 +252,9 @@ describe('ServiceRegistryImpl', () => {
     it('should get health status', async () => {
       const healthStatus = {
         'instance-123': {
-          status: 'healthy' as const,
-          responseTime: 150,
-          lastCheck: new Date(),
-          consecutiveFailures: 0
+          healthy: true,
+          latency: 150,
+          timestamp: new Date()
         }
       };
 
@@ -323,9 +317,9 @@ describe('ServiceRegistryImpl', () => {
       vi.mocked(mockInstanceManager.list).mockResolvedValueOnce(instances);
       vi.mocked(mockLoadBalancer.selectInstance).mockResolvedValueOnce(instances[0]);
 
-      await registry.selectBestInstance('service1', 'round-robin');
+      await registry.selectBestInstance('service1', 'performance');
 
-      expect(mockLoadBalancer.selectInstance).toHaveBeenCalledWith(instances, 'round-robin');
+      expect(mockLoadBalancer.selectInstance).toHaveBeenCalledWith(instances, 'performance');
     });
   });
 });

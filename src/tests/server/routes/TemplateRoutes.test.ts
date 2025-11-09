@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { HttpApiServer } from '../../../server/HttpApiServer.js';
 import type { GatewayConfig, Logger } from '../../../types/index.js';
 
@@ -54,7 +53,7 @@ describe('TemplateRoutes - validation & operations', () => {
     rateLimiting: { enabled: false, maxRequests: 100, windowMs: 60000 },
     logLevel: 'info'
   };
-  const logger: Logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  const logger: Logger = { trace: vi.fn(), debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
   const configManagerStub = { getConfig: vi.fn().mockReturnValue(config), get: vi.fn() } as any;
   let server: HttpApiServer;
 

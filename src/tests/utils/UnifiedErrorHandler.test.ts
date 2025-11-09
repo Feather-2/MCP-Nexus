@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { UnifiedErrorHandler } from '../../utils/ErrorHandler.js';
 import { Logger } from '../../types/index.js';
 
@@ -363,7 +362,7 @@ describe('UnifiedErrorHandler', () => {
 
     it('should serialize errors to JSON safely', () => {
       const error = new Error('Test error');
-      const circular = { error };
+      const circular: any = { error };
       circular.self = circular; // Create circular reference
       
       const serialized = errorHandler.serializeError(error, { circular });
