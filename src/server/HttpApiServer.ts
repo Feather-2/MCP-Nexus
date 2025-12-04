@@ -46,7 +46,8 @@ import {
   OrchestratorRoutes,
   LocalMcpProxyRoutes,
   AiRoutes,
-  SandboxRoutes
+  SandboxRoutes,
+  ToolRoutes
 } from './routes/index.js';
 
 interface RouteRequestBody {
@@ -576,6 +577,10 @@ export class HttpApiServer {
 
     // Local MCP Proxy endpoints (modularized)
     new LocalMcpProxyRoutes(routeContext).setupRoutes();
+
+    // Tool API endpoints（统一逻辑工具入口，初始实现为模板直通）
+    // 注意：当前实现为最小版本，后续会在 routes/ToolRoutes.ts 中增强映射与编排能力。
+    new ToolRoutes(routeContext).setupRoutes();
   }
 
   // Unified error response helper

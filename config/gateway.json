@@ -17,6 +17,31 @@
     "http://localhost:3000"
   ],
   "maxRequestSize": 10485760,
+  "sandbox": {
+    "profile": "default",
+    "portable": {
+      "enabled": true,
+      "inheritSystemPath": false,
+      "allowDangerousEnvOverride": false,
+      "networkPolicy": "local-only"
+    },
+    "container": {
+      "prefer": false,
+      "requiredForUntrusted": false,
+      "defaultNetwork": "none",
+      "defaultReadonlyRootfs": true,
+      "allowedVolumeRoots": [
+        "../mcp-sandbox",
+        "./data"
+      ],
+      "envSafePrefixes": [
+        "PB_",
+        "PBMCP_",
+        "MCP_",
+        "BRAVE_"
+      ]
+    }
+  },
   "rateLimiting": {
     "enabled": false,
     "maxRequests": 100,

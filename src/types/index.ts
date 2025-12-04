@@ -82,6 +82,32 @@ const RoutingConfigSchema = z.object({
   switchThreshold: SwitchThresholdSchema.default({})
 }).partial();
 
+// Security / Sandbox profiles
+export const SECURITY_PROFILES = ['dev', 'default', 'locked-down'] as const;
+export type SecurityProfile = typeof SECURITY_PROFILES[number];
+
+const PortableSandboxConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  inheritSystemPath: z.boolean().default(false),
+  allowDangerousEnvOverride: z.boolean().default(false),
+  networkPolicy: z.enum(['full', 'local-only', 'blocked']).default('local-only')
+}).partial().default({});
+
+const ContainerSandboxConfigSchema = z.object({
+  prefer: z.boolean().default(false),
+  requiredForUntrusted: z.boolean().default(false),
+  defaultNetwork: z.enum(['none', 'bridge']).default('none'),
+  defaultReadonlyRootfs: z.boolean().default(true),
+  allowedVolumeRoots: z.array(z.string()).default(['../mcp-sandbox', './data']),
+  envSafePrefixes: z.array(z.string()).default(['PB_', 'PBMCP_', 'MCP_', 'BRAVE_'])
+}).partial().default({});
+
+const SandboxConfigSchema = z.object({
+  profile: z.enum(SECURITY_PROFILES).default('default'),
+  portable: PortableSandboxConfigSchema,
+  container: ContainerSandboxConfigSchema
+}).partial().default({});
+
 export const SubagentConfigSchema = z.object({
   name: z.string().min(1),
   tools: z.array(z.string()).default([]),
@@ -137,6 +163,12 @@ export const McpServiceConfigSchema = z.object({
       memory: z.string().optional()
     }).optional()
   }).optional(),
+  // Optional per-service security settings
+  security: z.object({
+    trustLevel: z.enum(['trusted', 'partner', 'untrusted']).default('trusted'),
+    networkPolicy: z.enum(['inherit', 'full', 'local-only', 'blocked']).default('inherit'),
+    requireContainer: z.boolean().default(false)
+  }).optional(),
   healthCheck: z.object({
     enabled: z.boolean().default(true),
     interval: z.number().default(5000),
@@ -184,6 +216,8 @@ export const GatewayConfigSchema = z.object({
   metricsRetentionDays: z.number().default(7),
   rateLimiting: RateLimitingConfigSchema.default({}),
   logLevel: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('info'),
+  // Sandbox / security configuration
+  sandbox: SandboxConfigSchema.optional(),
   // Non-secret AI configuration (keys read from environment variables)
   ai: AiConfigSchema.optional()
 });
