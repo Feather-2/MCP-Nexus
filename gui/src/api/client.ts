@@ -571,4 +571,144 @@ class ApiClient {
 }
 
 export const apiClient = new ApiClient();
+
+const API_BASE = import.meta.env.VITE_API_BASE ?? '';
+
+// AI Channel management
+export const aiApi = {
+  getChannels: async (): Promise<ChannelState[]> => {
+    const response = await fetch(`${API_BASE}/api/ai/channels`);
+    if (!response.ok) throw new Error('Failed to fetch channels');
+    const data = await response.json();
+    return data.data;
+  },
+
+  getChannel: async (id: string): Promise<ChannelState> => {
+    const response = await fetch(`${API_BASE}/api/ai/channels/${id}`);
+    if (!response.ok) throw new Error('Failed to fetch channel');
+    const data = await response.json();
+    return data.data;
+  },
+
+  disableChannel: async (id: string, reason?: string, durationMs?: number): Promise<void> => {
+    const response = await fetch(`${API_BASE}/api/ai/channels/${id}/disable`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason, durationMs })
+    });
+    if (!response.ok) throw new Error('Failed to disable channel');
+  },
+
+  enableChannel: async (id: string): Promise<void> => {
+    const response = await fetch(`${API_BASE}/api/ai/channels/${id}/enable`, {
+      method: 'POST'
+    });
+    if (!response.ok) throw new Error('Failed to enable channel');
+  },
+
+  getUsage: async (): Promise<UsageStats> => {
+    const response = await fetch(`${API_BASE}/api/ai/usage`);
+    if (!response.ok) throw new Error('Failed to fetch usage');
+    const data = await response.json();
+    return data.data;
+  },
+
+  getConfig: async (): Promise<AiConfig> => {
+    const response = await fetch(`${API_BASE}/api/ai/config`);
+    if (!response.ok) throw new Error('Failed to fetch config');
+    const data = await response.json();
+    return data.data;
+  },
+
+  updateConfig: async (config: Partial<AiConfig>): Promise<void> => {
+    const response = await fetch(`${API_BASE}/api/ai/config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config)
+    });
+    if (!response.ok) throw new Error('Failed to update config');
+  },
+
+  testConnection: async (channelId?: string): Promise<{ success: boolean; message?: string; latencyMs?: number }> => {
+    const url = channelId
+      ? `${API_BASE}/api/ai/test?channelId=${channelId}`
+      : `${API_BASE}/api/ai/test`;
+    const response = await fetch(url, { method: 'POST' });
+    const data = await response.json();
+    return data;
+  }
+};
+
+export interface ChannelState {
+  channelId: string;
+  enabled: boolean;
+  provider: string;
+  model: string;
+  keys: KeyState[];
+  pollingIndex: number;
+  consecutiveFailures: number;
+  cooldownUntil?: string;
+  metrics: {
+    totalRequests: number;
+    totalErrors: number;
+    avgLatencyMs: number;
+    lastRequestAt?: string;
+  };
+}
+
+export interface KeyState {
+  index: number;
+  enabled: boolean;
+  disabledAt?: string;
+  disabledUntil?: string;
+  disabledReason?: string;
+  errorCount: number;
+  lastUsedAt?: string;
+  totalRequests: number;
+  totalTokens: number;
+}
+
+export interface UsageStats {
+  totalCostUsd: number;
+  totalPromptTokens: number;
+  totalCompletionTokens: number;
+  budgetUsd?: number;
+  budgetRemaining?: number;
+  periodStart: string;
+  periodEnd?: string;
+  byModel: Record<string, {
+    requests: number;
+    promptTokens: number;
+    completionTokens: number;
+    costUsd: number;
+  }>;
+}
+
+export interface AiConfig {
+  provider: string;
+  model?: string;
+  endpoint?: string;
+  timeoutMs: number;
+  streaming: boolean;
+  channels?: ChannelConfig[];
+  defaultChannel?: string;
+  loadBalanceStrategy?: string;
+  retryAttempts?: number;
+}
+
+export interface ChannelConfig {
+  id: string;
+  name?: string;
+  provider: string;
+  model: string;
+  baseUrl?: string;
+  keySource: { type: string; value: string; format: string };
+  keyRotation?: string;
+  weight?: number;
+  enabled?: boolean;
+  rateLimit?: { rpm?: number; tpm?: number };
+  timeout?: number;
+  tags?: string[];
+}
+
 export type { ServiceTemplate, ServiceInstance, HealthStatus, OrchestratorStatus, OrchestratorConfig, OrchestratorMode, ApiResponse };

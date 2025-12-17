@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { apiClient, type OrchestratorConfig } from '../api/client';
+import { apiClient, type ChannelState, type OrchestratorConfig, type UsageStats } from '../api/client';
 import SandboxBanner from '@/components/SandboxBanner';
 import { useToastHelpers } from '../components/ui/toast';
 import { Button } from '@/components/ui/button';
@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { apiClient as client } from '@/api/client';
 import { Input } from '@/components/ui/input';
+import { Progress } from '@/components/ui/progress';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import {
@@ -16,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import PageHeader from '@/components/PageHeader';
 import { useI18n } from '@/i18n';
 import {
@@ -23,6 +25,7 @@ import {
   Database,
   Save,
   RotateCcw,
+  RefreshCw,
   Info,
   Shield,
   Zap,
@@ -83,6 +86,12 @@ const Settings: React.FC = () => {
   );
   const [aiSaving, setAiSaving] = useState(false);
   const [aiTesting, setAiTesting] = useState(false);
+  // AI channels + usage (requires /api/ai/channels + /api/ai/usage)
+  const [channels, setChannels] = useState<ChannelState[]>([]);
+  const [usage, setUsage] = useState<UsageStats | null>(null);
+  const [aiDataLoading, setAiDataLoading] = useState(false);
+  const [aiDataError, setAiDataError] = useState<string | null>(null);
+  const [aiBusyChannelId, setAiBusyChannelId] = useState<string | null>(null);
   // Client auth (API Key / Bearer) for GUI→API
   const [apiKey, setApiKey] = useState<string>(() => {
     try { return localStorage.getItem('pb_api_key') || '' } catch { return '' }
@@ -182,6 +191,101 @@ const Settings: React.FC = () => {
 
     loadConfig();
   }, []);
+
+  const unwrapData = (payload: any) => {
+    if (!payload) return payload;
+    if (typeof payload === 'object' && 'data' in payload) return (payload as any).data;
+    return payload;
+  };
+
+  const refreshAiData = async () => {
+    setAiDataLoading(true);
+    setAiDataError(null);
+    try {
+      const [channelsRes, usageRes] = await Promise.all([
+        apiClient.request<any>(`/api/ai/channels`),
+        apiClient.request<any>(`/api/ai/usage`)
+      ]);
+
+      if (channelsRes.ok) {
+        const list = unwrapData(channelsRes.data);
+        setChannels(Array.isArray(list) ? list : (Array.isArray(list?.channels) ? list.channels : []));
+      } else {
+        setChannels([]);
+        setAiDataError(channelsRes.error || 'Failed to fetch AI channels');
+      }
+
+      if (usageRes.ok) {
+        const u = unwrapData(usageRes.data);
+        setUsage(u || null);
+      } else {
+        setUsage(null);
+        setAiDataError((prev) => prev || usageRes.error || 'Failed to fetch AI usage');
+      }
+    } catch (e) {
+      setChannels([]);
+      setUsage(null);
+      setAiDataError(e instanceof Error ? e.message : 'Failed to fetch AI data');
+    } finally {
+      setAiDataLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void refreshAiData();
+  }, []);
+
+  const toggleChannel = async (channelId: string, enabled: boolean) => {
+    setAiBusyChannelId(channelId);
+    try {
+      const endpoint = enabled
+        ? `/api/ai/channels/${encodeURIComponent(channelId)}/disable`
+        : `/api/ai/channels/${encodeURIComponent(channelId)}/enable`;
+      const res = await apiClient.request(endpoint, {
+        method: 'POST',
+        ...(enabled ? { body: JSON.stringify({ reason: 'disabled via gui' }) } : {})
+      });
+      if (res.ok) {
+        success(enabled ? 'Channel disabled' : 'Channel enabled');
+        await refreshAiData();
+      } else {
+        showError('Channel update failed', res.error || 'Unknown error');
+      }
+    } catch (e) {
+      showError('Channel update failed', e instanceof Error ? e.message : 'Unknown error');
+    } finally {
+      setAiBusyChannelId(null);
+    }
+  };
+
+  const testChannel = async (channelId: string) => {
+    setAiBusyChannelId(channelId);
+    try {
+      // Prefer per-channel test endpoint if available
+      const direct = await apiClient.request<any>(`/api/ai/channels/${encodeURIComponent(channelId)}/test`, { method: 'POST' });
+      if (direct.ok) {
+        success('Channel test OK');
+        return;
+      }
+
+      // Fallback: provider-level environment check
+      const channel = channels.find((c) => c.channelId === channelId);
+      const fallback = await apiClient.testAiConnectivity({
+        provider: channel?.provider,
+        model: channel?.model,
+        mode: 'env-only'
+      });
+      if (fallback.ok && (fallback.data as any)?.success) {
+        success('AI environment OK');
+      } else {
+        showError('Channel test failed', direct.error || fallback.error || 'Unknown error');
+      }
+    } catch (e) {
+      showError('Channel test failed', e instanceof Error ? e.message : 'Unknown error');
+    } finally {
+      setAiBusyChannelId(null);
+    }
+  };
 
   const handleOrchestratorToggle = (value: boolean) => {
     setOrchestratorConfig((prev) => prev ? { ...prev, enabled: value } : { enabled: value, mode: 'manager-only', subagentsDir: './config/subagents' });
@@ -433,6 +537,189 @@ const Settings: React.FC = () => {
             <Button variant="outline" onClick={() => handleAiTest('env-only')} disabled={aiTesting}>{t('settings.ai.envOnly')}</Button>
             <Button variant="outline" onClick={() => handleAiTest('ping')} disabled={aiTesting}>{t('settings.ai.ping')}</Button>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* AI Channels */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <CardTitle>AI Channels</CardTitle>
+              <CardDescription>Channels routing, status, and live metrics</CardDescription>
+            </div>
+            <Button variant="outline" size="sm" onClick={refreshAiData} disabled={aiDataLoading} className="gap-2">
+              <RefreshCw className="h-4 w-4" /> Refresh
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {aiDataError && (
+            <p className="text-sm text-red-600 dark:text-red-400">{aiDataError}</p>
+          )}
+
+          {!aiDataLoading && channels.length === 0 && (
+            <p className="text-sm text-muted-foreground">No channels found (or the API is not enabled).</p>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {channels.map((channel) => (
+              <Card key={channel.channelId}>
+                <CardHeader>
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <h3 className="font-semibold leading-none tracking-tight">{channel.channelId}</h3>
+                      <p className="text-sm text-muted-foreground">
+                        {channel.provider} / {channel.model}
+                      </p>
+                    </div>
+                    <Badge variant={channel.enabled ? 'default' : 'destructive'}>
+                      {channel.enabled ? 'Active' : 'Disabled'}
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-3 gap-4 text-sm">
+                    <div>
+                      <p className="text-muted-foreground">Requests</p>
+                      <p className="font-medium">{channel.metrics?.totalRequests ?? 0}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Errors</p>
+                      <p className="font-medium">{channel.metrics?.totalErrors ?? 0}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Avg Latency</p>
+                      <p className="font-medium">{Math.round(channel.metrics?.avgLatencyMs ?? 0)}ms</p>
+                    </div>
+                  </div>
+                  {(channel.cooldownUntil || channel.consecutiveFailures) && (
+                    <div className="mt-3 text-xs text-muted-foreground">
+                      {channel.consecutiveFailures ? `Failures: ${channel.consecutiveFailures}` : null}
+                      {channel.cooldownUntil ? `${channel.consecutiveFailures ? ' · ' : ''}Cooldown until: ${channel.cooldownUntil}` : null}
+                    </div>
+                  )}
+                  <div className="mt-4 flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={aiBusyChannelId === channel.channelId}
+                      onClick={() => testChannel(channel.channelId)}
+                    >
+                      Test
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={channel.enabled ? 'destructive' : 'default'}
+                      disabled={aiBusyChannelId === channel.channelId}
+                      onClick={() => toggleChannel(channel.channelId, channel.enabled)}
+                    >
+                      {channel.enabled ? 'Disable' : 'Enable'}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* AI Cost & Usage */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Cost & Usage</CardTitle>
+          <CardDescription>Total cost, budget, and per-model breakdown</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!usage && (
+            <p className="text-sm text-muted-foreground">Usage data unavailable.</p>
+          )}
+
+          {usage && (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <p className="text-sm text-muted-foreground">Total Cost</p>
+                  <p className="text-lg font-semibold">${Number(usage.totalCostUsd || 0).toFixed(4)}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Prompt Tokens</p>
+                  <p className="text-lg font-semibold">{usage.totalPromptTokens ?? 0}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Completion Tokens</p>
+                  <p className="text-lg font-semibold">{usage.totalCompletionTokens ?? 0}</p>
+                </div>
+              </div>
+
+              {typeof usage.budgetUsd === 'number' && usage.budgetUsd > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Budget</span>
+                    <span>
+                      $
+                      {Number(
+                        typeof usage.budgetRemaining === 'number'
+                          ? usage.budgetUsd - usage.budgetRemaining
+                          : usage.totalCostUsd || 0
+                      ).toFixed(2)}
+                      {' / '}
+                      ${Number(usage.budgetUsd).toFixed(2)}
+                    </span>
+                  </div>
+                  <Progress
+                    value={Math.min(
+                      100,
+                      Math.max(
+                        0,
+                        ((typeof usage.budgetRemaining === 'number'
+                          ? usage.budgetUsd - usage.budgetRemaining
+                          : usage.totalCostUsd || 0) /
+                          usage.budgetUsd) *
+                          100
+                      )
+                    )}
+                    className="h-2"
+                  />
+                </div>
+              )}
+
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Model</TableHead>
+                      <TableHead className="text-right">Requests</TableHead>
+                      <TableHead className="text-right">Prompt</TableHead>
+                      <TableHead className="text-right">Completion</TableHead>
+                      <TableHead className="text-right">Cost (USD)</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {Object.entries(usage.byModel || {})
+                      .map(([model, s]) => ({ model, ...s }))
+                      .sort((a, b) => (b.costUsd || 0) - (a.costUsd || 0))
+                      .map((row) => (
+                        <TableRow key={row.model}>
+                          <TableCell className="font-medium">{row.model}</TableCell>
+                          <TableCell className="text-right">{row.requests ?? 0}</TableCell>
+                          <TableCell className="text-right">{row.promptTokens ?? 0}</TableCell>
+                          <TableCell className="text-right">{row.completionTokens ?? 0}</TableCell>
+                          <TableCell className="text-right">${Number(row.costUsd || 0).toFixed(4)}</TableCell>
+                        </TableRow>
+                      ))}
+                    {Object.keys(usage.byModel || {}).length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-sm text-muted-foreground">
+                          No per-model usage yet.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
 
