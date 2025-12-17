@@ -1,15 +1,41 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseRouteHandler, RouteContext } from './RouteContext.js';
 import { z } from 'zod';
-import { AiConfigSchema } from '../../types/index.js';
+import { AiConfigSchema, ChannelConfigSchema } from '../../types/index.js';
+import { ChannelManager } from '../../ai/channel.js';
+import { CostTracker } from '../../ai/cost-tracker.js';
+import type { AiClientConfig, ChannelConfig } from '../../ai/types.js';
 
 /**
  * AI provider configuration, testing, and chat routes
  * Includes both streaming and non-streaming AI interactions
  */
 export class AiRoutes extends BaseRouteHandler {
+  private channelManager: ChannelManager | null = null;
+  private costTracker: CostTracker | null = null;
+
   constructor(ctx: RouteContext) {
     super(ctx);
+    this.initAiModules();
+  }
+
+  private async initAiModules(): Promise<void> {
+    try {
+      const aiCfg = await this.ctx.configManager.get<any>('ai');
+      const channels: ChannelConfig[] = aiCfg?.channels || [];
+      if (channels.length > 0) {
+        const clientConfig: AiClientConfig = {
+          channels,
+          defaultChannel: channels[0]?.id,
+          retryAttempts: aiCfg?.maxRetries || 3,
+          retryDelayMs: 1000
+        };
+        this.channelManager = new ChannelManager(clientConfig);
+        this.costTracker = new CostTracker(aiCfg?.budget);
+      }
+    } catch {
+      // silently ignore - channels not configured
+    }
   }
 
   setupRoutes(): void {
@@ -180,6 +206,209 @@ export class AiRoutes extends BaseRouteHandler {
           reply.raw.write(`data: ${JSON.stringify({ event: 'error', error: msg })}\n\n`);
         } catch { /* ignored */ }
         try { reply.raw.end(); } catch { /* ignored */ }
+      }
+    });
+
+    // ===== Channels Management Routes =====
+
+    // GET /api/ai/channels - List all channels with state
+    server.get('/api/ai/channels', async (_request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const aiCfg = await this.ctx.configManager.get<any>('ai');
+        const channels: ChannelConfig[] = aiCfg?.channels || [];
+
+        if (!this.channelManager && channels.length > 0) {
+          await this.initAiModules();
+        }
+
+        if (!this.channelManager) {
+          return reply.send({ channels: [], message: 'No channels configured' });
+        }
+
+        const states = this.channelManager.getAllStates();
+        const result = channels.map((ch) => {
+          const state = states.find((s) => s.channelId === ch.id);
+          return {
+            id: ch.id,
+            provider: ch.provider,
+            model: ch.model,
+            weight: ch.weight ?? 1,
+            tags: ch.tags,
+            enabled: state?.enabled ?? ch.enabled ?? true,
+            state: state ? {
+              consecutiveFailures: state.consecutiveFailures,
+              cooldownUntil: state.cooldownUntil,
+              metrics: state.metrics,
+              keys: state.keys.map((k) => ({
+                index: k.index,
+                enabled: k.enabled,
+                errorCount: k.errorCount,
+                totalRequests: k.totalRequests
+              }))
+            } : null
+          };
+        });
+
+        reply.send({ channels: result });
+      } catch (error) {
+        return this.respondError(reply, 500, (error as Error).message, { code: 'AI_CHANNELS_ERROR' });
+      }
+    });
+
+    // GET /api/ai/channels/:id - Get single channel
+    server.get('/api/ai/channels/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const { id } = request.params as { id: string };
+
+        if (!this.channelManager) {
+          return this.respondError(reply, 404, 'Channels not configured', { code: 'NOT_FOUND' });
+        }
+
+        const state = this.channelManager.getState(id);
+        if (!state) {
+          return this.respondError(reply, 404, `Channel not found: ${id}`, { code: 'NOT_FOUND' });
+        }
+
+        const aiCfg = await this.ctx.configManager.get<any>('ai');
+        const channelCfg = (aiCfg?.channels || []).find((c: ChannelConfig) => c.id === id);
+
+        reply.send({
+          id,
+          provider: channelCfg?.provider,
+          model: channelCfg?.model,
+          weight: channelCfg?.weight ?? 1,
+          tags: channelCfg?.tags,
+          enabled: state.enabled,
+          state: {
+            consecutiveFailures: state.consecutiveFailures,
+            cooldownUntil: state.cooldownUntil,
+            metrics: state.metrics,
+            keys: state.keys.map((k) => ({
+              index: k.index,
+              enabled: k.enabled,
+              errorCount: k.errorCount,
+              totalRequests: k.totalRequests
+            }))
+          }
+        });
+      } catch (error) {
+        return this.respondError(reply, 500, (error as Error).message, { code: 'AI_CHANNEL_ERROR' });
+      }
+    });
+
+    // POST /api/ai/channels/:id/disable
+    server.post('/api/ai/channels/:id/disable', async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const { id } = request.params as { id: string };
+        const body = (request.body as any) || {};
+        const reason = body.reason || 'Manual disable';
+        const durationMs = body.durationMs;
+
+        if (!this.channelManager) {
+          return this.respondError(reply, 404, 'Channels not configured', { code: 'NOT_FOUND' });
+        }
+
+        this.channelManager.disableChannel(id, reason, durationMs);
+        reply.send({ success: true, id, enabled: false });
+      } catch (error) {
+        return this.respondError(reply, 500, (error as Error).message, { code: 'AI_CHANNEL_ERROR' });
+      }
+    });
+
+    // POST /api/ai/channels/:id/enable
+    server.post('/api/ai/channels/:id/enable', async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const { id } = request.params as { id: string };
+
+        if (!this.channelManager) {
+          return this.respondError(reply, 404, 'Channels not configured', { code: 'NOT_FOUND' });
+        }
+
+        this.channelManager.enableChannel(id);
+        reply.send({ success: true, id, enabled: true });
+      } catch (error) {
+        return this.respondError(reply, 500, (error as Error).message, { code: 'AI_CHANNEL_ERROR' });
+      }
+    });
+
+    // POST /api/ai/channels - Add new channel to config
+    server.post('/api/ai/channels', async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const body = request.body as any;
+        const parsed = ChannelConfigSchema.parse(body);
+
+        const aiCfg = (await this.ctx.configManager.get<any>('ai')) || {};
+        const channels: ChannelConfig[] = aiCfg.channels || [];
+
+        // Check duplicate id
+        if (channels.some((c) => c.id === parsed.id)) {
+          return this.respondError(reply, 400, `Channel with id '${parsed.id}' already exists`, { code: 'DUPLICATE_ID' });
+        }
+
+        channels.push(parsed as ChannelConfig);
+        await this.ctx.configManager.updateConfig({ ai: { ...aiCfg, channels } });
+
+        // Reinitialize modules
+        await this.initAiModules();
+
+        reply.send({ success: true, channel: parsed });
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          return this.respondError(reply, 400, 'Invalid channel config', { code: 'BAD_REQUEST', meta: error.errors });
+        }
+        return this.respondError(reply, 500, (error as Error).message, { code: 'AI_CHANNEL_ERROR' });
+      }
+    });
+
+    // DELETE /api/ai/channels/:id - Remove channel from config
+    server.delete('/api/ai/channels/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const { id } = request.params as { id: string };
+
+        const aiCfg = (await this.ctx.configManager.get<any>('ai')) || {};
+        const channels: ChannelConfig[] = aiCfg.channels || [];
+        const idx = channels.findIndex((c) => c.id === id);
+
+        if (idx === -1) {
+          return this.respondError(reply, 404, `Channel not found: ${id}`, { code: 'NOT_FOUND' });
+        }
+
+        channels.splice(idx, 1);
+        await this.ctx.configManager.updateConfig({ ai: { ...aiCfg, channels } });
+
+        // Reinitialize modules
+        await this.initAiModules();
+
+        reply.send({ success: true, id });
+      } catch (error) {
+        return this.respondError(reply, 500, (error as Error).message, { code: 'AI_CHANNEL_ERROR' });
+      }
+    });
+
+    // GET /api/ai/usage - Get cost tracking stats
+    server.get('/api/ai/usage', async (_request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        if (!this.costTracker) {
+          return reply.send({ usage: null, message: 'Cost tracking not enabled' });
+        }
+
+        const usage = this.costTracker.getUsage();
+        const byModel = this.costTracker.getUsageByModel();
+
+        reply.send({
+          usage: {
+            totalCost: usage.totalCostUsd,
+            inputTokens: usage.totalPromptTokens,
+            outputTokens: usage.totalCompletionTokens,
+            budgetUsd: usage.budgetUsd,
+            budgetRemaining: usage.budgetRemaining,
+            periodStart: usage.periodStart,
+            periodEnd: usage.periodEnd
+          },
+          byModel
+        });
+      } catch (error) {
+        return this.respondError(reply, 500, (error as Error).message, { code: 'AI_USAGE_ERROR' });
       }
     });
   }

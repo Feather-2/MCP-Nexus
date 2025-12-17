@@ -20,7 +20,8 @@ describe('DelegateTool', () => {
     const executor = makeExecutor({ success: true, output, artifacts: ['file-a.txt'] });
 
     const tool = new DelegateTool({ executor });
-    const response = await tool.delegate({ department: 'coding', task: 'do it' });
+    // Use 'step' mode to get findings and artifacts
+    const response = await tool.delegate({ department: 'coding', task: 'do it', returnMode: 'step' });
 
     expect(executor.execute).toHaveBeenCalledWith('coding', 'do it', undefined);
     expect(response.status).toBe('success');
@@ -28,6 +29,20 @@ describe('DelegateTool', () => {
     expect(response.artifacts).toEqual(['file-a.txt']);
     expect(response.findings).toEqual(['This is a sufficiently long finding line.']);
     expect(response.duration).toEqual(expect.any(Number));
+  });
+
+  it('returns only summary in simple mode (default)', async () => {
+    const output = ['All done.', '', '- This is a sufficiently long finding line.'].join('\n');
+    const executor = makeExecutor({ success: true, output, artifacts: ['file-a.txt'] });
+
+    const tool = new DelegateTool({ executor });
+    const response = await tool.delegate({ department: 'coding', task: 'do it' });
+
+    expect(response.status).toBe('success');
+    expect(response.summary).toBe('All done.');
+    // simple mode: no findings, artifacts, or memoryRef
+    expect(response.findings).toBeUndefined();
+    expect(response.artifacts).toBeUndefined();
   });
 
   it('returns partial when executor reports success:false', async () => {
@@ -96,7 +111,8 @@ describe('DelegateTool', () => {
   });
 
   it('summarize: truncates at sentence boundary when possible', async () => {
-    const output = `${'A'.repeat(320)}. ${'B'.repeat(400)}`;
+    // simple mode max length is 300, need to adjust test
+    const output = `${'A'.repeat(200)}. ${'B'.repeat(400)}`;
     const executor = makeExecutor({ success: true, output });
     const tool = new DelegateTool({ executor });
 
@@ -104,7 +120,7 @@ describe('DelegateTool', () => {
 
     expect(response.summary.endsWith('.')).toBe(true);
     expect(response.summary.endsWith('...')).toBe(false);
-    expect(response.summary).toBe(`${'A'.repeat(320)}.`);
+    expect(response.summary).toBe(`${'A'.repeat(200)}.`);
   });
 
   it('summarize: appends ellipsis when no good breakpoint', async () => {
@@ -115,7 +131,8 @@ describe('DelegateTool', () => {
     const response = await tool.delegate({ department: 'docs', task: 'summarize' });
 
     expect(response.summary).toMatch(/\.\.\.$/);
-    expect(response.summary.length).toBe(503);
+    // simple mode max is 300
+    expect(response.summary.length).toBe(303);
   });
 
   it('extractFindings: extracts bullets, then fills with numbered items, with length filters', async () => {
@@ -130,7 +147,8 @@ describe('DelegateTool', () => {
     const executor = makeExecutor({ success: true, output });
     const tool = new DelegateTool({ executor });
 
-    const response = await tool.delegate({ department: 'research', task: 'findings' });
+    // Use 'step' mode to get findings
+    const response = await tool.delegate({ department: 'research', task: 'findings', returnMode: 'step' });
 
     expect(response.findings).toEqual([
       'This is a sufficiently long bullet finding line.',
@@ -139,7 +157,7 @@ describe('DelegateTool', () => {
     ]);
   });
 
-  it('stores detailed results in memory when memoryStore is provided', async () => {
+  it('stores detailed results in memory when memoryStore is provided (non-simple mode)', async () => {
     const executor = makeExecutor({ success: true, output: 'Done.' });
     const memoryStore: MemoryStore = {
       store: vi.fn().mockResolvedValue('memref-123'),
@@ -147,7 +165,8 @@ describe('DelegateTool', () => {
     };
 
     const tool = new DelegateTool({ executor, memoryStore });
-    const request: DelegateRequest = { department: 'coding', task: 'do it', memoryTier: 'L2' };
+    // Use 'overview' mode to trigger memory storage
+    const request: DelegateRequest = { department: 'coding', task: 'do it', memoryTier: 'L2', returnMode: 'overview' };
 
     const response = await tool.delegate(request);
 
@@ -170,7 +189,23 @@ describe('DelegateTool', () => {
     expect(response.memoryRef).toBe('memref-123');
   });
 
-  it('getToolDefinition returns a valid schema', () => {
+  it('does not store in memory when returnMode is simple', async () => {
+    const executor = makeExecutor({ success: true, output: 'Done.' });
+    const memoryStore: MemoryStore = {
+      store: vi.fn().mockResolvedValue('memref-123'),
+      retrieve: vi.fn()
+    };
+
+    const tool = new DelegateTool({ executor, memoryStore });
+    const request: DelegateRequest = { department: 'coding', task: 'do it' };
+
+    const response = await tool.delegate(request);
+
+    expect(memoryStore.store).not.toHaveBeenCalled();
+    expect(response.memoryRef).toBeUndefined();
+  });
+
+  it('getToolDefinition returns a valid schema with returnMode', () => {
     const schema = DelegateTool.getToolDefinition(['research', 'coding']);
 
     expect(schema).toEqual(
@@ -182,7 +217,12 @@ describe('DelegateTool', () => {
           properties: expect.objectContaining({
             department: expect.objectContaining({ enum: ['research', 'coding'] }),
             task: expect.objectContaining({ type: 'string' }),
-            context: expect.objectContaining({ type: 'object' })
+            context: expect.objectContaining({ type: 'object' }),
+            returnMode: expect.objectContaining({
+              type: 'string',
+              enum: ['simple', 'step', 'overview', 'details'],
+              default: 'simple'
+            })
           })
         })
       })

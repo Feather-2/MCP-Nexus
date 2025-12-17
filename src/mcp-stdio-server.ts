@@ -56,7 +56,8 @@ const RouteTaskArgsSchema = z.object({
 const DelegateArgsSchema = z.object({
   department: z.enum(['research', 'coding', 'review', 'testing', 'docs']),
   task: z.string().min(1),
-  context: z.record(z.unknown()).optional()
+  context: z.record(z.unknown()).optional(),
+  returnMode: z.enum(['simple', 'step', 'overview', 'details']).optional()
 });
 
 function writeJsonLine(value: unknown): void {
@@ -292,7 +293,7 @@ class McpStdioServer {
       },
       {
         name: 'delegate',
-        description: 'Delegate complex task to specialized SubAgent for isolated execution',
+        description: 'Delegate complex task to specialized SubAgent for isolated execution. Returns summary by default; use returnMode to control detail level.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -302,7 +303,13 @@ class McpStdioServer {
               description: 'Specialized department to handle the task'
             },
             task: { type: 'string', description: 'Task description' },
-            context: { type: 'object', description: 'Optional context' }
+            context: { type: 'object', description: 'Optional context' },
+            returnMode: {
+              type: 'string',
+              enum: ['simple', 'step', 'overview', 'details'],
+              default: 'simple',
+              description: 'Controls response detail: simple (result only ~300b), step (per-step ~1-2KB), overview (summary ~500b-1KB), details (full debug ~5-50KB)'
+            }
           },
           required: ['department', 'task']
         }
@@ -434,7 +441,8 @@ class McpStdioServer {
       const response = await this.delegateTool.delegate({
         department: argsParsed.data.department,
         task: argsParsed.data.task,
-        context: argsParsed.data.context
+        context: argsParsed.data.context,
+        returnMode: argsParsed.data.returnMode
       });
       return toTextResult(response);
     }

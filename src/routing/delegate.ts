@@ -1,4 +1,4 @@
-import type { DelegateRequest, DelegateResponse } from './types.js';
+import type { DelegateRequest, DelegateResponse, ExecutionStep, ReturnMode } from './types.js';
 
 export interface SubAgentExecutor {
   execute(department: string, task: string, context?: Record<string, unknown>): Promise<SubAgentResult>;
@@ -9,11 +9,14 @@ export interface SubAgentResult {
   output: string;
   artifacts?: string[];
   error?: string;
+  /** Optional execution steps for detailed tracking */
+  steps?: ExecutionStep[];
 }
 
 export interface DelegateToolOptions {
   executor: SubAgentExecutor;
   defaultTimeout?: number;
+  defaultReturnMode?: ReturnMode;
   onDelegate?: (request: DelegateRequest) => void;
   onComplete?: (request: DelegateRequest, response: DelegateResponse) => void;
   memoryStore?: MemoryStore;
@@ -35,6 +38,7 @@ export interface MemoryStore {
 export class DelegateTool {
   private readonly executor: SubAgentExecutor;
   private readonly defaultTimeout: number;
+  private readonly defaultReturnMode: ReturnMode;
   private readonly onDelegate?: (request: DelegateRequest) => void;
   private readonly onComplete?: (request: DelegateRequest, response: DelegateResponse) => void;
   private readonly memoryStore?: MemoryStore;
@@ -42,6 +46,7 @@ export class DelegateTool {
   constructor(options: DelegateToolOptions) {
     this.executor = options.executor;
     this.defaultTimeout = options.defaultTimeout ?? 300_000; // 5 minutes
+    this.defaultReturnMode = options.defaultReturnMode ?? 'simple';
     this.onDelegate = options.onDelegate;
     this.onComplete = options.onComplete;
     this.memoryStore = options.memoryStore;
@@ -92,22 +97,60 @@ export class DelegateTool {
     startTime: number
   ): Promise<DelegateResponse> {
     const duration = Date.now() - startTime;
+    const returnMode = request.returnMode ?? this.defaultReturnMode;
 
+    // Base response - always includes status, summary, duration
     const response: DelegateResponse = {
       status: result.success ? 'success' : 'partial',
-      summary: this.summarize(result.output),
+      summary: this.summarize(result.output, returnMode),
       duration
     };
 
-    if (result.artifacts && result.artifacts.length > 0) {
-      response.artifacts = result.artifacts;
+    // Add content based on returnMode
+    switch (returnMode) {
+      case 'simple':
+        // Minimal: just summary (already set)
+        break;
+
+      case 'step':
+        // Include steps + findings
+        if (result.steps && result.steps.length > 0) {
+          response.steps = result.steps;
+        }
+        response.findings = this.extractFindings(result.output);
+        if (result.artifacts && result.artifacts.length > 0) {
+          response.artifacts = result.artifacts;
+        }
+        break;
+
+      case 'overview':
+        // Include overview summary + findings
+        response.overview = this.generateOverview(result, duration);
+        response.findings = this.extractFindings(result.output);
+        if (result.artifacts && result.artifacts.length > 0) {
+          response.artifacts = result.artifacts;
+        }
+        break;
+
+      case 'details':
+        // Full context for debugging
+        if (result.steps && result.steps.length > 0) {
+          response.steps = result.steps;
+        }
+        response.overview = this.generateOverview(result, duration);
+        response.findings = this.extractFindings(result.output);
+        if (result.artifacts && result.artifacts.length > 0) {
+          response.artifacts = result.artifacts;
+        }
+        response.rawOutputs = {
+          fullOutput: result.output,
+          error: result.error
+        };
+        break;
     }
 
-    // Extract key findings from output
-    response.findings = this.extractFindings(result.output);
-
-    // Store detailed results in memory if configured
-    if (this.memoryStore) {
+    // Store detailed results in memory if configured (for non-simple modes)
+    if (this.memoryStore && returnMode !== 'simple') {
       const tier = request.memoryTier ?? 'L1';
       response.memoryRef = await this.memoryStore.store(
         `delegate:${request.department}:${Date.now()}`,
@@ -123,6 +166,38 @@ export class DelegateTool {
     return response;
   }
 
+  private generateOverview(result: SubAgentResult, durationMs: number): string {
+    const parts: string[] = [];
+
+    // Step count
+    if (result.steps && result.steps.length > 0) {
+      const successCount = result.steps.filter(s => s.status === 'success').length;
+      parts.push(`Executed ${result.steps.length} steps (${successCount} succeeded)`);
+    }
+
+    // Duration
+    const durationSec = (durationMs / 1000).toFixed(1);
+    parts.push(`Duration: ${durationSec}s`);
+
+    // Output size
+    const outputSize = result.output.length;
+    if (outputSize > 1000) {
+      parts.push(`Output: ${(outputSize / 1024).toFixed(1)}KB`);
+    }
+
+    // Artifacts
+    if (result.artifacts && result.artifacts.length > 0) {
+      parts.push(`Artifacts: ${result.artifacts.length}`);
+    }
+
+    // Error
+    if (result.error) {
+      parts.push(`Error: ${result.error.slice(0, 100)}`);
+    }
+
+    return parts.join(' | ');
+  }
+
   private buildErrorResponse(error: unknown, startTime: number): DelegateResponse {
     const duration = Date.now() - startTime;
     const message = error instanceof Error ? error.message : String(error);
@@ -134,9 +209,15 @@ export class DelegateTool {
     };
   }
 
-  private summarize(output: string): string {
-    // Simple summarization: take first paragraph or first N characters
-    const maxLength = 500;
+  private summarize(output: string, returnMode: ReturnMode): string {
+    // Adjust max length based on return mode
+    const maxLengths: Record<ReturnMode, number> = {
+      simple: 300,
+      step: 500,
+      overview: 400,
+      details: 1000
+    };
+    const maxLength = maxLengths[returnMode];
 
     // Try to find a natural break point
     const paragraphs = output.split(/\n\n+/);
@@ -193,7 +274,7 @@ export class DelegateTool {
     return {
       name: 'delegate',
       description:
-        'Delegate a complex task to a specialized SubAgent. Use for tasks requiring multiple steps, external research, or complex analysis.',
+        'Delegate a complex task to a specialized SubAgent. Use for tasks requiring multiple steps, external research, or complex analysis. Returns a summary by default; use returnMode to control detail level.',
       input_schema: {
         type: 'object',
         properties: {
@@ -209,6 +290,12 @@ export class DelegateTool {
           context: {
             type: 'object',
             description: 'Optional additional context to pass to the SubAgent'
+          },
+          returnMode: {
+            type: 'string',
+            enum: ['simple', 'step', 'overview', 'details'],
+            default: 'simple',
+            description: 'Controls response detail: simple (result only), step (per-step summaries), overview (execution summary), details (full debug info)'
           }
         },
         required: ['department', 'task']

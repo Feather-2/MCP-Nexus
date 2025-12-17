@@ -28,15 +28,50 @@ export const ORCHESTRATOR_MODES = ['manager-only', 'auto', 'wrapper-prefer'] as 
 export type OrchestratorMode = typeof ORCHESTRATOR_MODES[number];
 
 // ===== AI Provider Config =====
-export const AI_PROVIDERS = ['none', 'openai', 'anthropic', 'azure-openai', 'ollama'] as const;
+export const AI_PROVIDERS = [
+  'none', 'openai', 'anthropic', 'azure-openai', 'ollama',
+  'google', 'mistral', 'groq', 'deepseek', 'bedrock'
+] as const;
 export type AiProvider = typeof AI_PROVIDERS[number];
+
+// Key source configuration for channels
+export const KeySourceSchema = z.object({
+  type: z.enum(['env', 'literal']),
+  value: z.string(),
+  format: z.enum(['single', 'newline', 'json']).default('single')
+});
+export type KeySource = z.infer<typeof KeySourceSchema>;
+
+// Channel configuration schema
+export const ChannelConfigSchema = z.object({
+  id: z.string().min(1),
+  provider: z.enum(['openai', 'anthropic', 'google', 'mistral', 'groq', 'deepseek', 'ollama', 'azure-openai', 'bedrock']),
+  model: z.string().min(1),
+  keySource: KeySourceSchema,
+  keyRotation: z.enum(['polling', 'random']).default('polling'),
+  weight: z.number().min(0).default(1),
+  enabled: z.boolean().default(true),
+  baseUrl: z.string().optional(),
+  headers: z.record(z.string()).optional(),
+  tags: z.array(z.string()).optional(),
+  rateLimit: z.object({
+    rpm: z.number().optional(),
+    tpm: z.number().optional()
+  }).optional()
+});
+export type ChannelConfig = z.infer<typeof ChannelConfigSchema>;
 
 export const AiConfigSchema = z.object({
   provider: z.enum(AI_PROVIDERS).default('none'),
   model: z.string().optional().default(''),
   endpoint: z.string().optional().default(''),
   timeoutMs: z.number().optional().default(30000),
-  streaming: z.boolean().optional().default(true)
+  streaming: z.boolean().optional().default(true),
+  channels: z.array(ChannelConfigSchema).optional(),
+  budget: z.object({
+    maxCostUsd: z.number().optional(),
+    period: z.enum(['hour', 'day', 'month']).optional()
+  }).optional()
 }).partial();
 export type AiConfig = z.infer<typeof AiConfigSchema>;
 

@@ -9,6 +9,15 @@
 
 export type RoutingTier = 'direct' | 'skills' | 'subagent';
 
+/**
+ * Return mode controls how much context is returned to the caller.
+ * - simple: Only final result (~100-500 bytes)
+ * - step: Each step summary + result (~1-2 KB)
+ * - overview: Internal summary + result (~500 bytes - 1 KB)
+ * - details: Full context for debugging (~5-50 KB)
+ */
+export type ReturnMode = 'simple' | 'step' | 'overview' | 'details';
+
 export interface TaskComplexity {
   /** Estimated number of steps required */
   stepCount: number;
@@ -51,6 +60,8 @@ export interface DelegateRequest {
   task: string;
   /** Optional context to pass to subagent */
   context?: Record<string, unknown>;
+  /** Return mode: controls how much detail is returned (default: 'simple') */
+  returnMode?: ReturnMode;
   /** Memory tier preference for result storage */
   memoryTier?: 'L0' | 'L1' | 'L2';
   /** Maximum execution time in ms */
@@ -60,16 +71,33 @@ export interface DelegateRequest {
 export interface DelegateResponse {
   /** Execution status */
   status: 'success' | 'partial' | 'failed';
-  /** Summary of what was accomplished */
+  /** Summary of what was accomplished (always present) */
   summary: string;
-  /** Key findings or results */
+  /** Key findings or results (for step/overview/details modes) */
   findings?: string[];
+  /** Execution steps (for step/details modes) */
+  steps?: ExecutionStep[];
+  /** Internal overview (for overview/details modes) */
+  overview?: string;
   /** Files created or modified */
   artifacts?: string[];
+  /** Raw outputs (for details mode only) */
+  rawOutputs?: Record<string, unknown>;
   /** Memory reference for detailed results */
   memoryRef?: string;
   /** Execution duration in ms */
   duration: number;
+}
+
+export interface ExecutionStep {
+  /** Step identifier or agent name */
+  agent: string;
+  /** Step status */
+  status: 'success' | 'partial' | 'failed' | 'skipped';
+  /** Brief summary of what this step did */
+  summary: string;
+  /** Duration in ms */
+  durationMs?: number;
 }
 
 export interface SkillTrigger {
