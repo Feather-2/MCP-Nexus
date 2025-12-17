@@ -2,13 +2,14 @@
   "name": "filesystem",
   "version": "2024-11-26",
   "transport": "stdio",
-  "command": "npm",
+  "command": "npx",
   "args": [
-    "exec",
-    "-y",
     "@modelcontextprotocol/server-filesystem",
     "C:/Users/Public"
   ],
+  "env": {
+    "ALLOWED_DIRECTORY": "/tmp"
+  },
   "timeout": 30000,
   "retries": 3
 }

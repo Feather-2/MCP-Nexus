@@ -128,7 +128,7 @@ export class ServiceHealthChecker {
     let totalSuccess = 0;
     let totalFailure = 0;
 
-    for (const [serviceId, result] of this.healthCache) {
+    for (const [_serviceId, result] of this.healthCache) {
       if (result.healthy) {
         healthy++;
       } else {

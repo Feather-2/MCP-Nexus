@@ -1,11 +1,11 @@
 import { GatewayRouterImpl } from '../../router/GatewayRouterImpl.js';
 import { 
   RouteRequest, 
-  LoadBalancingStrategy, 
+   
   RoutingRule, 
   Logger,
   ServiceInstance,
-  ServiceHealth,
+  
   ServiceState
 } from '../../types/index.js';
 

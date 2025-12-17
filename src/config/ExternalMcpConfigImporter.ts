@@ -1,5 +1,5 @@
 import { promises as fs } from 'fs';
-import { join, dirname, resolve, sep } from 'path';
+import { join, resolve } from 'path';
 import { McpServiceConfig, Logger, McpVersion } from '../types/index.js';
 
 type SourceName = 'VSCode' | 'Cursor' | 'Windsurf' | 'Claude' | 'Cline';
@@ -38,7 +38,7 @@ export class ExternalMcpConfigImporter {
   private async discoverVSCode(): Promise<DiscoveredTemplate[]> {
     const home = process.env.HOME || process.env.USERPROFILE || '';
     const appdata = process.env.APPDATA || '';
-    const platform = process.platform;
+    const _platform = process.platform;
     const candidates: string[] = [];
     // Windows
     if (appdata) candidates.push(join(appdata, 'Code', 'User', 'settings.json'));
@@ -111,7 +111,7 @@ export class ExternalMcpConfigImporter {
   }
 
   // ========== Core scanning helpers ==========
-  private async discoverFromSettingsFile(source: SourceName, filePath: string, keys: string[]): Promise<DiscoveredTemplate[]> {
+  private async discoverFromSettingsFile(source: SourceName, filePath: string, _keys: string[]): Promise<DiscoveredTemplate[]> {
     try {
       // 文件大小限制与存在性检查
       const st = await fs.stat(filePath).catch(() => null as any);
@@ -164,7 +164,7 @@ export class ExternalMcpConfigImporter {
             }
           }
           if (items.length > 0) results.push({ source, path: f, items });
-        } catch {}
+        } catch { /* ignored */ }
       }
     }
     return results;
@@ -222,7 +222,7 @@ export class ExternalMcpConfigImporter {
       const name: string = entry.name || entry.label || entry.id || this.deriveName(entry) || `imported-${Date.now()}`;
       const env: Record<string, string> = {};
       let transport: 'stdio' | 'http' | 'streamable-http' = 'stdio';
-      let command: string | undefined = entry.command;
+      const command: string | undefined = entry.command;
       let args: string[] | undefined = entry.args;
 
       // URL-based (HTTP / Streamable HTTP)
@@ -279,7 +279,7 @@ export class ExternalMcpConfigImporter {
       try {
         const u = new URL(entry.url);
         return `${u.hostname}-${u.pathname.replace(/\//g, '-')}`.replace(/-+/g, '-');
-      } catch {}
+      } catch { /* ignored */ }
     }
     if (entry.command) {
       const base = (entry.command as string).split(/[\\/]/).pop();

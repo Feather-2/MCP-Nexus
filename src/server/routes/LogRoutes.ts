@@ -51,8 +51,8 @@ export class LogRoutes extends BaseRouteHandler {
         request.socket.on('end', cleanup);
         request.socket.on('error', cleanup);
       } catch (error) {
-        try { reply.raw.write(`data: ${JSON.stringify({ event: 'error', error: (error as Error).message })}\n\n`); } catch {}
-        try { reply.raw.end(); } catch {}
+        try { reply.raw.write(`data: ${JSON.stringify({ event: 'error', error: (error as Error).message })}\n\n`); } catch { /* ignored */ }
+        try { reply.raw.end(); } catch { /* ignored */ }
       }
     });
   }

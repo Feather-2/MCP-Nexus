@@ -1,13 +1,12 @@
-import { 
-  AuthenticationLayer, 
-  AuthRequest, 
-  AuthResponse, 
-  AuthMode, 
+import {
+  AuthenticationLayer,
+  AuthRequest,
+  AuthResponse,
   AuthContext,
   Logger,
   GatewayConfig
 } from '../types/index.js';
-import { createHash, randomBytes } from 'crypto';
+import { randomBytes } from 'crypto';
 import { EventEmitter } from 'events';
 
 export class AuthenticationLayerImpl extends EventEmitter implements AuthenticationLayer {
@@ -183,7 +182,7 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
 
   async validatePermissions(userId: string, requiredPermissions: string[]): Promise<boolean> {
     // Find user permissions from tokens
-    for (const [token, tokenData] of this.tokens) {
+    for (const [_token, tokenData] of this.tokens) {
       if (tokenData.userId === userId) {
         return this.checkPermissions(tokenData.permissions, requiredPermissions);
       }
@@ -192,7 +191,7 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
     return false;
   }
 
-  async hasPermission(permissions: string[], method: string, resource: string): Promise<boolean> {
+  async hasPermission(permissions: string[], method: string, _resource: string): Promise<boolean> {
     // If user has wildcard permission, they can do anything
     if (permissions.includes('*')) {
       return true;
@@ -222,13 +221,8 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
 
   // Public validation methods that return boolean (for tests)
   async validateToken(token: string): Promise<boolean> {
-    try {
-      const result = this.validateTokenInternal(token);
-      return result.success;
-    } catch (error) {
-      // Re-throw for proper error handling in authenticate method
-      throw error;
-    }
+    const result = this.validateTokenInternal(token);
+    return result.success;
   }
 
   async validateApiKey(apiKey: string): Promise<boolean> {
@@ -247,7 +241,7 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
   }
 
   // Rate limiting method (existing implementation)
-  async checkRateLimit(identifier: string): Promise<boolean> {
+  async checkRateLimit(_identifier: string): Promise<boolean> {
     // Simple implementation - always return true when rate limiting is disabled
     // In a real implementation, this would check against rate limiting rules
     return true;
@@ -317,7 +311,7 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
     });
   }
 
-  private authenticateLocalTrusted(clientIp: string, method: string, resource: string): AuthResponse {
+  private authenticateLocalTrusted(clientIp: string, _method: string, _resource: string): AuthResponse {
     if (!this.isLocalTrusted(clientIp)) {
       return {
         success: false,
@@ -338,21 +332,15 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
   }
 
   private async authenticateExternalSecure(
-    token?: string, 
-    apiKey?: string, 
-    method?: string, 
-    resource?: string
+    token?: string,
+    apiKey?: string,
+    _method?: string,
+    _resource?: string
   ): Promise<AuthResponse> {
     // Try token authentication first
     if (token) {
-      try {
-        // Call validateTokenInternal directly for consistency
-        const tokenAuth = this.validateTokenInternal(token);
-        return tokenAuth;
-      } catch (error) {
-        // This would happen if validateToken throws (e.g., in tests)
-        throw error;
-      }
+      const tokenAuth = this.validateTokenInternal(token);
+      return tokenAuth;
     }
 
     // Try API key authentication

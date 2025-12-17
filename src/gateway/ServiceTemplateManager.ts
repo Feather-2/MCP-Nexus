@@ -22,7 +22,7 @@ export class ServiceTemplateManager {
         if (fsSync.existsSync(cfgDir)) {
           this.templatesDir = cfgDir;
         }
-      } catch {}
+      } catch { /* ignored */ }
     }
     this.initializeTemplatesDir();
   }
@@ -181,7 +181,7 @@ export class ServiceTemplateManager {
         this.logger.info('Default templates already exist, skipping initialization');
         return;
       }
-    } catch {}
+    } catch { /* ignored */ }
 
     const defaultTemplates: McpServiceConfig[] = [
       {

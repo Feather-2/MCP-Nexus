@@ -194,7 +194,7 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
 
     try {
       // Clear all pending callbacks
-      for (const [id, callback] of this.responseCallbacks) {
+      for (const [_id, callback] of this.responseCallbacks) {
         clearTimeout(callback.timeout);
         callback.reject(new Error('Connection closed'));
       }

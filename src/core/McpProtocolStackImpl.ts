@@ -6,7 +6,7 @@ import {
   ServiceInstance,
   McpMessage,
   McpVersion,
-  ServiceState,
+  
   Logger,
   MCP_VERSIONS
 } from '../types/index.js';
@@ -398,7 +398,7 @@ export class McpProtocolStackImpl implements McpProtocolStack {
         }
         return patched;
       }
-    } catch {}
+    } catch { /* ignored */ }
     return { ...baseEnv, ...overrideEnv };
   }
 
@@ -411,7 +411,7 @@ export class McpProtocolStackImpl implements McpProtocolStack {
     try {
       const pathMod = require('path');
       const resolve = pathMod.resolve;
-      const join = pathMod.join;
+      const _join = pathMod.join;
       // packages installed under mcp-sandbox/packages/@modelcontextprotocol/server-*
       const pkgDir = resolve(process.cwd(), '../mcp-sandbox/packages', pkg);
       return pkgDir;

@@ -173,7 +173,7 @@ export class OrchestratorRoutes extends BaseRouteHandler {
     // Create/update subagent
     server.post('/api/orchestrator/subagents', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const config = SubagentConfigSchema.parse((request.body as any) || {}) as SubagentConfig;
+        const _config = SubagentConfigSchema.parse((request.body as any) || {}) as SubagentConfig;
         const status = this.ctx.getOrchestratorStatus ? this.ctx.getOrchestratorStatus() : undefined;
         if (!status) {
           return this.respondError(reply, 503, 'Orchestrator not available', { code: 'UNAVAILABLE' });

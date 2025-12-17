@@ -141,7 +141,7 @@ export class AiRoutes extends BaseRouteHandler {
         this.writeSseHeaders(reply, request);
 
         const send = (obj: any) => {
-          try { reply.raw.write(`data: ${JSON.stringify(obj)}\n\n`); } catch {}
+          try { reply.raw.write(`data: ${JSON.stringify(obj)}\n\n`); } catch { /* ignored */ }
         };
         send({ event: 'start' });
 
@@ -151,12 +151,12 @@ export class AiRoutes extends BaseRouteHandler {
           try {
             await this.streamingAiCall(provider, ai, user, (delta) => send({ event: 'delta', delta }), () => {
               send({ event: 'done' });
-              try { reply.raw.end(); } catch {}
+              try { reply.raw.end(); } catch { /* ignored */ }
             });
             return;
           } catch (e: any) {
             send({ event: 'error', error: e?.message || 'stream failed' });
-            try { reply.raw.end(); } catch {}
+            try { reply.raw.end(); } catch { /* ignored */ }
             return;
           }
         }
@@ -171,15 +171,15 @@ export class AiRoutes extends BaseRouteHandler {
           } else {
             clearInterval(timer);
             send({ event: 'done' });
-            try { reply.raw.end(); } catch {}
+            try { reply.raw.end(); } catch { /* ignored */ }
           }
         }, 120);
       } catch (error) {
         try {
           const msg = error instanceof z.ZodError ? 'Invalid request query' : (error as Error).message;
           reply.raw.write(`data: ${JSON.stringify({ event: 'error', error: msg })}\n\n`);
-        } catch {}
-        try { reply.raw.end(); } catch {}
+        } catch { /* ignored */ }
+        try { reply.raw.end(); } catch { /* ignored */ }
       }
     });
   }
@@ -305,7 +305,7 @@ export class AiRoutes extends BaseRouteHandler {
             const obj = JSON.parse(payload);
             const delta = obj?.choices?.[0]?.delta?.content;
             if (typeof delta === 'string') onDelta(delta);
-          } catch {}
+          } catch { /* ignored */ }
         }
       }
     }
@@ -375,7 +375,7 @@ export class AiRoutes extends BaseRouteHandler {
             const obj = JSON.parse(payload);
             const delta = obj?.choices?.[0]?.delta?.content;
             if (typeof delta === 'string') onDelta(delta);
-          } catch {}
+          } catch { /* ignored */ }
         }
       }
     }
@@ -416,7 +416,7 @@ export class AiRoutes extends BaseRouteHandler {
                 const delta = obj.delta?.text;
                 if (typeof delta === 'string') onDelta(delta);
               }
-            } catch {}
+            } catch { /* ignored */ }
           }
         }
       }
@@ -461,7 +461,7 @@ export class AiRoutes extends BaseRouteHandler {
             const obj = JSON.parse(line);
             const delta = obj?.message?.content;
             if (typeof delta === 'string') onDelta(delta);
-          } catch {}
+          } catch { /* ignored */ }
         }
       }
     }

@@ -1,5 +1,5 @@
 import { McpProtocolStackImpl } from '../../core/McpProtocolStackImpl.js';
-import { McpServiceConfig, Logger, ServiceState } from '../../types/index.js';
+import { McpServiceConfig, Logger } from '../../types/index.js';
 import { spawn } from 'child_process';
 import { EventEmitter } from 'events';
 

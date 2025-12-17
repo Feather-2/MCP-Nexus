@@ -47,7 +47,7 @@ export class SandboxRoutes extends BaseRouteHandler {
         // Prepare SSE response
         this.writeSseHeaders(reply, request);
 
-        const sendTo = (r: FastifyReply, obj: any) => { try { r.raw.write(`data: ${JSON.stringify(obj)}\n\n`); } catch {} };
+        const sendTo = (r: FastifyReply, obj: any) => { try { r.raw.write(`data: ${JSON.stringify(obj)}\n\n`); } catch { /* ignored */ } };
         const broadcast = (obj: any) => {
           for (const r of Array.from(this.ctx.sandboxStreamClients)) {
             try { sendTo(r, obj); } catch { this.ctx.sandboxStreamClients.delete(r); }
@@ -100,14 +100,14 @@ export class SandboxRoutes extends BaseRouteHandler {
         this.ctx.sandboxInstalling = false;
         // End all client streams gracefully
         for (const r of Array.from(this.ctx.sandboxStreamClients)) {
-          try { r.raw.end(); } catch {}
+          try { r.raw.end(); } catch { /* ignored */ }
           this.ctx.sandboxStreamClients.delete(r);
         }
       } catch (error) {
         this.ctx.logger.error('Sandbox streaming install failed:', error);
         this.sandboxProgress = undefined;
         this.ctx.sandboxInstalling = false;
-        try { reply.code(500).send({ success: false, error: (error as Error).message }); } catch {}
+        try { reply.code(500).send({ success: false, error: (error as Error).message }); } catch { /* ignored */ }
       }
     });
 
@@ -157,7 +157,7 @@ export class SandboxRoutes extends BaseRouteHandler {
                 await fs.unlink(path.join(d, it)).catch(() => {});
               }
             }
-          } catch {}
+          } catch { /* ignored */ }
         }
         const status = await this.inspectSandbox();
         reply.send({ success: true, result: status });
@@ -235,7 +235,7 @@ export class SandboxRoutes extends BaseRouteHandler {
           const timer = setTimeout(() => {
             if (settled) return;
             settled = true;
-            try { child.kill('SIGKILL'); } catch {}
+            try { child.kill('SIGKILL'); } catch { /* ignored */ }
             resolve(undefined);
           }, timeoutMs);
           child.stdout?.on('data', (d) => { out += d.toString(); });
@@ -256,9 +256,9 @@ export class SandboxRoutes extends BaseRouteHandler {
         });
       } catch { return undefined; }
     };
-    try { if (details.nodePath) details.nodeVersion = await getVersion(details.nodePath as string, ['-v']); } catch {}
-    try { if (details.pythonPath) details.pythonVersion = await getVersion(details.pythonPath as string, ['--version']); } catch {}
-    try { if (details.goPath) details.goVersion = await getVersion(details.goPath as string, ['version']); } catch {}
+    try { if (details.nodePath) details.nodeVersion = await getVersion(details.nodePath as string, ['-v']); } catch { /* ignored */ }
+    try { if (details.pythonPath) details.pythonVersion = await getVersion(details.pythonPath as string, ['--version']); } catch { /* ignored */ }
+    try { if (details.goPath) details.goVersion = await getVersion(details.goPath as string, ['version']); } catch { /* ignored */ }
 
     this.ctx.sandboxStatus = { nodeReady, pythonReady, goReady, packagesReady, details };
     return this.ctx.sandboxStatus;
@@ -276,7 +276,7 @@ export class SandboxRoutes extends BaseRouteHandler {
     const root = process.cwd();
 
     const pipelineAsync = promisify(pipeline);
-    const ensureDir = async (p: string) => { try { await fs.mkdir(p, { recursive: true }); } catch {} };
+    const ensureDir = async (p: string) => { try { await fs.mkdir(p, { recursive: true }); } catch { /* ignored */ } };
     const copyDir = async (src: string, dest: string) => {
       await ensureDir(dest);
       const entries = await fs.readdir(src, { withFileTypes: true } as any);
@@ -428,7 +428,7 @@ export class SandboxRoutes extends BaseRouteHandler {
               if (st.size > 1024) return;
             }
           }
-        } catch {}
+        } catch { /* ignored */ }
 
         const downloadUrl = config.node.urls[platform];
         const fileName = downloadUrl.split('/').pop()!;
@@ -474,7 +474,7 @@ export class SandboxRoutes extends BaseRouteHandler {
                       await fsp.copyFile(from, to);
                       await fsp.unlink(from).catch(() => {});
                     }
-                  } catch {}
+                  } catch { /* ignored */ }
                 } else {
                   throw err;
                 }
@@ -500,7 +500,7 @@ export class SandboxRoutes extends BaseRouteHandler {
           if (pythonStats.size > 1024) {
             return;
           }
-        } catch {}
+        } catch { /* ignored */ }
 
         const downloadUrl = config.python.urls[platform];
         const fileName = downloadUrl.split('/').pop()!;
@@ -543,7 +543,7 @@ export class SandboxRoutes extends BaseRouteHandler {
           if (goStats.size > 1024) {
             return;
           }
-        } catch {}
+        } catch { /* ignored */ }
 
         const downloadUrl = config.go.urls[platform];
         const fileName = downloadUrl.split('/').pop()!;
@@ -584,7 +584,7 @@ export class SandboxRoutes extends BaseRouteHandler {
                     await fs.copyFile(from, to);
                     await fs.unlink(from).catch(() => {});
                   }
-                } catch {}
+                } catch { /* ignored */ }
               } else {
                 throw err;
               }
@@ -603,7 +603,7 @@ export class SandboxRoutes extends BaseRouteHandler {
 
         const nodeDir = path.resolve(root, '../mcp-sandbox/runtimes/nodejs');
         const nodeBin = platform === 'win32' ? path.join(nodeDir, 'node.exe') : path.join(nodeDir, 'bin', 'node');
-        let npmScript = platform === 'win32' ? (await fs.access(path.join(nodeDir, 'npm.cmd')).then(() => path.join(nodeDir, 'npm.cmd')).catch(() => path.join(nodeDir, 'bin', 'npm.cmd'))) : path.join(nodeDir, 'bin', 'npm');
+        const npmScript = platform === 'win32' ? (await fs.access(path.join(nodeDir, 'npm.cmd')).then(() => path.join(nodeDir, 'npm.cmd')).catch(() => path.join(nodeDir, 'bin', 'npm.cmd'))) : path.join(nodeDir, 'bin', 'npm');
 
         try {
           await fs.access(nodeBin);

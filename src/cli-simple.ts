@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 
 // Simple CLI for PB MCP Nexus
-import { spawn } from 'child_process';
 import readline from 'readline';
-import { join } from 'path';
 
 const rl = readline.createInterface({
   input: process.stdin,

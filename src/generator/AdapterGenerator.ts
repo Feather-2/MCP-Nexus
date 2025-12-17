@@ -199,7 +199,7 @@ export class AdapterGenerator {
   ): Promise<string> {
     // Template for Node.js MCP server
     const escapeForTemplate = (str: string) => str.replace(/`/g, '\\`').replace(/\$/g, '\\$');
-    const safeUrl = (() => { try { const u = new URL(parseResult.endpoint.url); if (u.protocol === 'http:' || u.protocol === 'https:') return u.toString(); } catch {} return 'http://localhost'; })();
+    const safeUrl = (() => { try { const u = new URL(parseResult.endpoint.url); if (u.protocol === 'http:' || u.protocol === 'https:') return u.toString(); } catch { /* ignored */ } return 'http://localhost'; })();
     const template = `#!/usr/bin/env node
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';

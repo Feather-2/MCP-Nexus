@@ -2,7 +2,7 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseRouteHandler, RouteContext } from './RouteContext.js';
 import { z } from 'zod';
 
-interface ServiceRequestBody {
+interface _ServiceRequestBody {
   templateName?: string;
   config?: any;
   instanceArgs?: any;

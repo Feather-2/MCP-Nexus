@@ -471,7 +471,7 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
   async restoreFromBackup(backupPath?: string): Promise<void> {
     try {
       // Verify current config (consume first mocked read in tests if present)
-      try { await readFile(this.configPath, 'utf-8'); } catch {}
+      try { await readFile(this.configPath, 'utf-8'); } catch { /* ignored */ }
 
       const candidate = backupPath || `${this.configPath}.backup`;
       let backupData: string;
@@ -630,9 +630,9 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
     }
     
     this.watchEnabled = false;
-    try { this._watcher?.close?.(); } catch {}
+    try { this._watcher?.close?.(); } catch { /* ignored */ }
     this._watcher = undefined;
-    try { (this._templatesWatcher as any)?.close?.(); } catch {}
+    try { (this._templatesWatcher as any)?.close?.(); } catch { /* ignored */ }
     this._templatesWatcher = undefined;
     this.logger.debug('Stopped watching configuration file');
     this.emit('watchStopped');

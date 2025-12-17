@@ -214,7 +214,7 @@ export class GeneratorRoutes extends BaseRouteHandler {
         const raw = await fs.readFile(filePath, 'utf-8');
         const parsed = JSON.parse(raw);
         fromFile = Array.isArray(parsed) ? parsed : (parsed.items || []);
-      } catch {}
+      } catch { /* ignored */ }
 
       // Load from remote URL if provided
       if (url) {

@@ -90,7 +90,7 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
     // Apply instance mode (keep-alive | managed)
     const instanceMode = (overrides as any)?.instanceMode as ('keep-alive' | 'managed' | undefined);
     if (instanceMode) {
-      try { await this.instanceManager.setMetadata(instance.id, 'mode', instanceMode); } catch {}
+      try { await this.instanceManager.setMetadata(instance.id, 'mode', instanceMode); } catch { /* ignored */ }
     }
 
     // Start health checking for keep-alive; skip for managed
@@ -255,7 +255,7 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
       return [...currentInstances, ...newInstances];
     } else {
       // Scale down
-      const instancesToRemove = currentCount - targetCount;
+      const _instancesToRemove = currentCount - targetCount;
       const instancesToKeep = currentInstances.slice(0, targetCount);
       const instancesToDelete = currentInstances.slice(targetCount);
 

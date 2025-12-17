@@ -3,7 +3,7 @@ import { BaseRouteHandler, RouteContext } from './RouteContext.js';
 import { z } from 'zod';
 import { RouteRequest, ServiceHealth, HealthCheckResult } from '../../types/index.js';
 
-interface RouteRequestBody {
+interface _RouteRequestBody {
   method: string;
   params?: any;
   serviceGroup?: string;
@@ -127,7 +127,7 @@ export class RoutingRoutes extends BaseRouteHandler {
         try {
           const preview = JSON.stringify(mcpMessage?.params ?? {}).slice(0, 800);
           this.ctx.addLogEntry('debug', `params: ${preview}${preview.length === 800 ? '…' : ''}`, serviceId);
-        } catch {}
+        } catch { /* ignored */ }
 
         try {
           const response = await ((adapter as any).sendAndReceive?.(mcpMessage) ?? adapter.send(mcpMessage));
@@ -136,7 +136,7 @@ export class RoutingRoutes extends BaseRouteHandler {
           try {
             const preview = JSON.stringify(response?.result ?? response?.error ?? {}).slice(0, 800);
             this.ctx.addLogEntry('debug', `result: ${preview}${preview.length === 800 ? '…' : ''}`, serviceId);
-          } catch {}
+          } catch { /* ignored */ }
           reply.send(response);
         } finally {
           await adapter.disconnect();
