@@ -88,7 +88,7 @@ export default function DashboardSection({ onNavigate }: Props) {
 
       {/* Stats Grid */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="shadow-sm">
+        <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">{t('dash.runningServices')}</CardTitle>
             <Activity className="h-4 w-4 text-muted-foreground" />
@@ -100,7 +100,7 @@ export default function DashboardSection({ onNavigate }: Props) {
             </div>
           </CardContent>
         </Card>
-        <Card className="shadow-sm">
+        <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">{t('dash.templates')}</CardTitle>
             <LayoutGrid className="h-4 w-4 text-muted-foreground" />
@@ -109,7 +109,7 @@ export default function DashboardSection({ onNavigate }: Props) {
             <div className="text-2xl font-bold">{templates.length}</div>
           </CardContent>
         </Card>
-        <Card className="shadow-sm">
+        <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">{t('dash.apiKeys')}</CardTitle>
             <ShieldHalf className="h-4 w-4 text-muted-foreground" />
@@ -118,7 +118,7 @@ export default function DashboardSection({ onNavigate }: Props) {
             <div className="text-2xl font-bold">{health?.apiKeys ?? 0}</div>
           </CardContent>
         </Card>
-        <Card className="shadow-sm">
+        <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">{t('dash.sandboxInstalled')}</CardTitle>
             <Terminal className="h-4 w-4 text-muted-foreground" />
@@ -131,7 +131,7 @@ export default function DashboardSection({ onNavigate }: Props) {
 
       {/* Quick Actions & Status */}
       <div className="grid gap-6 md:grid-cols-7">
-        <Card className="md:col-span-4 shadow-sm border-muted/60">
+        <Card className="md:col-span-4 border-muted/60">
           <CardHeader>
             <CardTitle className="text-base font-medium">{t('dash.quickActions')}</CardTitle>
           </CardHeader>

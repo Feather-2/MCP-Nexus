@@ -173,7 +173,7 @@ const Integrations: React.FC = () => {
       const j = await r.json();
       setVerificationCode(j.code || '');
       setCodeExpiresIn(Number(j.expiresIn || 0));
-    } catch {}
+    } catch { }
   };
 
   useEffect(() => { fetchCode(); }, []);
@@ -237,11 +237,11 @@ const Integrations: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-10">
       <PageHeader
         title={t('integrations.title')}
         description={t('integrations.desc')}
-        icon={<Plug className="h-6 w-6 text-primary" />}
+        icon={<Plug className="h-5 w-5 text-primary" />}
       />
 
       <Card>
@@ -260,7 +260,7 @@ const Integrations: React.FC = () => {
                 <SelectContent>
                   {services.map(s => (
                     <SelectItem key={s.id} value={s.id}>
-                      {s.config.name} <span className="text-xs text-slate-500">({s.id.slice(0,8)})</span>
+                      {s.config.name} <span className="text-xs text-slate-500">({s.id.slice(0, 8)})</span>
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -275,7 +275,7 @@ const Integrations: React.FC = () => {
                   </SelectTrigger>
                   <SelectContent>
                     {apiKeys.map((k: any) => (
-                      <SelectItem key={k.key} value={k.key}>{k.name} <span className="text-xs text-slate-500">({k.key.slice(0,8)}...)</span></SelectItem>
+                      <SelectItem key={k.key} value={k.key}>{k.name} <span className="text-xs text-slate-500">({k.key.slice(0, 8)}...)</span></SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

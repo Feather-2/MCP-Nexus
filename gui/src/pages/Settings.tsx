@@ -393,17 +393,17 @@ const Settings: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-10">
       <SandboxBanner />
       <PageHeader
         title={t('settings.title')}
         description={t('settings.desc')}
         actions={<>
-          <Button onClick={handleSave} disabled={saving} className="gap-2">
-            <Save className="h-4 w-4" /> {saving ? t('settings.saving') : t('settings.save')}
+          <Button size="sm" onClick={handleSave} disabled={saving} className="gap-2 h-8">
+            <Save className="h-3.5 w-3.5" /> {saving ? t('settings.saving') : t('settings.save')}
           </Button>
-          <Button variant="outline" onClick={handleReset} disabled={saving} className="gap-2">
-            <RotateCcw className="h-4 w-4" /> {t('common.reset')}
+          <Button variant="outline" size="sm" onClick={handleReset} disabled={saving} className="gap-2 h-8">
+            <RotateCcw className="h-3.5 w-3.5" /> {t('common.reset')}
           </Button>
         </>}
       />
@@ -648,7 +648,7 @@ const Settings: React.FC = () => {
                           ? usage.budgetUsd - usage.budgetRemaining
                           : usage.totalCostUsd || 0) /
                           usage.budgetUsd) *
-                          100
+                        100
                       )
                     )}
                     className="h-2"
