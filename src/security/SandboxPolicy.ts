@@ -2,7 +2,13 @@ import path from 'path';
 import type { GatewayConfig, McpServiceConfig } from '../types/index.js';
 
 export type NormalizedSecurityProfile = 'dev' | 'default' | 'locked-down';
+export type NormalizedPortableNetworkPolicy = 'full' | 'local-only' | 'blocked';
 export type NormalizedContainerNetwork = 'none' | 'bridge';
+
+export interface PortableSandboxRuntimePolicy {
+  enabled: boolean;
+  networkPolicy: NormalizedPortableNetworkPolicy;
+}
 
 export interface ContainerSandboxRuntimePolicy {
   defaultNetwork: NormalizedContainerNetwork;
@@ -15,6 +21,7 @@ export interface ContainerSandboxRuntimePolicy {
 
 export interface NormalizedSandboxPolicy {
   profile: NormalizedSecurityProfile;
+  portable: PortableSandboxRuntimePolicy;
   container: ContainerSandboxRuntimePolicy;
 }
 
@@ -48,6 +55,152 @@ const DEFAULT_ENV_SAFE_PREFIXES = [
   'no_proxy'
 ];
 
+function basenameCrossPlatform(cmd: string): string {
+  const normalized = cmd.replace(/\\/g, '/');
+  const base = normalized.split('/').filter(Boolean).pop() ?? normalized;
+  return base.toLowerCase().replace(/\.(exe|cmd|bat|com)$/i, '');
+}
+
+function stripNpmVersion(spec: string): string {
+  const trimmed = spec.trim();
+  if (!trimmed) return trimmed;
+  // Ignore obvious non-package spec forms
+  if (trimmed.startsWith('.') || trimmed.startsWith('/') || trimmed.startsWith('file:') || trimmed.startsWith('git+')) return trimmed;
+
+  if (trimmed.startsWith('@')) {
+    const slash = trimmed.indexOf('/');
+    if (slash < 0) return trimmed;
+    const lastAt = trimmed.lastIndexOf('@');
+    if (lastAt > slash) return trimmed.slice(0, lastAt);
+    return trimmed;
+  }
+
+  const at = trimmed.indexOf('@');
+  if (at > 0) return trimmed.slice(0, at);
+  return trimmed;
+}
+
+function extractNpmExecPackage(args: string[]): string | undefined {
+  const idx = args.indexOf('exec');
+  if (idx < 0) return undefined;
+
+  for (let i = idx + 1; i < args.length; i++) {
+    const token = String(args[i] ?? '');
+    if (!token) continue;
+
+    // Common forms: npm exec -y <pkg> ...; npm exec --package <pkg> -- <cmd>
+    if (token === '--package' || token === '-p') {
+      const next = String(args[i + 1] ?? '');
+      if (next) return stripNpmVersion(next);
+      continue;
+    }
+    if (token.startsWith('--package=')) {
+      return stripNpmVersion(token.slice('--package='.length));
+    }
+
+    if (token.startsWith('-')) continue;
+    return stripNpmVersion(token);
+  }
+
+  return undefined;
+}
+
+function extractNpxPackage(args: string[]): string | undefined {
+  for (let i = 0; i < args.length; i++) {
+    const token = String(args[i] ?? '');
+    if (!token) continue;
+
+    if (token === '--package' || token === '-p') {
+      const next = String(args[i + 1] ?? '');
+      if (next) return stripNpmVersion(next);
+      continue;
+    }
+    if (token.startsWith('--package=')) {
+      return stripNpmVersion(token.slice('--package='.length));
+    }
+    if (token.startsWith('-')) continue;
+    return stripNpmVersion(token);
+  }
+  return undefined;
+}
+
+function inferPortablePackagesDir(pkg?: string): string | undefined {
+  if (!pkg) return undefined;
+  const cleaned = stripNpmVersion(pkg);
+  if (!cleaned) return undefined;
+
+  const packagesRoot = path.resolve(process.cwd(), '../mcp-sandbox/packages');
+  if (cleaned.startsWith('@') && cleaned.includes('/')) {
+    const scope = cleaned.split('/')[0] as string;
+    return path.join(packagesRoot, scope);
+  }
+  return packagesRoot;
+}
+
+function applyPortableSandboxPolicy(template: McpServiceConfig, policy: NormalizedSandboxPolicy, reasons: string[]): { config: McpServiceConfig; applied: boolean } {
+  if (!policy.portable.enabled) return { config: template, applied: false };
+  if (template.transport !== 'stdio') return { config: template, applied: false };
+
+  const cmdBase = basenameCrossPlatform(String((template as any).command || ''));
+  const args = Array.isArray((template as any).args) ? ([...(template as any).args] as string[]) : [];
+  const env = { ...((template as any).env || {}) } as Record<string, string>;
+
+  const hasExplicitSandbox = typeof env.SANDBOX === 'string' && env.SANDBOX.length > 0;
+  const isNpx = cmdBase === 'npx';
+  const isNpmExec = cmdBase === 'npm' && args.includes('exec');
+  if (!isNpx && !isNpmExec) return { config: template, applied: false };
+
+  let applied = false;
+  if (!hasExplicitSandbox) {
+    env.SANDBOX = 'portable';
+    applied = true;
+    reasons.push('sandbox.portable.auto');
+  }
+
+  if (env.SANDBOX !== 'portable') {
+    return applied ? { config: { ...template, env }, applied } : { config: template, applied: false };
+  }
+
+  // Enforce offline behavior for portable sandbox unless explicitly allowed.
+  const svcNet = (template as any)?.security?.networkPolicy as string | undefined;
+  const effectiveNet: NormalizedPortableNetworkPolicy =
+    svcNet === 'full' || svcNet === 'local-only' || svcNet === 'blocked'
+      ? (svcNet as NormalizedPortableNetworkPolicy)
+      : policy.portable.networkPolicy;
+
+  if (effectiveNet !== 'full') {
+    if (String(env.npm_config_offline || '') !== 'true') {
+      env.npm_config_offline = 'true';
+      applied = true;
+      reasons.push(`sandbox.portable.networkPolicy=${effectiveNet}`);
+    }
+    if (String(env.npm_config_prefer_offline || '') !== 'true') {
+      env.npm_config_prefer_offline = 'true';
+      applied = true;
+    }
+
+    if (isNpx) {
+      if (!args.includes('--no-install')) {
+        // Remove install-encouraging flags when offline is enforced.
+        const filtered = args.filter((a) => a !== '-y' && a !== '--yes');
+        args.length = 0;
+        args.push('--no-install', ...filtered);
+        applied = true;
+      }
+    }
+  }
+
+  const pkg = isNpx ? extractNpxPackage(args) : extractNpmExecPackage(args);
+  const inferredCwd = inferPortablePackagesDir(pkg);
+  if (!template.workingDirectory && inferredCwd) {
+    applied = true;
+    reasons.push('sandbox.portable.cwd');
+    return { config: { ...template, args, env, workingDirectory: inferredCwd }, applied };
+  }
+
+  return applied ? { config: { ...template, args, env }, applied } : { config: template, applied: false };
+}
+
 export function normalizeSandboxPolicy(gatewayConfig?: GatewayConfig): NormalizedSandboxPolicy {
   const sandbox: any = (gatewayConfig as any)?.sandbox || {};
 
@@ -55,6 +208,13 @@ export function normalizeSandboxPolicy(gatewayConfig?: GatewayConfig): Normalize
     sandbox.profile === 'locked-down' || sandbox.profile === 'dev' || sandbox.profile === 'default'
       ? sandbox.profile
       : 'default';
+
+  const portableCfg: any = sandbox.portable || {};
+  const portableEnabled = typeof portableCfg.enabled === 'boolean' ? portableCfg.enabled : true;
+  const portableNetworkPolicy: NormalizedPortableNetworkPolicy =
+    portableCfg.networkPolicy === 'full' || portableCfg.networkPolicy === 'local-only' || portableCfg.networkPolicy === 'blocked'
+      ? portableCfg.networkPolicy
+      : 'local-only';
 
   const containerCfg: any = sandbox.container || {};
   const defaultNetwork: NormalizedContainerNetwork =
@@ -80,6 +240,10 @@ export function normalizeSandboxPolicy(gatewayConfig?: GatewayConfig): Normalize
 
   return {
     profile,
+    portable: {
+      enabled: portableEnabled,
+      networkPolicy: portableNetworkPolicy
+    },
     container: {
       defaultNetwork,
       defaultReadonlyRootfs,
@@ -134,16 +298,21 @@ export function applyGatewaySandboxPolicy(template: McpServiceConfig, gatewayCon
     return { config: template, policy, applied: false, reasons };
   }
 
-  const trustLevel = resolveTrustLevel(template, policy);
+  // Portable sandbox enforcement (npm/npx) before container quarantine.
+  const portable = applyPortableSandboxPolicy(template, policy, reasons);
+  let next = portable.config;
+  let applied = portable.applied;
+
+  const trustLevel = resolveTrustLevel(next, policy);
   const requireContainerByProfile = policy.profile === 'locked-down';
   const requireContainerByTrust = policy.container.requiredForUntrusted && trustLevel !== 'trusted';
-  const requireContainerByService = Boolean((template as any)?.security?.requireContainer);
+  const requireContainerByService = Boolean((next as any)?.security?.requireContainer);
   const preferContainer = policy.container.prefer && trustLevel !== 'trusted';
 
   const requireContainer = requireContainerByService || requireContainerByProfile || requireContainerByTrust || preferContainer;
 
   if (!requireContainer) {
-    return { config: template, policy, applied: false, reasons };
+    return { config: next, policy, applied, reasons };
   }
 
   if (requireContainerByService) reasons.push('service.security.requireContainer');
@@ -151,20 +320,20 @@ export function applyGatewaySandboxPolicy(template: McpServiceConfig, gatewayCon
   if (requireContainerByTrust) reasons.push(`trustLevel=${trustLevel}`);
   if (preferContainer) reasons.push('sandbox.container.prefer');
 
-  const next: McpServiceConfig = {
-    ...template,
-    env: { ...(template.env || {}), SANDBOX: 'container' },
-    container: { ...((template as any).container || {}) }
+  next = {
+    ...next,
+    env: { ...(next.env || {}), SANDBOX: 'container' },
+    container: { ...((next as any).container || {}) }
   };
 
   // Default container params
   const container: any = (next as any).container || {};
-  if (!container.image) container.image = suggestContainerImage(template);
+  if (!container.image) container.image = suggestContainerImage(next);
   if (typeof container.readonlyRootfs !== 'boolean') {
     container.readonlyRootfs = policy.container.defaultReadonlyRootfs;
   }
 
-  const networkPolicy = (template as any)?.security?.networkPolicy as string | undefined;
+  const networkPolicy = (next as any)?.security?.networkPolicy as string | undefined;
   if (networkPolicy === 'blocked' || networkPolicy === 'local-only') {
     container.network = 'none';
   } else if (networkPolicy === 'full') {
@@ -183,5 +352,6 @@ export function applyGatewaySandboxPolicy(template: McpServiceConfig, gatewayCon
   // Validate volumes against global allowlist (defense-in-depth; adapter will re-check).
   validateVolumesAllowed(next, policy);
 
-  return { config: next, policy, applied: true, reasons };
+  applied = true;
+  return { config: next, policy, applied, reasons };
 }

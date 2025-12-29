@@ -1,6 +1,7 @@
 import { applyGatewaySandboxPolicy } from '../../security/SandboxPolicy.js';
 import { ProtocolAdaptersImpl } from '../../adapters/ProtocolAdaptersImpl.js';
 import { ContainerTransportAdapter } from '../../adapters/ContainerTransportAdapter.js';
+import path from 'path';
 import type { GatewayConfig, Logger, McpServiceConfig } from '../../types/index.js';
 
 const logger: Logger = {
@@ -23,10 +24,14 @@ describe('SandboxPolicy', () => {
     retries: 3
   };
 
-  it('does not enforce container by default', () => {
+  it('enforces portable sandbox for npm exec by default', () => {
     const res = applyGatewaySandboxPolicy(baseTemplate, undefined);
-    expect(res.applied).toBe(false);
-    expect(res.config.env?.SANDBOX).toBeUndefined();
+    expect(res.applied).toBe(true);
+    expect(res.reasons.join('|')).toContain('sandbox.portable.auto');
+    expect(res.reasons.join('|')).toContain('sandbox.portable.cwd');
+    expect(res.config.env?.SANDBOX).toBe('portable');
+    expect(res.config.env?.npm_config_offline).toBe('true');
+    expect(res.config.workingDirectory).toBe(path.resolve(process.cwd(), '../mcp-sandbox/packages/@modelcontextprotocol'));
   });
 
   it('enforces container quarantine when requiredForUntrusted=true and trustLevel missing', () => {
@@ -60,7 +65,7 @@ describe('SandboxPolicy', () => {
     expect((res.config as any).container?.readonlyRootfs).toBe(true);
   });
 
-  it('does not quarantine when trustLevel=trusted even if requiredForUntrusted=true', () => {
+  it('does not enforce container when trustLevel=trusted even if requiredForUntrusted=true', () => {
     const gatewayConfig: GatewayConfig = {
       port: 0,
       host: '127.0.0.1',
@@ -84,7 +89,8 @@ describe('SandboxPolicy', () => {
 
     const trusted = { ...baseTemplate, security: { trustLevel: 'trusted' } } as any as McpServiceConfig;
     const res = applyGatewaySandboxPolicy(trusted, gatewayConfig);
-    expect(res.applied).toBe(false);
+    expect(res.config.env?.SANDBOX).toBe('portable');
+    expect(res.reasons.join('|')).not.toContain('trustLevel=untrusted');
   });
 
   it('forces container in locked-down profile regardless of trustLevel', () => {

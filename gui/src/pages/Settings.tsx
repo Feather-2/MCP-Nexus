@@ -68,6 +68,15 @@ const Settings: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sandbox, setSandbox] = useState<{ status?: any; installing?: boolean }>({});
+  const [gatewaySandbox, setGatewaySandbox] = useState<{
+    profile: 'dev' | 'default' | 'locked-down';
+    requiredForUntrusted: boolean;
+    preferContainer: boolean;
+  }>(() => ({
+    profile: 'default',
+    requiredForUntrusted: false,
+    preferContainer: false
+  }));
   // Orchestrator config with returnMode
   const [orchestratorConfig, setOrchestratorConfig] = useState<OrchestratorConfig & { returnMode?: string } | null>(null);
   const [orchestratorError, setOrchestratorError] = useState<string | null>(null);
@@ -108,6 +117,12 @@ const Settings: React.FC = () => {
         ]);
         if (configResult.ok) {
           const config = configResult.data;
+          const sbx: any = (config as any)?.sandbox || {};
+          setGatewaySandbox({
+            profile: sbx.profile === 'dev' || sbx.profile === 'locked-down' || sbx.profile === 'default' ? sbx.profile : 'default',
+            requiredForUntrusted: Boolean(sbx?.container?.requiredForUntrusted),
+            preferContainer: Boolean(sbx?.container?.prefer)
+          });
           setSettings({
             server: { port: config.port || 19233, host: config.host || '127.0.0.1' },
             logLevel: config.logLevel || 'info'
@@ -353,11 +368,28 @@ const Settings: React.FC = () => {
       // Save GUI auth first
       apiClient.setAuth({ apiKey: apiKey || null, bearerToken: bearer || null });
 
-      // Simplified config updates
-      const configUpdates = {
+      // Shallow merge on backend; fetch current config to deep-merge nested sandbox settings safely.
+      let currentSandbox: any = undefined;
+      try {
+        const currentRes = await apiClient.getConfig();
+        if (currentRes.ok) currentSandbox = (currentRes.data as any)?.sandbox;
+      } catch { /* ignored */ }
+
+      const nextSandbox = {
+        ...(currentSandbox || {}),
+        profile: gatewaySandbox.profile,
+        container: {
+          ...((currentSandbox || {})?.container || {}),
+          requiredForUntrusted: gatewaySandbox.requiredForUntrusted,
+          prefer: gatewaySandbox.preferContainer
+        }
+      };
+
+      const configUpdates: any = {
         port: settings.server.port,
         host: settings.server.host,
-        logLevel: settings.logLevel
+        logLevel: settings.logLevel,
+        sandbox: nextSandbox
       };
 
       const result = await apiClient.updateConfig(configUpdates);
@@ -381,6 +413,11 @@ const Settings: React.FC = () => {
     setSettings({
       server: { port: 19233, host: '127.0.0.1' },
       logLevel: 'info'
+    });
+    setGatewaySandbox({
+      profile: 'default',
+      requiredForUntrusted: false,
+      preferContainer: false
     });
   };
 
@@ -929,7 +966,54 @@ const Settings: React.FC = () => {
             {t('settings.security.desc')}
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-6">
+          {/* Gateway sandbox policy */}
+          <div className="space-y-3">
+            <div className="text-sm font-medium">{t('settings.sandboxPolicy.title')}</div>
+            <p className="text-xs text-muted-foreground">{t('settings.sandboxPolicy.desc')}</p>
+
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>{t('settings.sandboxPolicy.profile')}</Label>
+                <Select value={gatewaySandbox.profile} onValueChange={(v) => setGatewaySandbox((prev) => ({ ...prev, profile: v as any }))}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="default">{t('settings.sandboxPolicy.profile.default')}</SelectItem>
+                    <SelectItem value="dev">{t('settings.sandboxPolicy.profile.dev')}</SelectItem>
+                    <SelectItem value="locked-down">{t('settings.sandboxPolicy.profile.lockedDown')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2" />
+            </div>
+
+            <div className="flex items-center justify-between gap-4">
+              <div className="space-y-1">
+                <Label className="text-sm font-medium">{t('settings.sandboxPolicy.quarantine')}</Label>
+                <p className="text-xs text-muted-foreground">{t('settings.sandboxPolicy.quarantineDesc')}</p>
+              </div>
+              <Switch
+                checked={gatewaySandbox.requiredForUntrusted}
+                onCheckedChange={(checked) => setGatewaySandbox((prev) => ({ ...prev, requiredForUntrusted: checked }))}
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-4">
+              <div className="space-y-1">
+                <Label className="text-sm font-medium">{t('settings.sandboxPolicy.prefer')}</Label>
+                <p className="text-xs text-muted-foreground">{t('settings.sandboxPolicy.preferDesc')}</p>
+              </div>
+              <Switch
+                checked={gatewaySandbox.preferContainer}
+                onCheckedChange={(checked) => setGatewaySandbox((prev) => ({ ...prev, preferContainer: checked }))}
+              />
+            </div>
+          </div>
+
+          <div className="h-px bg-border" />
+
           {/* GUI Authentication (for API calls) */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">

@@ -23,6 +23,10 @@
     "windowMs": 60000,
     "store": "memory"
   },
+  "sandbox": {
+    "profile": "default",
+    "container": { "requiredForUntrusted": false, "prefer": false }
+  },
   "ai": {
     "provider": "none",
     "model": "",

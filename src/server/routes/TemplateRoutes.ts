@@ -1,6 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseRouteHandler, RouteContext } from './RouteContext.js';
 import { McpServiceConfig, McpServiceConfigSchema } from '../../types/index.js';
+import { applyGatewaySandboxPolicy } from '../../security/SandboxPolicy.js';
 import { z } from 'zod';
 
 /**
@@ -11,13 +12,55 @@ export class TemplateRoutes extends BaseRouteHandler {
     super(ctx);
   }
 
+  private detectSandboxMode(tpl: any): 'none' | 'portable' | 'container' {
+    if (!tpl || tpl.transport !== 'stdio') return 'none';
+    const env = (tpl as any).env || {};
+    if (env.SANDBOX === 'container' || Boolean((tpl as any).container)) return 'container';
+    if (env.SANDBOX === 'portable') return 'portable';
+    return 'none';
+  }
+
   setupRoutes(): void {
     const { server } = this.ctx;
 
     // List templates
-    server.get('/api/templates', async (request: FastifyRequest, reply: FastifyReply) => {
+    server.get('/api/templates', async (_request: FastifyRequest, reply: FastifyReply) => {
       const templates = await this.ctx.serviceRegistry.listTemplates();
-      reply.send(templates);
+      const gwConfig = this.ctx.configManager.getConfig();
+
+      const enriched = templates.map((tpl) => {
+        const requested = this.detectSandboxMode(tpl);
+        try {
+          const enforced = applyGatewaySandboxPolicy(tpl, gwConfig);
+          const effective = this.detectSandboxMode(enforced.config);
+          const forced = effective === 'container' && requested !== 'container';
+          return {
+            ...tpl,
+            sandboxPolicy: {
+              requested,
+              effective,
+              forced,
+              applied: enforced.applied,
+              reasons: enforced.reasons
+            }
+          };
+        } catch (e) {
+          const message = e instanceof Error ? e.message : String(e);
+          return {
+            ...tpl,
+            sandboxPolicy: {
+              requested,
+              effective: requested,
+              forced: false,
+              applied: false,
+              reasons: [],
+              error: message
+            }
+          };
+        }
+      });
+
+      reply.send(enriched);
     });
 
     // Get template by name
@@ -27,7 +70,37 @@ export class TemplateRoutes extends BaseRouteHandler {
       try {
         const tpl = await this.ctx.serviceRegistry.getTemplate(name);
         if (!tpl) return this.respondError(reply, 404, 'Template not found', { code: 'NOT_FOUND', recoverable: true });
-        reply.send(tpl);
+
+        const gwConfig = this.ctx.configManager.getConfig();
+        const requested = this.detectSandboxMode(tpl);
+        try {
+          const enforced = applyGatewaySandboxPolicy(tpl, gwConfig);
+          const effective = this.detectSandboxMode(enforced.config);
+          const forced = effective === 'container' && requested !== 'container';
+          reply.send({
+            ...tpl,
+            sandboxPolicy: {
+              requested,
+              effective,
+              forced,
+              applied: enforced.applied,
+              reasons: enforced.reasons
+            }
+          });
+        } catch (e) {
+          const message = e instanceof Error ? e.message : String(e);
+          reply.send({
+            ...tpl,
+            sandboxPolicy: {
+              requested,
+              effective: requested,
+              forced: false,
+              applied: false,
+              reasons: [],
+              error: message
+            }
+          });
+        }
       } catch (error) {
         return this.respondError(reply, 500, (error as Error).message || 'Failed to get template', { code: 'TEMPLATE_GET_FAILED' });
       }

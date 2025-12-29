@@ -230,14 +230,31 @@ pb-mcpgateway/
   "enableMetrics": true,
   "enableCors": true,
   "corsOrigins": ["http://localhost:3000"],
-  "rateLimiting": {
-    "enabled": true,
-    "maxRequests": 120,
-    "windowMs": 60000,
-    "store": "memory"
-  }
+	  "rateLimiting": {
+	    "enabled": true,
+	    "maxRequests": 120,
+	    "windowMs": 60000,
+	    "store": "memory"
+	  },
+	  "sandbox": {
+	    "profile": "default",
+	    "container": { "requiredForUntrusted": false, "prefer": false }
+	  }
+	}
+	```
+
+#### 沙箱隔离（Quarantine）
+
+- 启用“未审核先隔离”：将 `sandbox.container.requiredForUntrusted` 设为 `true`，未标注 `security.trustLevel="trusted"` 的 `stdio` 模板会被强制 `SANDBOX=container`。
+- 标注“已审核可放行”：在模板 JSON 中加入：
+
+```json
+{
+  "security": { "trustLevel": "trusted" }
 }
 ```
+
+- 更严格模式：`sandbox.profile="locked-down"` 会让所有 `stdio` 都走容器（不管 trustLevel）。
 #### 限流（Redis 可选）
 
 默认使用内存存储。生产环境可切换到 Redis：

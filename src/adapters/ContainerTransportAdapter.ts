@@ -89,6 +89,8 @@ export class ContainerTransportAdapter extends EventEmitter implements Transport
     delete passEnv.SANDBOX_NODE_DIR;
     delete passEnv.SANDBOX_PYTHON_DIR;
     delete passEnv.SANDBOX_GO_DIR;
+    // Host-only spawn hints should not affect container runtime invocation
+    delete (passEnv as any).USE_CWD;
 
     // Env whitelist: pass only safe keys or project-prefixed keys
     const safeList = Array.isArray(policyOpts?.envSafePrefixes) && policyOpts!.envSafePrefixes!.length
@@ -130,7 +132,9 @@ export class ContainerTransportAdapter extends EventEmitter implements Transport
       command: runtime,
       args: runArgs,
       // Ensure we do NOT apply portable sandbox env mutation inside Stdio adapter
-      env: { ...passEnv }
+      env: { ...passEnv },
+      // Do not set host cwd when spawning docker/podman (avoid changing relative volume resolution).
+      workingDirectory: undefined
     };
 
     this.logger.info(`Creating container adapter for ${config.name}`, { runtime, image });

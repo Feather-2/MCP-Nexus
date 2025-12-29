@@ -662,6 +662,10 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
         windowMs: 60000, // 1 minute
         store: 'memory'
       },
+      sandbox: {
+        profile: 'default',
+        container: { requiredForUntrusted: false, prefer: false }
+      },
       // Non-secret AI defaults; secrets (API keys) are provided via env only
       ai: {
         provider: 'none',

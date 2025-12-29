@@ -1,7 +1,83 @@
 import { spawn, ChildProcess } from 'child_process';
+import fs from 'fs/promises';
 import path from 'path';
 import { TransportAdapter, McpServiceConfig, McpMessage, Logger, McpVersion } from '../types/index.js';
 import { EventEmitter } from 'events';
+
+function stripNpmVersion(spec: string): string {
+  const trimmed = spec.trim();
+  if (!trimmed) return trimmed;
+  if (trimmed.startsWith('.') || trimmed.startsWith('/') || trimmed.startsWith('file:') || trimmed.startsWith('git+')) return trimmed;
+
+  if (trimmed.startsWith('@')) {
+    const slash = trimmed.indexOf('/');
+    if (slash < 0) return trimmed;
+    const lastAt = trimmed.lastIndexOf('@');
+    if (lastAt > slash) return trimmed.slice(0, lastAt);
+    return trimmed;
+  }
+
+  const at = trimmed.indexOf('@');
+  if (at > 0) return trimmed.slice(0, at);
+  return trimmed;
+}
+
+function extractNpmExecPackage(args: string[]): string | undefined {
+  const idx = args.indexOf('exec');
+  if (idx < 0) return undefined;
+
+  for (let i = idx + 1; i < args.length; i++) {
+    const token = String(args[i] ?? '');
+    if (!token) continue;
+
+    if (token === '--package' || token === '-p') {
+      const next = String(args[i + 1] ?? '');
+      if (next) return stripNpmVersion(next);
+      continue;
+    }
+    if (token.startsWith('--package=')) return stripNpmVersion(token.slice('--package='.length));
+
+    if (token.startsWith('-')) continue;
+    return stripNpmVersion(token);
+  }
+
+  return undefined;
+}
+
+function extractNpxPackage(args: string[]): string | undefined {
+  for (let i = 0; i < args.length; i++) {
+    const token = String(args[i] ?? '');
+    if (!token) continue;
+
+    if (token === '--package' || token === '-p') {
+      const next = String(args[i + 1] ?? '');
+      if (next) return stripNpmVersion(next);
+      continue;
+    }
+    if (token.startsWith('--package=')) return stripNpmVersion(token.slice('--package='.length));
+    if (token.startsWith('-')) continue;
+    return stripNpmVersion(token);
+  }
+  return undefined;
+}
+
+function inferPortablePackagesDir(pkg?: string): string | undefined {
+  if (!pkg) return undefined;
+  const cleaned = stripNpmVersion(pkg);
+  if (!cleaned) return undefined;
+
+  const packagesRoot = path.resolve(process.cwd(), '../mcp-sandbox/packages');
+  if (cleaned.startsWith('@') && cleaned.includes('/')) {
+    const scope = cleaned.split('/')[0] as string;
+    return path.join(packagesRoot, scope);
+  }
+  return packagesRoot;
+}
+
+function isWithinPath(targetPath: string, rootPath: string): boolean {
+  const rel = path.relative(rootPath, targetPath);
+  return rel === '' || (!rel.startsWith('..' + path.sep) && rel !== '..' && !path.isAbsolute(rel));
+}
 
 export class StdioTransportAdapter extends EventEmitter implements TransportAdapter {
   readonly type = 'stdio' as const;
@@ -66,10 +142,34 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
       }
 
       // Validate working directory stays within project cwd
-      if (workingDirectory) {
-        const resolved = path.resolve(workingDirectory);
-        const root = path.resolve(process.cwd());
-        if (!resolved.startsWith(root)) {
+      let effectiveWorkingDirectory = workingDirectory;
+      const sandboxMode = String((env as any)?.SANDBOX || '');
+      const isPortableSandbox = sandboxMode === 'portable';
+
+      // Infer portable packages directory when running npm/npx under SANDBOX=portable.
+      if (!effectiveWorkingDirectory && isPortableSandbox) {
+        const baseCmd = path.basename(normalizedCommand).toLowerCase().replace(/\\/g, '/');
+        const cmdBase = baseCmd.replace(/\.(exe|cmd|bat|com)$/i, '');
+        if (cmdBase === 'npx') {
+          const pkg = extractNpxPackage(args);
+          effectiveWorkingDirectory = inferPortablePackagesDir(pkg);
+        } else if (cmdBase === 'npm' && args.includes('exec')) {
+          const pkg = extractNpmExecPackage(args);
+          effectiveWorkingDirectory = inferPortablePackagesDir(pkg);
+        }
+      }
+
+      if (effectiveWorkingDirectory) {
+        const resolved = path.resolve(effectiveWorkingDirectory);
+        const projectRoot = path.resolve(process.cwd());
+        const allowedSandboxRoot = path.resolve(process.cwd(), '../mcp-sandbox');
+        const allowedDataRoot = path.resolve(process.cwd(), './data');
+
+        const allowed = isWithinPath(resolved, projectRoot) || (isPortableSandbox && (
+          isWithinPath(resolved, allowedSandboxRoot) || isWithinPath(resolved, allowedDataRoot)
+        ));
+
+        if (!allowed) {
           throw new Error('Working directory outside allowed path');
         }
       }
@@ -84,9 +184,40 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
         env: processEnv,
         shell: useShell
       };
-      // 仅在显式允许时传递 cwd，避免与部分测试断言冲突
-      if (workingDirectory && String(env?.USE_CWD) === '1') {
-        opts.cwd = workingDirectory;
+      // Pass cwd for portable sandbox and explicit opt-in.
+      if (effectiveWorkingDirectory && (isPortableSandbox || String(env?.USE_CWD) === '1')) {
+        opts.cwd = effectiveWorkingDirectory;
+
+        // When offline is enforced, require installed packages + lockfile under the sandbox directory.
+        const offline = String((env as any)?.npm_config_offline || '') === 'true' || args.includes('--no-install');
+        if (isPortableSandbox && offline) {
+          const baseCmd = path.basename(normalizedCommand).toLowerCase().replace(/\\/g, '/');
+          const cmdBase = baseCmd.replace(/\.(exe|cmd|bat|com)$/i, '');
+          const pkg = cmdBase === 'npx' ? extractNpxPackage(args) : extractNpmExecPackage(args);
+          if (pkg) {
+            const pkgName = stripNpmVersion(pkg);
+            const parts = pkgName.startsWith('@') ? pkgName.split('/') : [pkgName];
+            const pkgDir = path.join(effectiveWorkingDirectory, 'node_modules', ...parts);
+
+            const hasLock = async () => {
+              try { await fs.access(path.join(effectiveWorkingDirectory, 'package-lock.json')); return true; } catch {}
+              try { await fs.access(path.join(effectiveWorkingDirectory, 'npm-shrinkwrap.json')); return true; } catch {}
+              return false;
+            };
+
+            const [pkgOk, lockOk] = await Promise.all([
+              fs.access(pkgDir).then(() => true).catch(() => false),
+              hasLock()
+            ]);
+
+            if (!lockOk || !pkgOk) {
+              throw new Error(
+                `Portable sandbox requires locked, preinstalled npm deps. Missing ${!lockOk ? 'lockfile' : 'package'} for ${pkgName} under ${effectiveWorkingDirectory}. ` +
+                `Install via /api/sandbox/install or run "npm install ${pkgName}" in that directory.`
+              );
+            }
+          }
+        }
       }
 
       this.process = spawn(normalizedCommand, args, opts);

@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   Table,
   TableBody,
@@ -36,7 +37,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { useI18n } from '@/i18n';
 
 const Templates: React.FC = () => {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const { success, error: showError } = useToastHelpers();
   const [templates, setTemplates] = useState<ServiceTemplate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -76,6 +77,52 @@ const Templates: React.FC = () => {
   const [diagResult, setDiagResult] = useState<{ required: string[]; provided: string[]; missing: string[]; transport?: string } | null>(null)
   const [diagLoading, setDiagLoading] = useState(false)
   const [query, setQuery] = useState('')
+
+  const formatSandboxReason = (reason: string) => {
+    const r = String(reason || '');
+    if (!r) return r;
+
+    if (r === 'service.security.requireContainer') {
+      return lang === 'zh'
+        ? '模板要求容器运行（security.requireContainer=true）'
+        : 'Template requires container (security.requireContainer=true)';
+    }
+    if (r === 'sandbox.container.prefer') {
+      return lang === 'zh'
+        ? '网关偏好对非 trusted 模板使用容器（sandbox.container.prefer=true）'
+        : 'Gateway prefers containers for non-trusted templates (sandbox.container.prefer=true)';
+    }
+    if (r.startsWith('sandbox.profile=')) {
+      const profile = r.slice('sandbox.profile='.length) || 'default';
+      return lang === 'zh'
+        ? `网关安全档位：${profile}`
+        : `Gateway security profile: ${profile}`;
+    }
+    if (r.startsWith('trustLevel=')) {
+      const lvl = r.slice('trustLevel='.length) || 'unknown';
+      return lang === 'zh'
+        ? `模板信任级别：${lvl}`
+        : `Template trustLevel: ${lvl}`;
+    }
+    if (r === 'sandbox.portable.auto') {
+      return lang === 'zh'
+        ? '自动启用便携沙盒（npm/npx）'
+        : 'Auto-enable portable sandbox (npm/npx)';
+    }
+    if (r.startsWith('sandbox.portable.networkPolicy=')) {
+      const np = r.slice('sandbox.portable.networkPolicy='.length) || 'local-only';
+      return lang === 'zh'
+        ? `便携沙盒网络策略：${np}`
+        : `Portable sandbox network policy: ${np}`;
+    }
+    if (r === 'sandbox.portable.cwd') {
+      return lang === 'zh'
+        ? '便携沙盒工作目录指向 mcp-sandbox/packages'
+        : 'Portable sandbox workingDirectory → mcp-sandbox/packages';
+    }
+
+    return r;
+  };
 
   const loadTemplates = async () => {
     setLoading(true);
@@ -230,6 +277,7 @@ const Templates: React.FC = () => {
         version: newTemplate.version,
         command: newTemplate.command,
         args: newTemplate.args || [],
+        security: (editingTemplate as any).security,
         env: sandboxEnabled ? {
           SANDBOX: 'portable',
           ...(sandboxNodeDir ? { SANDBOX_NODE_DIR: sandboxNodeDir } : {}),
@@ -734,7 +782,12 @@ const Templates: React.FC = () => {
                 return t.name.toLowerCase().includes(q) || (t.description || '').toLowerCase().includes(q);
               }).map((tpl) => {
                 const missingEnv = getMissingEnvKeysTemplate(tpl);
-                const isContainer = isContainerTpl(tpl);
+                const sandboxPolicy = (tpl as any)?.sandboxPolicy || null;
+                const effectiveContainer = sandboxPolicy?.effective === 'container';
+                const forced = Boolean(sandboxPolicy?.forced) && effectiveContainer;
+                const isContainer = sandboxPolicy ? effectiveContainer : isContainerTpl(tpl);
+                const reasons: string[] = Array.isArray(sandboxPolicy?.reasons) ? sandboxPolicy.reasons : [];
+                const policyError: string | undefined = typeof sandboxPolicy?.error === 'string' ? sandboxPolicy.error : undefined;
                 return (
                   <TableRow key={tpl.name} className="hover:bg-muted/50">
                     <TableCell className="px-4">
@@ -758,10 +811,30 @@ const Templates: React.FC = () => {
                         <Badge variant="outline" className="font-mono text-xs">
                           {tpl.transport}
                         </Badge>
-                        {isContainer && (
+                        {isContainer && !forced && (
                           <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-50 border-blue-200">
                             Container
                           </Badge>
+                        )}
+                        {forced && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Badge variant="secondary" className="bg-amber-50 text-amber-800 hover:bg-amber-50 border-amber-200 flex gap-1 items-center">
+                                <AlertTriangle className="h-3 w-3" />
+                                {t('tpl.quarantine')}
+                              </Badge>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" sideOffset={6} className="max-w-[420px]">
+                              <div className="font-medium mb-1">{t('tpl.quarantineReason')}</div>
+                              <div className="space-y-0.5">
+                                {(reasons.length ? reasons : ['(no reason)']).map((r, i) => (
+                                  <div key={i}>- {formatSandboxReason(r)}</div>
+                                ))}
+                                {policyError && (<div className="opacity-90">- ERROR: {policyError}</div>)}
+                              </div>
+                              <div className="mt-1 opacity-90">{t('tpl.quarantineTip')}</div>
+                            </TooltipContent>
+                          </Tooltip>
                         )}
                         {missingEnv.length > 0 && (
                           <Badge variant="secondary" className="bg-amber-50 text-amber-700 hover:bg-amber-50 border-amber-200 flex gap-1 items-center">
