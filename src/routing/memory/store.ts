@@ -13,7 +13,7 @@ import type { MemoryStats, MemoryStore, MemoryStoreConfig, MemoryTier } from './
 
 type EpochMs = number;
 type SqliteDb = any;
-type SqliteStatement = any;
+type SqliteStatement<_Params = any, _Result = any> = any;
 
 interface L1IndexEntry {
   key: string;

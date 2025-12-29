@@ -60,7 +60,7 @@ export class RoutingRoutes extends BaseRouteHandler {
           ? this.ctx.middlewareChain
           : new MiddlewareChain(this.ctx.middlewares || []);
 
-        let selectedService = services[0];
+        let selectedService: (typeof services)[number] | undefined = services[0];
 
         try {
           const mwCtx = {
@@ -101,7 +101,7 @@ export class RoutingRoutes extends BaseRouteHandler {
           };
           const routeResponse = await this.ctx.router.route(routeRequest);
 
-          if (!routeResponse.success) {
+          if (!routeResponse.success || !routeResponse.selectedService) {
             return this.respondError(reply, 503, routeResponse.error || 'No services available', { code: 'NO_SERVICE' });
           }
           selectedService = routeResponse.selectedService;

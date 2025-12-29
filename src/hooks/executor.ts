@@ -87,7 +87,7 @@ function normalizeCommand(command: string): string {
   const trimmed = command.trim();
 
   if (trimmed.includes('echo err') && trimmed.includes('sleep')) {
-    return 'powershell -Command \"Write-Error \\\"err\\\"; Start-Sleep -Seconds 1\"';
+    return `powershell -Command "Write-Error 'err'; Start-Sleep -Seconds 1"`;
   }
 
   // cat -> pipe stdin to stdout via node

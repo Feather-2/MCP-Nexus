@@ -102,7 +102,7 @@ describe('ChannelManager', () => {
             id: 'mixed-json',
             provider: 'openai',
             model: 'gpt',
-            keySource: { type: 'literal', value: '[1, \"x\"]', format: 'json' }
+            keySource: { type: 'literal', value: '[1, "x"]', format: 'json' }
           }
         ])
       );

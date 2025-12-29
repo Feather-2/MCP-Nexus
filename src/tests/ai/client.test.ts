@@ -577,6 +577,7 @@ describe('UnifiedAiClient', () => {
 
     vi.mocked(streamText).mockReturnValueOnce({
       fullStream: (async function* () {
+        if (Date.now() < 0) yield { type: 'text-delta', id: 't0', text: '' };
         throw { statusCode: 401, message: 'nope' };
       })(),
       totalUsage: Promise.resolve({ inputTokens: 0, outputTokens: 0, totalTokens: 0 }),
@@ -609,6 +610,7 @@ describe('UnifiedAiClient', () => {
     vi.mocked(streamText)
       .mockReturnValueOnce({
         fullStream: (async function* () {
+          if (Date.now() < 0) yield { type: 'text-delta', id: 't0', text: '' };
           throw { statusCode: 500, message: 'oops' };
         })(),
         totalUsage: Promise.resolve({ inputTokens: 0, outputTokens: 0, totalTokens: 0 }),
@@ -676,6 +678,7 @@ describe('UnifiedAiClient', () => {
     vi.mocked(streamText)
       .mockReturnValueOnce({
         fullStream: (async function* () {
+          if (Date.now() < 0) yield { type: 'text-delta', id: 't0', text: '' };
           throw { statusCode: 500, message: 'oops' };
         })(),
         totalUsage: Promise.resolve({ inputTokens: 0, outputTokens: 0, totalTokens: 0 }),

@@ -215,7 +215,7 @@ describe('MiddlewareChain', () => {
       { label: 'number', name: 'mw', thrown: 123, expectedMessage: /123/ },
       { label: 'object with message', name: 'mw', thrown: { message: 'object failure' }, expectedMessage: /object failure/ },
       { label: 'unknown object', name: 'mw', thrown: { ok: false }, expectedMessage: /Unknown error/ },
-      { label: 'empty name', name: '   ', thrown: 'oops', expectedMessage: /middleware \"<unnamed>\"/ }
+      { label: 'empty name', name: '   ', thrown: 'oops', expectedMessage: /middleware "<unnamed>"/ }
     ];
 
     for (const t of cases) {

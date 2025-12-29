@@ -143,6 +143,14 @@ const SandboxConfigSchema = z.object({
   container: ContainerSandboxConfigSchema
 }).partial().default({});
 
+// Skills system config (optional)
+const SkillsConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  roots: z.array(z.string()).optional(),
+  managedRoot: z.string().optional(),
+  allowedTools: z.array(z.string()).optional()
+}).partial();
+
 export const SubagentConfigSchema = z.object({
   name: z.string().min(1),
   tools: z.array(z.string()).default([]),
@@ -259,7 +267,9 @@ export const GatewayConfigSchema = z.object({
   // Sandbox / security configuration
   sandbox: SandboxConfigSchema.optional(),
   // Non-secret AI configuration (keys read from environment variables)
-  ai: AiConfigSchema.optional()
+  ai: AiConfigSchema.optional(),
+  // Skills subsystem configuration
+  skills: SkillsConfigSchema.optional()
 });
 
 // Core Types
