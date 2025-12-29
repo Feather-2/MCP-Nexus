@@ -153,19 +153,24 @@ export class ToolRoutes extends BaseRouteHandler {
       };
       const mwState = {
         stage: 'beforeTool' as const,
-        values: new Map<string, any>([['toolCall', { name: toolId, arguments: params }]]),
+        values: new Map<string, any>([
+          ['toolCall', { name: toolId, arguments: params }],
+          ['selectedInstanceId', toolId],
+          ['toolStartTimeMs', startTime]
+        ]),
         aborted: false
       };
 
       try {
         // Execute Middlewares (beforeTool)
-        const chain = new MiddlewareChain(this.ctx.middlewares || []);
+        const chain = this.ctx.middlewareChain ?? new MiddlewareChain(this.ctx.middlewares || []);
         await chain.execute('beforeTool', mwCtx, mwState);
 
         const result = await this.executeToolWithRetry(toolId, params, options);
         
         // Execute Middlewares (afterTool)
         mwState.values.set('toolResult', { content: typeof result === 'string' ? result : JSON.stringify(result) });
+        mwState.values.set('toolEndTimeMs', Date.now());
         await chain.execute('afterTool', mwCtx, mwState);
 
         const finalResult = mwState.values.get('toolResult').content;
@@ -191,6 +196,10 @@ export class ToolRoutes extends BaseRouteHandler {
       } catch (error) {
         const durationMs = Date.now() - startTime;
         const message = (error as any)?.message || 'Failed to execute tool';
+        const chain = this.ctx.middlewareChain ?? new MiddlewareChain(this.ctx.middlewares || []);
+        mwState.values.set('toolError', message);
+        mwState.values.set('toolEndTimeMs', Date.now());
+        try { await chain.execute('afterTool', mwCtx, mwState); } catch {}
 
         this.recordExecution({
           id: execId,

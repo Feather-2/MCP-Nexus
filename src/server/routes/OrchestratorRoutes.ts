@@ -95,14 +95,46 @@ export class OrchestratorRoutes extends BaseRouteHandler {
         if (!status?.enabled || !this.ctx.orchestratorManager) {
           return this.respondError(reply, 503, 'Orchestrator disabled', { code: 'DISABLED', recoverable: true });
         }
+        const engine = this.ctx.getOrchestratorEngine ? this.ctx.getOrchestratorEngine() : undefined;
+        if (!engine) {
+          return this.respondError(reply, 503, 'Orchestrator engine not ready', { code: 'NOT_READY', recoverable: true });
+        }
+        const loader = this.ctx.getSubagentLoader ? this.ctx.getSubagentLoader() : undefined;
 
-        // Execute using orchestrator manager
-        const Body = z.object({ query: z.string().min(1) });
-        const { query } = Body.parse((request.body as any) || {});
+        const StepSchema = z.object({
+          subagent: z.string().optional(),
+          tool: z.string().optional(),
+          params: z.any().optional()
+        });
+        const Body = z.object({
+          goal: z.string().min(1).optional(),
+          steps: z.array(StepSchema).optional(),
+          parallel: z.boolean().optional(),
+          maxSteps: z.number().int().positive().max(64).optional(),
+          timeoutMs: z.number().int().positive().optional()
+        });
+        const body = Body.parse((request.body as any) || {});
 
-        // Simple execution (orchestrator manager handles internal details)
-        const result = { success: true, message: 'Orchestration executed', query };
-        reply.send(result);
+        // Ensure subagents are loaded before execution (best-effort)
+        try {
+          if (loader) {
+            await loader.loadAll();
+          } else if (status.subagentsDir && !this.subagentLoader) {
+            this.subagentLoader = new SubagentLoader(status.subagentsDir, this.ctx.logger);
+            await this.subagentLoader.loadAll();
+          }
+        } catch (e) {
+          this.ctx.logger.warn('Failed to load subagents before orchestration', e as any);
+        }
+
+        const result = await engine.execute({
+          goal: body.goal,
+          steps: body.steps,
+          parallel: body.parallel,
+          maxSteps: body.maxSteps,
+          timeoutMs: body.timeoutMs
+        });
+        reply.send({ success: result.success, ...result });
       } catch (error) {
         this.ctx.logger.error('Orchestration execution failed', error);
         if (error instanceof z.ZodError) {

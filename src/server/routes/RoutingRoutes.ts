@@ -2,6 +2,8 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseRouteHandler, RouteContext } from './RouteContext.js';
 import { z } from 'zod';
 import { RouteRequest, ServiceHealth, HealthCheckResult } from '../../types/index.js';
+import { MiddlewareChain } from '../../middleware/chain.js';
+import { SELECTED_INSTANCE_STATE_KEY } from '../../gateway/load-balancer.middleware.js';
 
 interface _RouteRequestBody {
   method: string;
@@ -54,27 +56,69 @@ export class RoutingRoutes extends BaseRouteHandler {
           }
         }
 
-        const routeRequest: RouteRequest = {
-          method: body.method,
-          params: body.params,
-          serviceGroup: body.serviceGroup,
-          contentType: body.contentType,
-          contentLength: body.contentLength,
-          clientIp: request.ip,
-          availableServices: services,
-          serviceHealthMap
-        };
+        const chain = this.ctx.middlewareChain instanceof MiddlewareChain
+          ? this.ctx.middlewareChain
+          : new MiddlewareChain(this.ctx.middlewares || []);
 
-        const routeResponse = await this.ctx.router.route(routeRequest);
+        let selectedService = services[0];
 
-        if (!routeResponse.success) {
-          return this.respondError(reply, 503, routeResponse.error || 'No services available', { code: 'NO_SERVICE' });
+        try {
+          const mwCtx = {
+            requestId: `route-${Date.now()}`,
+            startTime: Date.now(),
+            metadata: {
+              templateId: body.serviceGroup || services[0]?.config?.name,
+              routeMethod: body.method
+            }
+          };
+          const mwState = {
+            stage: 'beforeModel' as const,
+            values: new Map<string, any>([
+              ['instances', services],
+              ['serviceHealthMap', serviceHealthMap]
+            ]),
+            aborted: false
+          };
+          await chain.execute('beforeModel', mwCtx, mwState);
+          const picked = mwState.values.get(SELECTED_INSTANCE_STATE_KEY);
+          if (picked) selectedService = picked;
+        } catch (e) {
+          // If middleware chain fails, fall back to router selection path below
+          this.ctx.logger?.warn?.('Middleware routing failed, falling back to router.route', { error: (e as any)?.message });
+          selectedService = undefined as any;
+        }
+
+        if (!selectedService && this.ctx.router?.route) {
+          const routeRequest: RouteRequest = {
+            method: body.method,
+            params: body.params,
+            serviceGroup: body.serviceGroup,
+            contentType: body.contentType,
+            contentLength: body.contentLength,
+            clientIp: request.ip,
+            availableServices: services,
+            serviceHealthMap
+          };
+          const routeResponse = await this.ctx.router.route(routeRequest);
+
+          if (!routeResponse.success) {
+            return this.respondError(reply, 503, routeResponse.error || 'No services available', { code: 'NO_SERVICE' });
+          }
+          selectedService = routeResponse.selectedService;
+        }
+
+        if (!selectedService) {
+          return this.respondError(reply, 503, 'No services available', { code: 'NO_SERVICE' });
         }
 
         reply.send({
           success: true,
-          selectedService: routeResponse.selectedService,
-          routingDecision: routeResponse.routingDecision
+          selectedService,
+          routingDecision: {
+            strategy: 'middleware-chain',
+            reason: 'selected via middleware chain',
+            appliedRules: []
+          }
         });
       } catch (error) {
         return this.respondError(reply, 500, error instanceof Error ? error.message : 'Routing failed', { code: 'ROUTING_ERROR' });

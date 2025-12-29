@@ -9,6 +9,9 @@ import { OrchestratorManager } from '../../orchestrator/OrchestratorManager.js';
 import { McpGenerator } from '../../generator/McpGenerator.js';
 import type { OrchestratorStatus } from '../../orchestrator/OrchestratorManager.js';
 import { Middleware } from '../../middleware/types.js';
+import type { OrchestratorEngine } from '../../orchestrator/OrchestratorEngine.js';
+import type { SubagentLoader } from '../../orchestrator/SubagentLoader.js';
+import { MiddlewareChain } from '../../middleware/chain.js';
 
 /**
  * Context shared across all route handlers
@@ -24,7 +27,10 @@ export interface RouteContext {
   orchestratorManager?: OrchestratorManager;
   mcpGenerator?: McpGenerator;
   getOrchestratorStatus?: () => OrchestratorStatus | null;
+  getOrchestratorEngine?: () => OrchestratorEngine | undefined;
+  getSubagentLoader?: () => SubagentLoader | undefined;
   middlewares?: Middleware[];
+  middlewareChain?: MiddlewareChain;
 
   // Shared state
   logBuffer: Array<{ timestamp: string; level: string; message: string; service?: string; data?: any }>;
