@@ -279,6 +279,8 @@ export class HttpApiServer {
       protocolAdapters: this.protocolAdapters,
       configManager: this.configManager,
       get orchestratorManager() { return self.orchestratorManager; },
+      get orchestratorEngine() { return self.orchestratorEngine; },
+      get subagentLoader() { return self.subagentLoader; },
       get mcpGenerator() { return self.mcpGenerator; },
       getOrchestratorStatus: () => self.orchestratorStatus,
       logBuffer: this.logBuffer,
