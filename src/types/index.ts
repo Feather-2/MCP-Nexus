@@ -249,7 +249,12 @@ export const GatewayConfigSchema = z.object({
   corsOrigins: z.array(z.string()).default(['http://localhost:3000']),
   maxRequestSize: z.number().default(10 * 1024 * 1024),
   metricsRetentionDays: z.number().default(7),
-  rateLimiting: RateLimitingConfigSchema.default({}),
+  rateLimiting: RateLimitingConfigSchema.default({
+    enabled: false,
+    maxRequests: 100,
+    windowMs: 60000,
+    store: 'memory'
+  }),
   logLevel: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('info'),
   // Sandbox / security configuration
   sandbox: SandboxConfigSchema.optional(),

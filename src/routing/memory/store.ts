@@ -1,14 +1,19 @@
-import Database from 'better-sqlite3';
+let BetterSqlite: any;
+try {
+  // Native module; may be unavailable on some platforms (e.g., Windows CI)
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  BetterSqlite = require('better-sqlite3');
+} catch {
+  BetterSqlite = null;
+}
+const SQLITE_AVAILABLE = Boolean(BetterSqlite);
 import { randomUUID } from 'node:crypto';
 import { createRef, DEFAULT_MEMORY_STORE_CONFIG, parseRef } from './types.js';
 import type { MemoryStats, MemoryStore, MemoryStoreConfig, MemoryTier } from './types.js';
 
 type EpochMs = number;
-type SqliteDb = Database.Database;
-type SqliteStatement<BindParameters extends unknown[] | {} = unknown[], Result = unknown> = Database.Statement<
-  BindParameters,
-  Result
->;
+type SqliteDb = any;
+type SqliteStatement = any;
 
 interface L1IndexEntry {
   key: string;
@@ -233,52 +238,61 @@ export class ThreeTierMemoryStore implements MemoryStore {
     this.config = toRequiredConfig(config);
     this.l0 = new L0LruCache(this.config.l0Capacity, this.config.l0TtlMs);
 
-    this.db = new Database(this.config.l2DbPath);
-    this.db.pragma('journal_mode = WAL');
+    this.db = SQLITE_AVAILABLE ? new BetterSqlite(this.config.l2DbPath) : null;
+    if (this.db) {
+      this.db.pragma('journal_mode = WAL');
 
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS memory (
-        id TEXT PRIMARY KEY,
-        key TEXT NOT NULL,
-        tier TEXT NOT NULL,
-        value_json TEXT NOT NULL,
-        summary TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        size_bytes INTEGER NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_key ON memory(key);
-      CREATE INDEX IF NOT EXISTS idx_created_at ON memory(created_at);
-    `);
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS memory (
+          id TEXT PRIMARY KEY,
+          key TEXT NOT NULL,
+          tier TEXT NOT NULL,
+          value_json TEXT NOT NULL,
+          summary TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          size_bytes INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_key ON memory(key);
+        CREATE INDEX IF NOT EXISTS idx_created_at ON memory(created_at);
+      `);
 
-    this.stmtInsert = this.db.prepare(`
-      INSERT OR REPLACE INTO memory
-        (id, key, tier, value_json, summary, created_at, size_bytes)
-      VALUES
-        (@id, @key, @tier, @value_json, @summary, @created_at, @size_bytes)
-    `);
+      this.stmtInsert = this.db.prepare(`
+        INSERT OR REPLACE INTO memory
+          (id, key, tier, value_json, summary, created_at, size_bytes)
+        VALUES
+          (@id, @key, @tier, @value_json, @summary, @created_at, @size_bytes)
+      `);
 
-    this.stmtSelectById = this.db.prepare(`
-      SELECT id, key, tier, value_json, summary, created_at, size_bytes
-      FROM memory
-      WHERE id = ?
-      LIMIT 1
-    `);
+      this.stmtSelectById = this.db.prepare(`
+        SELECT id, key, tier, value_json, summary, created_at, size_bytes
+        FROM memory
+        WHERE id = ?
+        LIMIT 1
+      `);
 
-    this.stmtExistsById = this.db.prepare(`
-      SELECT 1 AS present
-      FROM memory
-      WHERE id = ?
-      LIMIT 1
-    `);
+      this.stmtExistsById = this.db.prepare(`
+        SELECT 1 AS present
+        FROM memory
+        WHERE id = ?
+        LIMIT 1
+      `);
 
-    this.stmtDeleteById = this.db.prepare(`DELETE FROM memory WHERE id = ?`);
+      this.stmtDeleteById = this.db.prepare(`DELETE FROM memory WHERE id = ?`);
 
-    this.stmtStats = this.db.prepare(`
-      SELECT
-        COUNT(*) AS l2_count,
-        COALESCE(SUM(size_bytes), 0) AS l2_bytes
-      FROM memory
-    `);
+      this.stmtStats = this.db.prepare(`
+        SELECT
+          COUNT(*) AS l2_count,
+          COALESCE(SUM(size_bytes), 0) AS l2_bytes
+        FROM memory
+      `);
+    } else {
+      // Fallback: disable L2 when sqlite is unavailable
+      this.stmtInsert = null as any;
+      this.stmtSelectById = null as any;
+      this.stmtExistsById = null as any;
+      this.stmtDeleteById = null as any;
+      this.stmtStats = null as any;
+    }
   }
 
   async store(key: string, value: unknown, tier: MemoryTier): Promise<string> {
@@ -290,7 +304,7 @@ export class ThreeTierMemoryStore implements MemoryStore {
     const summary = summarize(valueJson);
     const normalizedValue = jsonParse(valueJson);
 
-    if (tier === 'L0') {
+    if (tier === 'L0' || !SQLITE_AVAILABLE) {
       this.l0.set({
         id,
         key,
@@ -328,7 +342,7 @@ export class ThreeTierMemoryStore implements MemoryStore {
     if (fromL0 !== undefined) return fromL0;
 
     const l1 = this.l1.get(parsed.id);
-    if (l1?.inL2) {
+    if (l1?.inL2 && SQLITE_AVAILABLE && this.db) {
       const row = this.readFromL2(parsed.id);
       if (!row) {
         this.l1.delete(parsed.id);
@@ -347,7 +361,7 @@ export class ThreeTierMemoryStore implements MemoryStore {
       return value;
     }
 
-    const row = this.readFromL2(parsed.id);
+    const row = SQLITE_AVAILABLE && this.db ? this.readFromL2(parsed.id) : undefined;
     if (!row) return undefined;
 
     const value = jsonParse(row.value_json);
@@ -370,12 +384,13 @@ export class ThreeTierMemoryStore implements MemoryStore {
     if (this.l0.has(parsed.id, nowMs)) return true;
 
     const l1 = this.l1.get(parsed.id);
-    if (l1?.inL2) {
+    if (l1?.inL2 && SQLITE_AVAILABLE && this.db) {
       const present = this.stmtExistsById.get(parsed.id);
       if (!present) this.l1.delete(parsed.id);
       return Boolean(present);
     }
 
+    if (!SQLITE_AVAILABLE || !this.db) return false;
     const present = this.stmtExistsById.get(parsed.id);
     return Boolean(present);
   }
@@ -386,15 +401,14 @@ export class ThreeTierMemoryStore implements MemoryStore {
 
     const deletedL0 = this.l0.delete(parsed.id);
     const deletedL1 = this.l1.delete(parsed.id);
-    const result = this.stmtDeleteById.run(parsed.id);
-    const deletedL2 = result.changes > 0;
+    const deletedL2 = SQLITE_AVAILABLE && this.db ? (this.stmtDeleteById.run(parsed.id).changes > 0) : false;
 
     return deletedL0 || deletedL1 || deletedL2;
   }
 
   stats(): MemoryStats {
     this.l0.pruneExpired(Date.now());
-    const row = this.stmtStats.get();
+    const row = SQLITE_AVAILABLE && this.db ? this.stmtStats.get() : undefined;
     const l2Bytes = row?.l2_bytes ?? 0;
     const l2Count = row?.l2_count ?? 0;
 
@@ -407,7 +421,7 @@ export class ThreeTierMemoryStore implements MemoryStore {
   }
 
   close(): void {
-    this.db.close();
+    this.db?.close?.();
   }
 
   private enforceL1Capacity(): void {

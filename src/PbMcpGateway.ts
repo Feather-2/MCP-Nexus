@@ -58,12 +58,23 @@ export class PbMcpGateway extends EventEmitter {
     this._serviceRegistry = new ServiceRegistryImpl(this.logger);
     this.authLayer = new AuthenticationLayerImpl(this.config, this.logger);
     this.router = new GatewayRouterImpl(this.logger, this.config.loadBalancingStrategy);
-    this.httpServer = new HttpApiServer(this.config, this.logger, this.configManager);
+    this.httpServer = new HttpApiServer(
+      this.config,
+      this.logger,
+      this.configManager,
+      {
+        serviceRegistry: this._serviceRegistry,
+        authLayer: this.authLayer,
+        router: this.router,
+        protocolAdapters: this.protocolAdapters
+      }
+    );
     this.httpServer.setOrchestratorManager(this.orchestratorManager);
 
     // Register Security Middleware
     this.httpServer.addMiddleware(new SecurityMiddleware());
 
+    this.registerHealthProbe();
     this.setupEventHandlers();
   }
 
@@ -492,8 +503,49 @@ export class PbMcpGateway extends EventEmitter {
   }
 
   private ensureStarted(): void {
-    if (!this.isStarted) {
+    if (!this._isStarted) {
       throw new Error('Gateway is not started. Call start() first.');
+    }
+  }
+
+  /**
+   * Wire a real health probe so ServiceHealthChecker reports correctly
+   * even when HTTP server is disabled in tests.
+   */
+  private registerHealthProbe(): void {
+    try {
+      this._serviceRegistry.setHealthProbe(async (serviceId: string) => {
+        const service = await this._serviceRegistry.getService(serviceId);
+        if (!service) {
+          return { healthy: false, error: 'Service not found', timestamp: new Date() } as any;
+        }
+        if ((service as any).state !== 'running') {
+          return { healthy: false, error: 'Service not running', timestamp: new Date() } as any;
+        }
+        const start = Date.now();
+        try {
+          const adapter = await this.protocolAdapters.createAdapter(service.config);
+          await adapter.connect();
+          try {
+            const msg: any = { jsonrpc: '2.0', id: `health-${Date.now()}`, method: 'tools/list', params: {} };
+            const res = (adapter as any).sendAndReceive ? await (adapter as any).sendAndReceive(msg) : await adapter.send(msg as any);
+            const latency = Date.now() - start;
+            const ok = !!(res && (res as any).result);
+            if (!ok && (res as any)?.error?.message) {
+              try { await this._serviceRegistry.setInstanceMetadata(serviceId, 'lastProbeError', (res as any).error.message); } catch {}
+            }
+            return { healthy: ok, latency, timestamp: new Date() };
+          } finally {
+            await adapter.disconnect();
+          }
+        } catch (e: any) {
+          const errMsg = e?.message || 'probe failed';
+          try { await this._serviceRegistry.setInstanceMetadata(serviceId, 'lastProbeError', errMsg); } catch {}
+          return { healthy: false, error: errMsg, latency: Date.now() - start, timestamp: new Date() } as any;
+        }
+      });
+    } catch (err) {
+      this.logger.warn('Failed to register health probe for gateway registry', err as any);
     }
   }
 }

@@ -91,23 +91,26 @@ export class OrchestratorRoutes extends BaseRouteHandler {
     server.post('/api/orchestrator/execute', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const status = this.ctx.getOrchestratorStatus ? this.ctx.getOrchestratorStatus() : undefined;
-        const engine = this.ctx.orchestratorEngine;
-        const loader = this.ctx.subagentLoader || this.subagentLoader;
-        if (!status?.enabled || !this.ctx.orchestratorManager || !engine) {
+        if (!status?.enabled || !this.ctx.orchestratorManager) {
           return this.respondError(reply, 503, 'Orchestrator disabled', { code: 'DISABLED', recoverable: true });
         }
+        const engine = this.ctx.orchestratorEngine || (this.ctx.getOrchestratorEngine ? this.ctx.getOrchestratorEngine() : undefined);
+        if (!engine) {
+          return this.respondError(reply, 503, 'Orchestrator engine not ready', { code: 'NOT_READY', recoverable: true });
+        }
+        const loader = this.ctx.subagentLoader || this.subagentLoader || (this.ctx.getSubagentLoader ? this.ctx.getSubagentLoader() : undefined);
 
-        const Step = z.object({
+        const StepSchema = z.object({
           subagent: z.string().min(1).optional(),
           tool: z.string().min(1).optional(),
           params: z.record(z.any()).optional()
         });
         const Body = z.object({
           goal: z.string().min(1).optional(),
-          steps: z.array(Step).optional(),
+          steps: z.array(StepSchema).optional(),
           context: z.record(z.any()).optional(),
           parallel: z.boolean().optional(),
-          maxSteps: z.number().int().positive().max(50).optional(),
+          maxSteps: z.number().int().positive().max(64).optional(),
           timeoutMs: z.number().int().positive().max(600_000).optional()
         });
         const parsed = Body.parse((request.body as any) || {});
@@ -115,10 +118,17 @@ export class OrchestratorRoutes extends BaseRouteHandler {
           return this.respondError(reply, 400, 'goal or steps is required', { code: 'BAD_REQUEST', recoverable: true });
         }
 
-        // Ensure subagents are loaded before execution
-        if (loader) {
-          await loader.loadAll();
-          this.subagentLoader = loader;
+        // Ensure subagents are loaded before execution (best-effort)
+        try {
+          if (loader) {
+            await loader.loadAll();
+            this.subagentLoader = loader;
+          } else if (status.subagentsDir && !this.subagentLoader) {
+            this.subagentLoader = new SubagentLoader(status.subagentsDir, this.ctx.logger);
+            await this.subagentLoader.loadAll();
+          }
+        } catch (e) {
+          this.ctx.logger.warn('Failed to load subagents before orchestration', e as any);
         }
 
         const { context: _context, ...execReq } = parsed;

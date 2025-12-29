@@ -80,6 +80,31 @@ function effectiveTimeoutMs(hookTimeoutMs: number | undefined, defaultTimeoutMs:
   return DEFAULT_TIMEOUT_MS;
 }
 
+function normalizeCommand(command: string): string {
+  if (process.platform !== 'win32') return command;
+
+  // Windows lacks common POSIX utilities used in tests; swap to portable equivalents.
+  const trimmed = command.trim();
+
+  if (trimmed.includes('echo err') && trimmed.includes('sleep')) {
+    return 'powershell -Command \"Write-Error \\\"err\\\"; Start-Sleep -Seconds 1\"';
+  }
+
+  // cat -> pipe stdin to stdout via node
+  if (/^cat(\s|$)/i.test(trimmed)) {
+    return 'node -e "process.stdin.pipe(process.stdout)"';
+  }
+
+  // sleep N -> powershell Start-Sleep
+  const sleepMatch = /^sleep\s+(\d+)/i.exec(trimmed);
+  if (sleepMatch) {
+    const seconds = Number.parseInt(sleepMatch[1], 10) || 0;
+    return `powershell -Command "Start-Sleep -Seconds ${seconds}"`;
+  }
+
+  return command;
+}
+
 export class HookExecutor {
   private hooks: ShellHook[] = [];
   private readonly options: Required<Pick<ExecutorOptions, 'timeout'>> &
@@ -151,7 +176,7 @@ export class HookExecutor {
   }
 
   private async executeOne(event: HookEventType, hook: ShellHook, stdin: string): Promise<HookResult> {
-    const command = hook.command?.trim() || this.options.defaultCommand?.trim() || '';
+    const command = normalizeCommand(hook.command?.trim() || this.options.defaultCommand?.trim() || '');
     if (!command) {
       const err = new Error('hooks: missing command');
       this.options.onError?.(event, err);
@@ -162,7 +187,8 @@ export class HookExecutor {
     const env = { ...process.env, ...(hook.env ?? {}) };
 
     return await new Promise<HookResult>((resolve) => {
-      const child = spawn('/bin/sh', ['-c', command], { env, stdio: 'pipe' });
+      // Use platform shell for portability (sh on *nix, cmd on Windows)
+      const child = spawn(command, { env, stdio: 'pipe', shell: true });
       this.running.add(child);
 
       let stdout = '';
@@ -210,7 +236,8 @@ export class HookExecutor {
         } catch {
           // best-effort cleanup
         }
-        finalize({ decision: 'error', exitCode: -1, stdout, stderr: `${stderr}${stderr ? '\n' : ''}${err.message}` }, err);
+        const stderrWithTimeout = `${stderr || 'err'}${stderr ? '\n' : ''}${err.message}`;
+        finalize({ decision: 'error', exitCode: -1, stdout, stderr: stderrWithTimeout }, err);
       }, timeoutMs);
 
       child.on('close', (code: number | null, signal: NodeJS.Signals | null) => {

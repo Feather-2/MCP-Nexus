@@ -50,6 +50,7 @@ import {
   ToolRoutes
 } from './routes/index.js';
 import { Middleware } from '../middleware/types.js';
+import { MiddlewareChain } from '../middleware/chain.js';
 
 interface RouteRequestBody {
   method: string;
@@ -85,7 +86,14 @@ export class HttpApiServer {
   constructor(
     private config: GatewayConfig,
     private logger: Logger,
-    configManager: import('../config/ConfigManagerImpl.js').ConfigManagerImpl
+    configManager: import('../config/ConfigManagerImpl.js').ConfigManagerImpl,
+    components?: {
+      serviceRegistry?: ServiceRegistryImpl;
+      authLayer?: AuthenticationLayerImpl;
+      router?: GatewayRouterImpl;
+      protocolAdapters?: ProtocolAdaptersImpl;
+      middlewareChain?: MiddlewareChain;
+    }
   ) {
     this.server = Fastify({
       logger: false, // We'll use our own logger
@@ -95,10 +103,13 @@ export class HttpApiServer {
     this.configManager = configManager;
 
     // Initialize core components
-    this.protocolAdapters = new ProtocolAdaptersImpl(logger, () => this.configManager.getConfig());
-    this.serviceRegistry = new ServiceRegistryImpl(logger);
-    this.authLayer = new AuthenticationLayerImpl(config, logger);
-    this.router = new GatewayRouterImpl(logger, config.loadBalancingStrategy);
+    this.protocolAdapters = components?.protocolAdapters || new ProtocolAdaptersImpl(logger, () => this.configManager.getConfig());
+    this.serviceRegistry = components?.serviceRegistry || new ServiceRegistryImpl(logger);
+    this.authLayer = components?.authLayer || new AuthenticationLayerImpl(config, logger);
+    this.router = components?.router || new GatewayRouterImpl(logger, config.loadBalancingStrategy);
+    if (components?.middlewareChain) {
+      (this as any)._componentsMiddlewareChain = components.middlewareChain;
+    }
 
     this.setupRoutes();
     this.setupErrorHandlers();
@@ -283,6 +294,8 @@ export class HttpApiServer {
       get subagentLoader() { return self.subagentLoader; },
       get mcpGenerator() { return self.mcpGenerator; },
       getOrchestratorStatus: () => self.orchestratorStatus,
+      getOrchestratorEngine: () => self.orchestratorEngine,
+      getSubagentLoader: () => self.subagentLoader,
       logBuffer: this.logBuffer,
       logStreamClients: this.logStreamClients,
       sandboxStreamClients: this.sandboxStreamClients,
@@ -290,8 +303,18 @@ export class HttpApiServer {
       sandboxInstalling: this.sandboxInstalling,
       addLogEntry: this.addLogEntry.bind(this),
       respondError: this.respondError.bind(this),
-      middlewares: this.middlewares
+      middlewares: this.middlewares,
+      middlewareChain: this.componentsMiddlewareChain()
     } as any;
+  }
+
+  /**
+   * Resolve middleware chain, allowing external injection for tests/custom stacks.
+   */
+  private componentsMiddlewareChain(): MiddlewareChain {
+    const fromComponents = (this as any)._componentsMiddlewareChain as MiddlewareChain | undefined;
+    if (fromComponents) return fromComponents;
+    return new MiddlewareChain(this.middlewares);
   }
 
   

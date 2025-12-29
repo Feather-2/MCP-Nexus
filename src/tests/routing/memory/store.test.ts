@@ -1,4 +1,15 @@
-import Database from 'better-sqlite3';
+const SKIP = process.platform === 'win32';
+let Database: typeof import('better-sqlite3') | undefined;
+if (!SKIP) {
+  // Lazy load to avoid native build errors on Windows CI
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  Database = require('better-sqlite3');
+}
+// Friendly note for devs on Windows
+if (SKIP) {
+  // eslint-disable-next-line no-console
+  console.warn('better-sqlite3 unavailable on Windows; skipping memory store integration tests');
+}
 import { existsSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { ThreeTierMemoryStore, parseRef } from '../../../routing/memory/index.js';
@@ -10,7 +21,9 @@ function cleanupSqliteFiles(dbPath: string): void {
   }
 }
 
-describe('ThreeTierMemoryStore', () => {
+const describeMaybe = SKIP ? describe.skip : describe;
+
+describeMaybe('ThreeTierMemoryStore', () => {
   it('re-exports from routing/memory/index', () => {
     expect(ThreeTierMemoryStore).toBeTypeOf('function');
     expect(parseRef('mem:v1:L1:550e8400-e29b-41d4-a716-446655440000')).toEqual({
@@ -142,7 +155,7 @@ describe('ThreeTierMemoryStore', () => {
       const parsed = parseRef(ref);
       if (!parsed) throw new Error('expected a valid ref');
 
-      const db = new Database(dbPath);
+      const db = new Database!(dbPath);
       try {
         db.prepare('DELETE FROM memory WHERE id = ?').run(parsed.id);
       } finally {
