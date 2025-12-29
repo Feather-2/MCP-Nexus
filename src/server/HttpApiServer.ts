@@ -49,6 +49,7 @@ import {
   SandboxRoutes,
   ToolRoutes
 } from './routes/index.js';
+import { Middleware } from '../middleware/types.js';
 
 interface RouteRequestBody {
   method: string;
@@ -76,6 +77,7 @@ export class HttpApiServer {
   private subagentLoader?: SubagentLoader;
   private mcpGenerator?: McpGenerator;
   private sandboxStreamClients: Set<FastifyReply> = new Set();
+  private middlewares: Middleware[] = [];
   // Demo 日志与 SSE 清理定时器
   private demoLogTimer?: ReturnType<typeof setInterval>;
   private sseCleanupTimer?: ReturnType<typeof setInterval>;
@@ -93,7 +95,7 @@ export class HttpApiServer {
     this.configManager = configManager;
 
     // Initialize core components
-    this.protocolAdapters = new ProtocolAdaptersImpl(logger);
+    this.protocolAdapters = new ProtocolAdaptersImpl(logger, () => this.configManager.getConfig());
     this.serviceRegistry = new ServiceRegistryImpl(logger);
     this.authLayer = new AuthenticationLayerImpl(config, logger);
     this.router = new GatewayRouterImpl(logger, config.loadBalancingStrategy);
@@ -285,7 +287,8 @@ export class HttpApiServer {
       sandboxStatus: this.sandboxStatus,
       sandboxInstalling: this.sandboxInstalling,
       addLogEntry: this.addLogEntry.bind(this),
-      respondError: this.respondError.bind(this)
+      respondError: this.respondError.bind(this),
+      middlewares: this.middlewares
     } as any;
   }
 
@@ -684,6 +687,10 @@ export class HttpApiServer {
 
   getRouter(): GatewayRouterImpl {
     return this.router;
+  }
+
+  addMiddleware(middleware: Middleware): void {
+    this.middlewares.push(middleware);
   }
 
 }

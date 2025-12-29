@@ -41,9 +41,13 @@ Provider 可以利用网关的 `TierRouter` 来优化 `deepsearch` 的执行路�
 
 ## 4. 中间件与插件扩展 (Middleware Hooks)
 
-Provider 的每一次调用都可以经过网关的中间件管道进行增强。
+Provider 的每一次调用都会自动经过网关的中间件管道。
 
 ### 结合方式：
+- **安全加固 (`SecurityMiddleware`)**：网关已内置参考 `agentsdk-go` 实现的安全中间件：
+    - **自动脱敏**：自动识别响应中的 `sk-` 等 API Key 并模糊处理。
+    - **路径防护**：通过 `realpath` 解析强制拦截软链接绕过攻击。
+    - **参数审计**：禁止 `--no-preserve-root` 等危险参数输入。
 - **审计与日志**：利用 `beforeTool` 钩子记录详细的执行轨迹。
 - **结果重写**：利用 `afterTool` 钩子对 MCP Server 返回的原始数据进行 Provider 友好的格式化或清洗（例如将复杂的 JSON 自动扁平化）。
 

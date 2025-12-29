@@ -12,6 +12,7 @@ import { AuthenticationLayerImpl } from './auth/AuthenticationLayerImpl.js';
 import { GatewayRouterImpl } from './router/GatewayRouterImpl.js';
 import { ProtocolAdaptersImpl } from './adapters/ProtocolAdaptersImpl.js';
 import { ConfigManagerImpl } from './config/ConfigManagerImpl.js';
+import { SecurityMiddleware } from './middleware/SecurityMiddleware.js';
 import { HttpApiServer } from './server/HttpApiServer.js';
 import { ConsoleLogger } from './utils/ConsoleLogger.js';
 import { EventEmitter } from 'events';
@@ -53,12 +54,15 @@ export class PbMcpGateway extends EventEmitter {
     this.config = this.configManager.getConfig();
 
     // Initialize core components
-    this.protocolAdapters = new ProtocolAdaptersImpl(this.logger);
+    this.protocolAdapters = new ProtocolAdaptersImpl(this.logger, () => this.config);
     this._serviceRegistry = new ServiceRegistryImpl(this.logger);
     this.authLayer = new AuthenticationLayerImpl(this.config, this.logger);
     this.router = new GatewayRouterImpl(this.logger, this.config.loadBalancingStrategy);
     this.httpServer = new HttpApiServer(this.config, this.logger, this.configManager);
     this.httpServer.setOrchestratorManager(this.orchestratorManager);
+
+    // Register Security Middleware
+    this.httpServer.addMiddleware(new SecurityMiddleware());
 
     this.setupEventHandlers();
   }
@@ -121,7 +125,10 @@ export class PbMcpGateway extends EventEmitter {
           workingDirectory: template.workingDirectory,
           timeout: template.timeout ?? 30000, // Provide default
           retries: template.retries ?? 3, // Provide default
-          healthCheck: template.healthCheck
+          healthCheck: template.healthCheck,
+          // Preserve extended fields when templates are authored via API / disk (defense-in-depth)
+          container: (template as any).container,
+          security: (template as any).security
         };
         await this._serviceRegistry.registerTemplate(serviceConfig);
       }
@@ -256,7 +263,9 @@ export class PbMcpGateway extends EventEmitter {
       workingDirectory: template.workingDirectory,
       timeout: template.timeout ?? 30000, // Provide default
       retries: template.retries ?? 3, // Provide default
-      healthCheck: template.healthCheck
+      healthCheck: template.healthCheck,
+      container: (template as any).container,
+      security: (template as any).security
     };
     await this._serviceRegistry.registerTemplate(serviceConfig);
   }

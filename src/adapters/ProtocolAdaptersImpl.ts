@@ -3,15 +3,17 @@ import {
   TransportAdapter,
   McpServiceConfig,
   TransportType,
-  Logger
+  Logger,
+  GatewayConfig
 } from '../types/index.js';
 import { StdioTransportAdapter } from './StdioTransportAdapter.js';
 import { HttpTransportAdapter } from './HttpTransportAdapter.js';
 import { StreamableHttpAdapter } from './StreamableHttpAdapter.js';
 import { ContainerTransportAdapter } from './ContainerTransportAdapter.js';
+import { applyGatewaySandboxPolicy } from '../security/SandboxPolicy.js';
 
 export class ProtocolAdaptersImpl implements ProtocolAdapters {
-  constructor(private logger: Logger) {}
+  constructor(private logger: Logger, private getGatewayConfig?: () => GatewayConfig) {}
 
   async createStdioAdapter(config: McpServiceConfig): Promise<TransportAdapter> {
     const sandboxed = (config.env as any)?.SANDBOX === 'portable';
@@ -108,20 +110,36 @@ export class ProtocolAdaptersImpl implements ProtocolAdapters {
 
   // Factory method to create appropriate adapter based on config
   async createAdapter(config: McpServiceConfig): Promise<TransportAdapter> {
-    switch (config.transport) {
+    const gwConfig = this.getGatewayConfig?.();
+    const enforced = applyGatewaySandboxPolicy(config, gwConfig);
+    const effectiveConfig = enforced.config;
+    if (enforced.applied) {
+      try {
+        this.logger.warn?.('Sandbox policy enforced for service', { name: config.name, reasons: enforced.reasons });
+      } catch { /* ignored */ }
+    }
+
+    switch (effectiveConfig.transport) {
       case 'stdio':
         // Detect container sandbox
-        if ((config as any)?.container || (config.env as any)?.SANDBOX === 'container') {
-          this.logger.info(`Creating container-stdio adapter for ${config.name} [SANDBOX: container]`);
-          return new ContainerTransportAdapter(config, this.logger);
+        if ((effectiveConfig as any)?.container || (effectiveConfig.env as any)?.SANDBOX === 'container') {
+          this.logger.info(`Creating container-stdio adapter for ${effectiveConfig.name} [SANDBOX: container]`);
+          // Pass global sandbox policy hints to adapter for env/volume validation defaults
+          const sandbox = enforced.policy.container;
+          return new ContainerTransportAdapter(effectiveConfig, this.logger, {
+            allowedVolumeRoots: sandbox.allowedVolumeRoots,
+            envSafePrefixes: sandbox.envSafePrefixes,
+            defaultNetwork: sandbox.defaultNetwork,
+            defaultReadonlyRootfs: sandbox.defaultReadonlyRootfs
+          });
         }
-        return this.createStdioAdapter(config);
+        return this.createStdioAdapter(effectiveConfig);
       case 'http':
-        return this.createHttpAdapter(config);
+        return this.createHttpAdapter(effectiveConfig);
       case 'streamable-http':
-        return this.createStreamableAdapter(config);
+        return this.createStreamableAdapter(effectiveConfig);
       default:
-        throw new Error(`Unsupported transport type: ${config.transport}`);
+        throw new Error(`Unsupported transport type: ${effectiveConfig.transport}`);
     }
   }
 }

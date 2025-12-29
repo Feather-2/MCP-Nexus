@@ -49,7 +49,17 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
       this.logger.debug(`Starting stdio process: ${normalizedCommand} ${args.join(' ')}`);
 
       // Basic command allowlist to reduce injection surface when shell=true (Windows)
-      const ALLOWED_COMMANDS = new Set(['node', 'node.exe', 'npx', 'npx.cmd', 'npm', 'npm.cmd', 'python', 'python.exe', 'python3', 'python3.exe', 'deno', 'deno.exe']);
+      const ALLOWED_COMMANDS = new Set([
+        'node', 'node.exe',
+        'npx', 'npx.cmd',
+        'npm', 'npm.cmd',
+        'python', 'python.exe',
+        'python3', 'python3.exe',
+        'deno', 'deno.exe',
+        // Container runtimes (used by ContainerTransportAdapter)
+        'docker', 'docker.exe',
+        'podman', 'podman.exe'
+      ]);
       const baseCmd = path.basename(normalizedCommand).toLowerCase().replace(/\\/g, '/');
       if (process.platform === 'win32' && !ALLOWED_COMMANDS.has(baseCmd)) {
         throw new Error(`Command not allowed: ${baseCmd}`);

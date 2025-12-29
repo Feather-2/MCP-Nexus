@@ -700,6 +700,22 @@ export interface ServiceTemplate {
   workingDirectory?: string;
   timeout?: number;
   retries?: number;
+  // Optional container sandbox settings (stdio only)
+  container?: {
+    runtime?: 'docker' | 'podman';
+    image?: string;
+    workdir?: string;
+    network?: string;
+    readonlyRootfs?: boolean;
+    volumes?: Array<{ hostPath: string; containerPath: string; readOnly?: boolean }>;
+    resources?: { cpus?: number | string; memory?: string };
+  };
+  // Optional per-service security settings
+  security?: {
+    trustLevel?: 'trusted' | 'partner' | 'untrusted';
+    networkPolicy?: 'inherit' | 'full' | 'local-only' | 'blocked';
+    requireContainer?: boolean;
+  };
   healthCheck?: {
     enabled: boolean;
     interval: number;

@@ -8,6 +8,7 @@ import { ConfigManagerImpl } from '../../config/ConfigManagerImpl.js';
 import { OrchestratorManager } from '../../orchestrator/OrchestratorManager.js';
 import { McpGenerator } from '../../generator/McpGenerator.js';
 import type { OrchestratorStatus } from '../../orchestrator/OrchestratorManager.js';
+import { Middleware } from '../../middleware/types.js';
 
 /**
  * Context shared across all route handlers
@@ -23,6 +24,7 @@ export interface RouteContext {
   orchestratorManager?: OrchestratorManager;
   mcpGenerator?: McpGenerator;
   getOrchestratorStatus?: () => OrchestratorStatus | null;
+  middlewares?: Middleware[];
 
   // Shared state
   logBuffer: Array<{ timestamp: string; level: string; message: string; service?: string; data?: any }>;

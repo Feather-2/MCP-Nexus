@@ -2,6 +2,7 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { BaseRouteHandler, RouteContext } from './RouteContext.js';
 import { McpServiceConfig, McpMessage } from '../../types/index.js';
+import { MiddlewareChain } from '../../middleware/chain.js';
 
 // Schema definitions
 const ToolExecuteBodySchema = z.object({
@@ -143,8 +144,31 @@ export class ToolRoutes extends BaseRouteHandler {
       const startTime = Date.now();
       const execId = `exec-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+      // Prepare Middleware Context & State
+      const mwCtx = {
+        requestId: execId,
+        startTime,
+        metadata: {},
+        sessionId: (request as any).auth?.context?.userId
+      };
+      const mwState = {
+        stage: 'beforeTool' as const,
+        values: new Map<string, any>([['toolCall', { name: toolId, arguments: params }]]),
+        aborted: false
+      };
+
       try {
+        // Execute Middlewares (beforeTool)
+        const chain = new MiddlewareChain(this.ctx.middlewares || []);
+        await chain.execute('beforeTool', mwCtx, mwState);
+
         const result = await this.executeToolWithRetry(toolId, params, options);
+        
+        // Execute Middlewares (afterTool)
+        mwState.values.set('toolResult', { content: typeof result === 'string' ? result : JSON.stringify(result) });
+        await chain.execute('afterTool', mwCtx, mwState);
+
+        const finalResult = mwState.values.get('toolResult').content;
         const durationMs = Date.now() - startTime;
 
         // Record execution
@@ -154,14 +178,14 @@ export class ToolRoutes extends BaseRouteHandler {
           params,
           success: true,
           durationMs,
-          result,
+          result: finalResult,
           timestamp: new Date()
         });
 
         reply.send({
           success: true,
           executionId: execId,
-          result,
+          result: finalResult,
           durationMs
         });
       } catch (error) {

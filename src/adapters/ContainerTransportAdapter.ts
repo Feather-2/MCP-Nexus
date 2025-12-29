@@ -3,6 +3,13 @@ import path from 'path';
 import { McpServiceConfig, McpMessage, Logger, McpVersion, TransportAdapter } from '../types/index.js';
 import { StdioTransportAdapter } from './StdioTransportAdapter.js';
 
+export interface ContainerAdapterPolicyOptions {
+  allowedVolumeRoots?: string[]; // absolute paths
+  envSafePrefixes?: string[]; // prefixes or exact keys
+  defaultNetwork?: 'none' | 'bridge';
+  defaultReadonlyRootfs?: boolean;
+}
+
 /**
  * ContainerTransportAdapter
  * - Runs the MCP server inside a container (docker/podman) and communicates via stdio.
@@ -15,13 +22,14 @@ export class ContainerTransportAdapter extends EventEmitter implements Transport
 
   private delegate: StdioTransportAdapter;
 
-  constructor(private config: McpServiceConfig, private logger: Logger) {
+  constructor(private config: McpServiceConfig, private logger: Logger, private policy?: ContainerAdapterPolicyOptions) {
     super();
     this.version = config.version;
 
     // Build container command & args
     const { command: innerCmd, args: innerArgs = [], env = {} } = config;
     const container = (config as any).container || {};
+    const policyOpts = this.policy;
 
     const runtime: 'docker' | 'podman' = (container.runtime as any) || (process.env.CONTAINER_RUNTIME as any) || 'docker';
     const image: string | undefined = container.image;
@@ -33,14 +41,17 @@ export class ContainerTransportAdapter extends EventEmitter implements Transport
     const runArgs: string[] = ['run', '--rm', '-i'];
 
     // readonly rootfs
-    if (container.readonlyRootfs) runArgs.push('--read-only');
+    const readonlyRootfs = typeof container.readonlyRootfs === 'boolean'
+      ? container.readonlyRootfs
+      : (typeof policyOpts?.defaultReadonlyRootfs === 'boolean' ? policyOpts.defaultReadonlyRootfs : true);
+    if (readonlyRootfs) runArgs.push('--read-only');
 
     // network
     if (container.network) {
       runArgs.push('--network', String(container.network));
     } else {
-      // default to none for stricter security if explicitly requested by env
-      if (env.CONTAINER_NETWORK === 'none') runArgs.push('--network', 'none');
+      const def = policyOpts?.defaultNetwork || 'none';
+      runArgs.push('--network', def);
     }
 
     // resources
@@ -56,8 +67,11 @@ export class ContainerTransportAdapter extends EventEmitter implements Transport
     for (const v of volumes) {
       if (!v || !v.hostPath || !v.containerPath) continue;
       const hostResolved = path.resolve(String(v.hostPath));
-      const allowedBase = process.env.ALLOWED_VOLUME_PATHS || path.resolve(process.cwd());
-      if (!hostResolved.startsWith(allowedBase)) {
+      const allowedRoots = Array.isArray(policyOpts?.allowedVolumeRoots) && policyOpts!.allowedVolumeRoots!.length
+        ? policyOpts!.allowedVolumeRoots!
+        : [path.resolve(process.cwd())];
+      const allowed = allowedRoots.some((root) => hostResolved.startsWith(path.resolve(String(root))));
+      if (!allowed) {
         throw new Error(`Volume hostPath not allowed: ${v.hostPath}`);
       }
       if (String(v.containerPath).includes('..')) {
@@ -77,7 +91,21 @@ export class ContainerTransportAdapter extends EventEmitter implements Transport
     delete passEnv.SANDBOX_GO_DIR;
 
     // Env whitelist: pass only safe keys or project-prefixed keys
-    const isSafeEnvKey = (k: string) => /^(PB_|PBMCP_|MCP_|NODE_|BRAVE_|GITHUB_|DATABASE_|HTTP_|HTTPS_)/.test(k);
+    const safeList = Array.isArray(policyOpts?.envSafePrefixes) && policyOpts!.envSafePrefixes!.length
+      ? policyOpts!.envSafePrefixes!.map((s) => String(s))
+      : ['PB_', 'PBMCP_', 'MCP_', 'BRAVE_', 'GITHUB_'];
+    const isSafeEnvKey = (k: string) => {
+      for (const prefix of safeList) {
+        if (!prefix) continue;
+        // Treat entries ending with '_' as prefix matches; otherwise exact match
+        if (prefix.endsWith('_')) {
+          if (k.startsWith(prefix)) return true;
+        } else {
+          if (k === prefix) return true;
+        }
+      }
+      return false;
+    };
     for (const [k, v] of Object.entries(passEnv)) {
       if (typeof v !== 'string') continue;
       if (!isSafeEnvKey(k)) continue;
@@ -128,7 +156,7 @@ export class ContainerTransportAdapter extends EventEmitter implements Transport
         try {
           this.logger.warn('Docker failed to start; retry with podman');
           (this.config as any).container = { ...container, runtime: 'podman' };
-          const retry = new ContainerTransportAdapter(this.config, this.logger);
+          const retry = new ContainerTransportAdapter(this.config, this.logger, this.policy);
           this.delegate = (retry as any).delegate;
           await this.delegate.connect();
           return;
