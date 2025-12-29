@@ -78,10 +78,9 @@ export class OrchestratorRoutes extends BaseRouteHandler {
         if (!status) {
           return this.respondError(reply, 503, 'Orchestrator not initialized', { code: 'NOT_INITIALIZED' });
         }
-        if (!this.subagentLoader) {
-          this.subagentLoader = new SubagentLoader(status.subagentsDir, this.ctx.logger);
-        }
-        const subagents = await this.subagentLoader.loadAll();
+        const loader = this.ctx.subagentLoader || this.subagentLoader || new SubagentLoader(status.subagentsDir, this.ctx.logger);
+        this.subagentLoader = loader;
+        const subagents = await loader.loadAll();
         reply.send({ subagents });
       } catch (error) {
         reply.code(500).send({ error: (error as Error).message });
@@ -92,17 +91,44 @@ export class OrchestratorRoutes extends BaseRouteHandler {
     server.post('/api/orchestrator/execute', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const status = this.ctx.getOrchestratorStatus ? this.ctx.getOrchestratorStatus() : undefined;
-        if (!status?.enabled || !this.ctx.orchestratorManager) {
+        const engine = this.ctx.orchestratorEngine;
+        const loader = this.ctx.subagentLoader || this.subagentLoader;
+        if (!status?.enabled || !this.ctx.orchestratorManager || !engine) {
           return this.respondError(reply, 503, 'Orchestrator disabled', { code: 'DISABLED', recoverable: true });
         }
 
-        // Execute using orchestrator manager
-        const Body = z.object({ query: z.string().min(1) });
-        const { query } = Body.parse((request.body as any) || {});
+        const Step = z.object({
+          subagent: z.string().min(1).optional(),
+          tool: z.string().min(1).optional(),
+          params: z.record(z.any()).optional()
+        });
+        const Body = z.object({
+          goal: z.string().min(1).optional(),
+          steps: z.array(Step).optional(),
+          context: z.record(z.any()).optional(),
+          parallel: z.boolean().optional(),
+          maxSteps: z.number().int().positive().max(50).optional(),
+          timeoutMs: z.number().int().positive().max(600_000).optional()
+        });
+        const parsed = Body.parse((request.body as any) || {});
+        if (!parsed.goal && (!parsed.steps || parsed.steps.length === 0)) {
+          return this.respondError(reply, 400, 'goal or steps is required', { code: 'BAD_REQUEST', recoverable: true });
+        }
 
-        // Simple execution (orchestrator manager handles internal details)
-        const result = { success: true, message: 'Orchestration executed', query };
-        reply.send(result);
+        // Ensure subagents are loaded before execution
+        if (loader) {
+          await loader.loadAll();
+          this.subagentLoader = loader;
+        }
+
+        const { context: _context, ...execReq } = parsed;
+        const result = await engine.execute(execReq as any);
+        reply.send({
+          success: result.success,
+          plan: result.plan,
+          results: result.results,
+          used: result.used
+        });
       } catch (error) {
         this.ctx.logger.error('Orchestration execution failed', error);
         if (error instanceof z.ZodError) {

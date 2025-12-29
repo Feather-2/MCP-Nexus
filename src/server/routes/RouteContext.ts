@@ -6,6 +6,8 @@ import { GatewayRouterImpl } from '../../router/GatewayRouterImpl.js';
 import { ProtocolAdaptersImpl } from '../../adapters/ProtocolAdaptersImpl.js';
 import { ConfigManagerImpl } from '../../config/ConfigManagerImpl.js';
 import { OrchestratorManager } from '../../orchestrator/OrchestratorManager.js';
+import { OrchestratorEngine } from '../../orchestrator/OrchestratorEngine.js';
+import { SubagentLoader } from '../../orchestrator/SubagentLoader.js';
 import { McpGenerator } from '../../generator/McpGenerator.js';
 import type { OrchestratorStatus } from '../../orchestrator/OrchestratorManager.js';
 import { Middleware } from '../../middleware/types.js';
@@ -22,6 +24,8 @@ export interface RouteContext {
   protocolAdapters: ProtocolAdaptersImpl;
   configManager: ConfigManagerImpl;
   orchestratorManager?: OrchestratorManager;
+  orchestratorEngine?: OrchestratorEngine;
+  subagentLoader?: SubagentLoader;
   mcpGenerator?: McpGenerator;
   getOrchestratorStatus?: () => OrchestratorStatus | null;
   middlewares?: Middleware[];
