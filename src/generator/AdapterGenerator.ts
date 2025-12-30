@@ -51,10 +51,13 @@ export class AdapterGenerator {
    * Select appropriate transport based on ParseResult
    */
   private selectTransport(parseResult: ParseResult): TransportType {
+    const isHttpEndpoint =
+      Boolean(parseResult.endpoint?.baseUrl) ||
+      parseResult.endpoint.url.startsWith('http://') ||
+      parseResult.endpoint.url.startsWith('https://');
+
     // If it's a simple HTTP API with no state
-    if (parseResult.endpoint.url.startsWith('http') &&
-        !parseResult.hasStatefulLogic &&
-        !parseResult.hasLocalProcessing) {
+    if (isHttpEndpoint && !parseResult.hasStatefulLogic && !parseResult.hasLocalProcessing) {
       return 'http';
     }
 
@@ -114,7 +117,7 @@ export class AdapterGenerator {
       command: 'node',
       args: [`./generated/${name}/index.js`],
       env: {
-        API_URL: parseResult.endpoint.url
+        API_URL: this.buildFullUrl(parseResult)
       },
       timeout: 30000,
       retries: 3
@@ -199,7 +202,16 @@ export class AdapterGenerator {
   ): Promise<string> {
     // Template for Node.js MCP server
     const escapeForTemplate = (str: string) => str.replace(/`/g, '\\`').replace(/\$/g, '\\$');
-    const safeUrl = (() => { try { const u = new URL(parseResult.endpoint.url); if (u.protocol === 'http:' || u.protocol === 'https:') return u.toString(); } catch { /* ignored */ } return 'http://localhost'; })();
+    const safeUrl = (() => {
+      try {
+        const full = this.buildFullUrl(parseResult);
+        const u = new URL(full);
+        if (u.protocol === 'http:' || u.protocol === 'https:') return u.toString();
+      } catch {
+        /* ignored */
+      }
+      return 'http://localhost';
+    })();
     const template = `#!/usr/bin/env node
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -265,6 +277,20 @@ console.error('${name} MCP server running on stdio');
 `;
     // Inject SAFE_URL separately to avoid template injection
     return template.replace('${'+'SAFE_URL'+'}', escapeForTemplate(safeUrl));
+  }
+
+  private buildFullUrl(parseResult: ParseResult): string {
+    const raw = parseResult.endpoint.url;
+    // Already absolute
+    try {
+      const u = new URL(raw);
+      return u.toString();
+    } catch {
+      // ignore
+    }
+    const baseUrl = parseResult.endpoint.baseUrl;
+    if (!baseUrl) return raw;
+    return new URL(raw, baseUrl).toString();
   }
 
   /**

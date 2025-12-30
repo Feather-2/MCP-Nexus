@@ -101,7 +101,12 @@ export class McpGenerator {
       // 6. Dry-run if requested
       let dryRun: GenerateResponse['dryRun'];
       if (request.options?.testMode) {
-        dryRun = await this.performDryRun(config, parseResult, request.auth);
+        dryRun = await this.performDryRun(
+          config,
+          parseResult,
+          request.auth,
+          request.options?.dryRunMode ?? 'schema-only'
+        );
       }
 
       // 7. Register if requested
@@ -341,44 +346,45 @@ export class McpGenerator {
   private async performDryRun(
     config: McpServiceConfig,
     parseResult: ParseResult,
-    auth?: Record<string, string>
+    auth?: Record<string, string>,
+    mode: 'schema-only' | 'real' = 'schema-only'
   ): Promise<GenerateResponse['dryRun']> {
     try {
       const startTime = Date.now();
 
-      // For HTTP endpoints, try a real request
+      // Default: schema-only validation (never performs network calls)
       if (config.transport === 'http' && parseResult.endpoint.url) {
-        const url = new URL(parseResult.endpoint.url);
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json'
-        };
+        const baseUrl = parseResult.endpoint.baseUrl || (config.env?.BASE_URL as string | undefined) || '';
+        const fullUrl = this.buildFullUrl(baseUrl, parseResult.endpoint.url);
 
-        // Add auth if provided
+        if (mode !== 'real') {
+          return { success: true, latency: Date.now() - startTime };
+        }
+
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (auth && parseResult.auth) {
           const authKey = parseResult.auth.key || 'Authorization';
           headers[authKey] = auth.apiKey || auth.token || '';
         }
 
-        const response = await fetch(url.toString(), {
-          method: parseResult.endpoint.method,
+        const method = String(parseResult.endpoint.method || 'GET').toUpperCase();
+        const safeMethod = method === 'GET' ? 'GET' : 'OPTIONS';
+
+        const response = await fetch(fullUrl, {
+          method: safeMethod,
           headers,
           signal: AbortSignal.timeout(5000)
         });
 
         const latency = Date.now() - startTime;
 
-        if (!response.ok) {
-          return {
-            success: false,
-            latency,
-            error: `HTTP ${response.status}: ${response.statusText}`
-          };
+        // Follow HttpTransportAdapter semantics: treat 404 on OPTIONS as acceptable for reachability checks.
+        const ok = response.ok || (safeMethod === 'OPTIONS' && response.status === 404);
+        if (!ok) {
+          return { success: false, latency, error: `HTTP ${response.status}: ${response.statusText}` };
         }
 
-        return {
-          success: true,
-          latency
-        };
+        return { success: true, latency };
       }
 
       // For other transports, just return success
@@ -394,6 +400,22 @@ export class McpGenerator {
         error: error.message
       };
     }
+  }
+
+  private buildFullUrl(baseUrl: string, pathOrUrl: string): string {
+    // If already absolute
+    try {
+      const u = new URL(pathOrUrl);
+      return u.toString();
+    } catch {
+      // ignore
+    }
+
+    if (!baseUrl) {
+      throw new Error('Dry-run requires endpoint.baseUrl or BASE_URL env to build a full URL');
+    }
+
+    return new URL(pathOrUrl, baseUrl).toString();
   }
 
   /**

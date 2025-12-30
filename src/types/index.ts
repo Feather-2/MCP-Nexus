@@ -345,6 +345,12 @@ export const GenerateRequestSchema = z.object({
     name: z.string().optional(),
     transport: z.enum(['auto', 'http', 'stdio', 'streamable-http']).default('auto'),
     testMode: z.boolean().default(false),
+    /**
+     * Dry-run mode for generator validation.
+     * - schema-only: never performs real network calls (safe default)
+     * - real: performs a best-effort non-destructive request (may still hit external services)
+     */
+    dryRunMode: z.enum(['schema-only', 'real']).default('schema-only'),
     autoRegister: z.boolean().default(true)
   }).optional(),
   auth: z.record(z.string()).optional()
