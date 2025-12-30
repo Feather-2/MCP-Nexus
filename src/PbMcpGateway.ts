@@ -14,7 +14,7 @@ import { ProtocolAdaptersImpl } from './adapters/ProtocolAdaptersImpl.js';
 import { ConfigManagerImpl } from './config/ConfigManagerImpl.js';
 import { SecurityMiddleware } from './middleware/SecurityMiddleware.js';
 import { HttpApiServer } from './server/HttpApiServer.js';
-import { ConsoleLogger } from './utils/ConsoleLogger.js';
+import { PinoLogger } from './utils/PinoLogger.js';
 import { EventEmitter } from 'events';
 import { join } from 'path';
 import { OrchestratorManager, OrchestratorStatus } from './orchestrator/OrchestratorManager.js';
@@ -36,7 +36,7 @@ export class PbMcpGateway extends EventEmitter {
     super();
 
     // Set up logger
-    this.logger = logger || new ConsoleLogger('info');
+    this.logger = logger || new PinoLogger({ level: 'info' });
 
     // Initialize config manager
     const defaultConfigPath = configPath || join(process.cwd(), 'config', 'gateway.json');
@@ -558,7 +558,9 @@ export function createGateway(
   const { configPath, logLevel, ...gatewayConfig } = config || {};
 
   // Create logger with specified level if no logger provided
-  const gatewayLogger = logger || new ConsoleLogger(logLevel || 'info');
+  const gatewayLogger =
+    logger ||
+    new PinoLogger({ level: (logLevel || 'info') as any, pretty: process.env.PB_LOG_PRETTY === '1' });
 
   const gateway = new PbMcpGateway(configPath, gatewayLogger);
 

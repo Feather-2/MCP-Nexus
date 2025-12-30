@@ -71,7 +71,7 @@ export default function Generator() {
     setResult(null)
 
     try {
-      const response = await fetch('/api/generator/generate', {
+      const response = await fetch('/api/v1/generator/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -108,7 +108,7 @@ export default function Generator() {
     if (!result?.template?.name) return
 
     try {
-      const response = await fetch('/api/generator/export', {
+      const response = await fetch('/api/v1/generator/export', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

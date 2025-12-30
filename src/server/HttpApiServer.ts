@@ -27,6 +27,7 @@ import type { OrchestratorStatus, OrchestratorManager } from '../orchestrator/Or
 import { OrchestratorEngine } from '../orchestrator/OrchestratorEngine.js';
 import { SubagentLoader } from '../orchestrator/SubagentLoader.js';
 import { McpGenerator } from '../generator/McpGenerator.js';
+import { createTraceId, enterTrace } from '../observability/trace.js';
 import type {
   GenerateRequest,
   ExportRequest,
@@ -63,6 +64,7 @@ interface RouteRequestBody {
 
 export class HttpApiServer {
   private static readonly MAX_LOG_BUFFER_SIZE = 200;
+  private static readonly API_VERSION = 'v1';
   private server: FastifyInstance;
   private serviceRegistry: ServiceRegistryImpl;
   private authLayer: AuthenticationLayerImpl;
@@ -102,6 +104,9 @@ export class HttpApiServer {
     });
 
     this.configManager = configManager;
+
+    this.setupApiVersioning();
+    this.setupObservability();
 
     // Initialize core components
     this.protocolAdapters = components?.protocolAdapters || new ProtocolAdaptersImpl(logger, () => this.configManager.getConfig());
@@ -198,6 +203,63 @@ export class HttpApiServer {
         }
       } catch {}
     }, 30000);
+  }
+
+  private setupApiVersioning(): void {
+    // Register `/api/v1/*` aliases for all existing `/api/*` routes to keep GUI backward-compatible
+    // while enabling explicit versioned clients.
+    this.server.addHook('onRoute', (opts) => {
+      try {
+        const url = (opts as any)?.url;
+        if (typeof url !== 'string') return;
+        if (!url.startsWith('/api/')) return;
+        if (url.startsWith(`/api/${HttpApiServer.API_VERSION}/`)) return;
+        if ((opts as any)?.config?.__apiVersionAlias) return;
+
+        const aliasedUrl = `/api/${HttpApiServer.API_VERSION}${url.slice('/api'.length)}`;
+        this.server.route({
+          ...(opts as any),
+          url: aliasedUrl,
+          config: { ...((opts as any).config || {}), __apiVersionAlias: true }
+        });
+      } catch {
+        // Ignore duplicate route errors (e.g., in tests that rebuild servers).
+      }
+    });
+  }
+
+  private setupObservability(): void {
+    // Trace id + API version headers
+    this.server.addHook('onRequest', async (request, reply) => {
+      const incoming = (request.headers['x-trace-id'] || request.headers['x-request-id']) as any;
+      const traceId = typeof incoming === 'string' && incoming.trim() ? incoming.trim() : createTraceId();
+      (request as any).traceId = traceId;
+      (request as any).startedAtMs = Date.now();
+      reply.header('X-Trace-Id', traceId);
+      enterTrace(traceId);
+    });
+
+    this.server.addHook('onSend', async (request, reply, payload) => {
+      reply.header('X-API-Version', HttpApiServer.API_VERSION);
+      const traceId = (request as any).traceId;
+      if (traceId) reply.header('X-Trace-Id', traceId);
+      return payload;
+    });
+
+    this.server.addHook('onResponse', async (request, reply) => {
+      try {
+        const startedAtMs = (request as any).startedAtMs as number | undefined;
+        const durationMs = typeof startedAtMs === 'number' ? Date.now() - startedAtMs : undefined;
+        this.logger.info('http.request', {
+          method: request.method,
+          url: request.url,
+          statusCode: reply.statusCode,
+          durationMs
+        });
+      } catch {
+        // ignore
+      }
+    });
   }
 
   private addLogEntry(level: string, message: string, service?: string, data?: any): void {

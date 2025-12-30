@@ -88,6 +88,7 @@ class ApiClient {
   private baseUrl = '';
   private apiKey: string | null = null;
   private bearerToken: string | null = null;
+  private readonly apiVersionPrefix = '/api/v1';
 
   constructor() {
     try {
@@ -113,8 +114,14 @@ class ApiClient {
     return { apiKey: this.apiKey, bearerToken: this.bearerToken };
   }
 
+  private normalizeEndpoint(endpoint: string): string {
+    if (!endpoint.startsWith('/api/')) return endpoint;
+    if (endpoint.startsWith(`${this.apiVersionPrefix}/`)) return endpoint;
+    return `${this.apiVersionPrefix}${endpoint.slice('/api'.length)}`;
+  }
+
   async request<T = any>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
-    const url = `${this.baseUrl}${endpoint}`;
+    const url = `${this.baseUrl}${this.normalizeEndpoint(endpoint)}`;
 
     const defaultOptions: RequestInit = {
       headers: {
@@ -217,7 +224,7 @@ class ApiClient {
   createAiChatStream(prompt: string, onDelta: (chunk: string) => void, onDone?: () => void, onError?: (err: Error) => void): EventSource | null {
     try {
       const q = encodeURIComponent(prompt || '')
-      const es = new EventSource(`/api/ai/chat/stream?q=${q}`)
+      const es = new EventSource(this.normalizeEndpoint(`/api/ai/chat/stream?q=${q}`))
       let closed = false
       es.onmessage = (ev) => {
         try {
@@ -466,7 +473,7 @@ class ApiClient {
     // 不自动重连：避免安装流程被多次触发；若后端已有安装在进行，会以“attach”姿态加入
     try {
       const params = encodeURIComponent(components.join(','));
-      const url = `${this.baseUrl}/api/sandbox/install/stream?components=${params}`;
+      const url = `${this.baseUrl}${this.normalizeEndpoint(`/api/sandbox/install/stream?components=${params}`)}`;
       const es = new EventSource(url);
       es.onmessage = (ev) => { try { const obj = JSON.parse(ev.data); onMessage(obj); } catch {} };
       es.onerror = () => { try { es.close(); } catch {}; onError?.(new Error('sandbox stream error')); };
@@ -511,7 +518,7 @@ class ApiClient {
   // Create a Server-Sent Events connection for real-time logs
   createLogStream(onMessage: (log: any) => void, onError?: (error: Error) => void): EventSource | null {
     try {
-      const url = `${this.baseUrl}/api/logs/stream`;
+      const url = `${this.baseUrl}${this.normalizeEndpoint('/api/logs/stream')}`;
       let attempts = 0;
       let es: EventSource | null = null;
       const maxDelay = 10000;
@@ -573,25 +580,26 @@ class ApiClient {
 export const apiClient = new ApiClient();
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? '';
+const API_PREFIX = '/api/v1';
 
 // AI Channel management
 export const aiApi = {
   getChannels: async (): Promise<ChannelState[]> => {
-    const response = await fetch(`${API_BASE}/api/ai/channels`);
+    const response = await fetch(`${API_BASE}${API_PREFIX}/ai/channels`);
     if (!response.ok) throw new Error('Failed to fetch channels');
     const data = await response.json();
     return data.data;
   },
 
   getChannel: async (id: string): Promise<ChannelState> => {
-    const response = await fetch(`${API_BASE}/api/ai/channels/${id}`);
+    const response = await fetch(`${API_BASE}${API_PREFIX}/ai/channels/${id}`);
     if (!response.ok) throw new Error('Failed to fetch channel');
     const data = await response.json();
     return data.data;
   },
 
   disableChannel: async (id: string, reason?: string, durationMs?: number): Promise<void> => {
-    const response = await fetch(`${API_BASE}/api/ai/channels/${id}/disable`, {
+    const response = await fetch(`${API_BASE}${API_PREFIX}/ai/channels/${id}/disable`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ reason, durationMs })
@@ -600,28 +608,28 @@ export const aiApi = {
   },
 
   enableChannel: async (id: string): Promise<void> => {
-    const response = await fetch(`${API_BASE}/api/ai/channels/${id}/enable`, {
+    const response = await fetch(`${API_BASE}${API_PREFIX}/ai/channels/${id}/enable`, {
       method: 'POST'
     });
     if (!response.ok) throw new Error('Failed to enable channel');
   },
 
   getUsage: async (): Promise<UsageStats> => {
-    const response = await fetch(`${API_BASE}/api/ai/usage`);
+    const response = await fetch(`${API_BASE}${API_PREFIX}/ai/usage`);
     if (!response.ok) throw new Error('Failed to fetch usage');
     const data = await response.json();
     return data.data;
   },
 
   getConfig: async (): Promise<AiConfig> => {
-    const response = await fetch(`${API_BASE}/api/ai/config`);
+    const response = await fetch(`${API_BASE}${API_PREFIX}/ai/config`);
     if (!response.ok) throw new Error('Failed to fetch config');
     const data = await response.json();
     return data.data;
   },
 
   updateConfig: async (config: Partial<AiConfig>): Promise<void> => {
-    const response = await fetch(`${API_BASE}/api/ai/config`, {
+    const response = await fetch(`${API_BASE}${API_PREFIX}/ai/config`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(config)
@@ -631,8 +639,8 @@ export const aiApi = {
 
   testConnection: async (channelId?: string): Promise<{ success: boolean; message?: string; latencyMs?: number }> => {
     const url = channelId
-      ? `${API_BASE}/api/ai/test?channelId=${channelId}`
-      : `${API_BASE}/api/ai/test`;
+      ? `${API_BASE}${API_PREFIX}/ai/test?channelId=${channelId}`
+      : `${API_BASE}${API_PREFIX}/ai/test`;
     const response = await fetch(url, { method: 'POST' });
     const data = await response.json();
     return data;

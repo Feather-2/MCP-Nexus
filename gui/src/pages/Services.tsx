@@ -561,7 +561,7 @@ function LiveLogs({ serviceId, onLines }: { serviceId: string; onLines: (l: stri
     if (!running) return
 
     try {
-      const es = new EventSource('/api/logs/stream')
+      const es = new EventSource('/api/v1/logs/stream')
       const handler = (e: MessageEvent) => {
         if (!e.data) return
         try {

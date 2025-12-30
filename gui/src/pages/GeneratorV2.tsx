@@ -103,7 +103,7 @@ const GeneratorV2: React.FC = () => {
     setGenerating(true)
     setResult(null)
     try {
-      const resp = await fetch('/api/generator/generate', {
+      const resp = await fetch('/api/v1/generator/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ source: { type: 'markdown', content: markdown }, options: { autoRegister: false, transport: 'auto', testMode: true } })

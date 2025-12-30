@@ -19,6 +19,7 @@ export { StreamableHttpAdapter } from './adapters/StreamableHttpAdapter.js';
 
 // Export utilities
 export { ConsoleLogger } from './utils/ConsoleLogger.js';
+export { PinoLogger } from './utils/PinoLogger.js';
 
 // Export Skills subsystem
 export * from './skills/index.js';
