@@ -17,7 +17,6 @@ describe('McpGenerator dry-run modes', () => {
   it('defaults to schema-only and does not call fetch', async () => {
     const originalFetch = globalThis.fetch;
     const fetchSpy = vi.fn().mockResolvedValue({ ok: true, status: 200, statusText: 'OK' } as any);
-    // @ts-expect-error - override for test
     globalThis.fetch = fetchSpy;
 
     try {
@@ -32,7 +31,6 @@ describe('McpGenerator dry-run modes', () => {
       expect(fetchSpy).not.toHaveBeenCalled();
       expect(res.dryRun?.success).toBe(true);
     } finally {
-      // @ts-expect-error - restore
       globalThis.fetch = originalFetch;
     }
   });
@@ -40,7 +38,6 @@ describe('McpGenerator dry-run modes', () => {
   it('uses safe OPTIONS for non-GET endpoints in real mode', async () => {
     const originalFetch = globalThis.fetch;
     const fetchSpy = vi.fn().mockResolvedValue({ ok: false, status: 404, statusText: 'Not Found' } as any);
-    // @ts-expect-error - override for test
     globalThis.fetch = fetchSpy;
 
     try {
@@ -59,9 +56,7 @@ describe('McpGenerator dry-run modes', () => {
       // 404 on OPTIONS is considered acceptable reachability check
       expect(res.dryRun?.success).toBe(true);
     } finally {
-      // @ts-expect-error - restore
       globalThis.fetch = originalFetch;
     }
   });
 });
-

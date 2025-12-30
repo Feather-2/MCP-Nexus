@@ -71,6 +71,7 @@ export class HttpApiServer {
   private router: GatewayRouterImpl;
   private protocolAdapters: ProtocolAdaptersImpl;
   private configManager: import('../config/ConfigManagerImpl.js').ConfigManagerImpl;
+  private readonly apiRoutesToAlias: any[] = [];
   private logBuffer: Array<{ timestamp: string; level: string; message: string; service?: string; data?: any }> = [];
   private logStreamClients: Set<FastifyReply> = new Set();
   private sandboxStatus: { nodeReady: boolean; pythonReady: boolean; goReady: boolean; packagesReady: boolean; details: Record<string, any> } = { nodeReady: false, pythonReady: false, goReady: false, packagesReady: false, details: {} };
@@ -118,6 +119,7 @@ export class HttpApiServer {
     }
 
     this.setupRoutes();
+    this.registerApiVersionAliases();
     this.setupErrorHandlers();
     this.setupMiddleware();
 
@@ -206,16 +208,23 @@ export class HttpApiServer {
   }
 
   private setupApiVersioning(): void {
-    // Register `/api/v1/*` aliases for all existing `/api/*` routes to keep GUI backward-compatible
-    // while enabling explicit versioned clients.
+    // Capture `/api/*` routes and add `/api/v1/*` aliases after all routes are registered.
+    // Avoid calling `server.route()` inside `onRoute` to prevent Fastify hook re-entrancy issues.
     this.server.addHook('onRoute', (opts) => {
+      const url = (opts as any)?.url;
+      if (typeof url !== 'string') return;
+      if (!url.startsWith('/api/')) return;
+      if (url.startsWith(`/api/${HttpApiServer.API_VERSION}/`)) return;
+      if ((opts as any)?.config?.__apiVersionAlias) return;
+      this.apiRoutesToAlias.push({ ...(opts as any) });
+    });
+  }
+
+  private registerApiVersionAliases(): void {
+    for (const opts of this.apiRoutesToAlias) {
       try {
         const url = (opts as any)?.url;
-        if (typeof url !== 'string') return;
-        if (!url.startsWith('/api/')) return;
-        if (url.startsWith(`/api/${HttpApiServer.API_VERSION}/`)) return;
-        if ((opts as any)?.config?.__apiVersionAlias) return;
-
+        if (typeof url !== 'string') continue;
         const aliasedUrl = `/api/${HttpApiServer.API_VERSION}${url.slice('/api'.length)}`;
         this.server.route({
           ...(opts as any),
@@ -225,7 +234,7 @@ export class HttpApiServer {
       } catch {
         // Ignore duplicate route errors (e.g., in tests that rebuild servers).
       }
-    });
+    }
   }
 
   private setupObservability(): void {
@@ -239,11 +248,17 @@ export class HttpApiServer {
       enterTrace(traceId);
     });
 
-    this.server.addHook('onSend', async (request, reply, payload) => {
-      reply.header('X-API-Version', HttpApiServer.API_VERSION);
-      const traceId = (request as any).traceId;
-      if (traceId) reply.header('X-Trace-Id', traceId);
-      return payload;
+    this.server.addHook('onSend', (request, reply, payload, done) => {
+      try {
+        if (!(reply as any)?.raw?.headersSent) {
+          reply.header('X-API-Version', HttpApiServer.API_VERSION);
+          const traceId = (request as any).traceId;
+          if (traceId) reply.header('X-Trace-Id', traceId);
+        }
+      } catch {
+        // ignore
+      }
+      done(null, payload);
     });
 
     this.server.addHook('onResponse', async (request, reply) => {
@@ -504,9 +519,14 @@ export class HttpApiServer {
     });
 
     // Response logging (helmet handles security headers)
-    this.server.addHook('onSend', async (request: FastifyRequest, reply: FastifyReply, payload: any) => {
-      const elapsed = (reply as any).elapsedTime ?? undefined;
-      this.logger.debug(`${request.method} ${request.url} - ${reply.statusCode}`, { responseTime: elapsed });
+    this.server.addHook('onSend', (request: FastifyRequest, reply: FastifyReply, payload: any, done) => {
+      try {
+        const elapsed = (reply as any).elapsedTime ?? undefined;
+        this.logger.debug(`${request.method} ${request.url} - ${reply.statusCode}`, { responseTime: elapsed });
+      } catch {
+        // ignore
+      }
+      done(null, payload);
     });
   }
 

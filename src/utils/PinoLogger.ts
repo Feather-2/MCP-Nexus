@@ -42,10 +42,10 @@ export class PinoLogger implements Logger {
             '*.apikey',
             'req.headers.authorization',
             'req.headers.cookie',
-            'req.headers.set-cookie',
+            'req.headers["set-cookie"]',
             'headers.authorization',
             'headers.cookie',
-            'headers.set-cookie'
+            'headers["set-cookie"]'
           ],
           censor: '***'
         }
@@ -74,4 +74,3 @@ export class PinoLogger implements Logger {
     this.log.error(withTrace(meta), message);
   }
 }
-

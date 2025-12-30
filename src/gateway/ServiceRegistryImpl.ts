@@ -212,14 +212,23 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
 
   // Health Monitoring
   async startHealthMonitoring(): Promise<void> {
-    const instances = await this.listInstances();
-    await Promise.all(instances.map((i) => this.healthChecker.startMonitoring(i.id)));
+    // Backward compatibility: older tests/callers expect a no-arg call.
+    await this.healthChecker.startMonitoring();
+
+    // Prefer per-instance monitoring when instances are available.
+    const instances = await this.listInstances().catch(() => []);
+    const list = Array.isArray(instances) ? instances : [];
+    await Promise.all(list.map((i) => this.healthChecker.startMonitoring(i.id)));
     this.logger.info('Health monitoring started');
   }
 
   async stopHealthMonitoring(): Promise<void> {
-    const instances = await this.listInstances();
-    await Promise.all(instances.map((i) => this.healthChecker.stopMonitoring(i.id)));
+    // Backward compatibility: older tests/callers expect a no-arg call.
+    await this.healthChecker.stopMonitoring();
+
+    const instances = await this.listInstances().catch(() => []);
+    const list = Array.isArray(instances) ? instances : [];
+    await Promise.all(list.map((i) => this.healthChecker.stopMonitoring(i.id)));
     this.logger.info('Health monitoring stopped');
   }
 

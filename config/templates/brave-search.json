@@ -9,7 +9,7 @@
     "@modelcontextprotocol/server-brave-search"
   ],
   "env": {
-    "BRAVE_API_KEY": "123"
+    "BRAVE_API_KEY": "${BRAVE_API_KEY}"
   },
   "timeout": 30000,
   "retries": 3
