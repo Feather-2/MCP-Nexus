@@ -3,27 +3,11 @@ import { ServiceRegistryImpl } from '../gateway/ServiceRegistryImpl.js';
 import { ProtocolAdaptersImpl } from '../adapters/ProtocolAdaptersImpl.js';
 import { OrchestratorManager } from './OrchestratorManager.js';
 import { SubagentLoader } from './SubagentLoader.js';
+import type { ExecuteRequest, ExecuteResult, OrchestratorStep } from './types.js';
+import { SubagentScheduler } from './SubagentScheduler.js';
+import { LocalPlanner } from './planning/LocalPlanner.js';
 
-export interface OrchestratorStep {
-  subagent?: string;
-  tool?: string;
-  params?: any;
-}
-
-export interface ExecuteRequest {
-  goal?: string;
-  steps?: OrchestratorStep[];
-  parallel?: boolean;
-  maxSteps?: number;
-  timeoutMs?: number;
-}
-
-export interface ExecuteResult {
-  success: boolean;
-  plan: OrchestratorStep[];
-  results: Array<{ step: OrchestratorStep; ok: boolean; response?: any; error?: string; durationMs: number }>;
-  used: { steps: number; durationMs: number };
-}
+export type { OrchestratorStep, ExecuteRequest, ExecuteResult } from './types.js';
 
 export class OrchestratorEngine {
   private logger: Logger;
@@ -46,25 +30,30 @@ export class OrchestratorEngine {
     const maxSteps = req.maxSteps ?? config.planner?.maxSteps ?? 8;
     const timeoutMs = req.timeoutMs ?? config.budget?.maxTimeMs ?? 300_000;
 
-    const plan = await this.buildPlan(req.goal, req.steps);
+    // Best-effort: keep subagent cache warm for planning/template selection.
+    try { await this.subagents.loadAll(); } catch { /* ignored */ }
+
+    const plan = await this.buildPlan(req.goal, req.steps, config);
     const finalPlan = plan.slice(0, Math.max(1, Math.min(plan.length, maxSteps)));
 
-    const results: ExecuteResult['results'] = [];
+    const concurrency = {
+      global: config.budget?.concurrency?.global ?? 8,
+      perSubagent: config.budget?.concurrency?.perSubagent ?? 2
+    };
+    const scheduler = new SubagentScheduler(this.logger, {
+      concurrency,
+      defaultStepTimeoutMs: Math.min(30_000, timeoutMs),
+      overallTimeoutMs: timeoutMs
+    });
 
-    for (const step of finalPlan) {
-      if (Date.now() - startedAt > timeoutMs) {
-        results.push({ step, ok: false, error: 'time budget exceeded', durationMs: 0 });
-        break;
-      }
-
-      const t0 = Date.now();
-      try {
-        const response = await this.runStep(step);
-        results.push({ step, ok: true, response, durationMs: Date.now() - t0 });
-      } catch (err: any) {
-        results.push({ step, ok: false, error: err?.message || String(err), durationMs: Date.now() - t0 });
-      }
-    }
+    const scheduled = await scheduler.run(finalPlan, (s) => this.runStep(s), { parallel: req.parallel });
+    const results: ExecuteResult['results'] = scheduled.map((r) => ({
+      step: r.step,
+      ok: r.ok,
+      response: r.response,
+      error: r.error,
+      durationMs: r.durationMs
+    }));
 
     return {
       success: results.every(r => r.ok),
@@ -74,24 +63,32 @@ export class OrchestratorEngine {
     };
   }
 
-  private async buildPlan(goal?: string, provided?: OrchestratorStep[]): Promise<OrchestratorStep[]> {
+  private async buildPlan(goal?: string, provided?: OrchestratorStep[], config?: OrchestratorConfig): Promise<OrchestratorStep[]> {
     if (provided && provided.length > 0) return provided;
-    // Naive planner: if goal 存在则优先使用 search 子代理/工具
-    // 映射顺序：subagent "search" → 工具 "search" → 模板 "brave-search"
-    const plan: OrchestratorStep[] = [];
-    const subs = this.subagents.list();
-    const searchSub = subs.find(s => s.name === 'search' || (s.tools || []).includes('brave-search'));
-    if (goal && searchSub) {
-      plan.push({ subagent: searchSub.name, tool: 'search', params: { query: goal } });
-    } else if (goal) {
-      // fallback：直接调用 brave-search
-      plan.push({ subagent: 'search', tool: 'search', params: { query: goal } });
+    if (!goal) return [];
+
+    // Local planner (gap-driven scaffold) by default.
+    // Remote planning can be added later via config.planner.provider === 'remote'.
+    let templates: McpServiceConfig[] = [];
+    try {
+      templates = await this.registry.listTemplates();
+    } catch {
+      templates = [];
     }
-    return plan;
+    const subs = this.subagents.list();
+    const planner = new LocalPlanner();
+    const planned = planner.plan(goal, { subagents: subs, templates });
+
+    // If user explicitly configured remote planner, keep the hook (fallback to local for now).
+    if (config?.planner?.provider === 'remote') {
+      this.logger.warn('planner.provider=remote is not configured; falling back to local planner');
+    }
+
+    return planned.plan;
   }
 
   private async runStep(step: OrchestratorStep): Promise<any> {
-    const templateName = this.selectTemplate(step);
+    const templateName = step.template || this.selectTemplate(step);
     if (!templateName) throw new Error('No suitable template found for step');
 
     const template = await this.registry.getTemplate(templateName);
@@ -100,17 +97,50 @@ export class OrchestratorEngine {
     const adapter = await this.adapters.createAdapter(template as McpServiceConfig);
     await adapter.connect();
     try {
+      const toolName = await this.resolveToolName(adapter, step.tool);
       const msg: McpMessage = {
         jsonrpc: '2.0',
         id: `exec-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         method: 'tools/call',
-        params: { name: step.tool || 'search', arguments: step.params || {} }
+        params: { name: toolName, arguments: step.params || {} }
       };
-      const res = (adapter as any).sendAndReceive ? await (adapter as any).sendAndReceive(msg) : await adapter.send(msg);
-      return res?.result ?? res;
+      const res = await this.sendAndReceive(adapter, msg);
+      return (res as any)?.result ?? res;
     } finally {
       await adapter.disconnect();
     }
+  }
+
+  private async resolveToolName(adapter: any, requested?: string): Promise<string> {
+    const listMsg: McpMessage = {
+      jsonrpc: '2.0',
+      id: `tools-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      method: 'tools/list',
+      params: {}
+    };
+    const res = await this.sendAndReceive(adapter, listMsg).catch(() => undefined);
+    const tools = (res as any)?.result?.tools;
+    const names: string[] = Array.isArray(tools) ? tools.map((t: any) => String(t?.name || '')).filter(Boolean) : [];
+
+    if (!requested) {
+      return names[0] || 'search';
+    }
+
+    if (names.includes(requested)) return requested;
+    const norm = (s: string) => s.toLowerCase().replace(/[-\s]/g, '_');
+    const target = norm(requested);
+    const hit = names.find((n) => norm(n) === target);
+    if (hit) return hit;
+    // Fall back to requested to preserve backward compatibility for servers that don't support tools/list properly.
+    return requested;
+  }
+
+  private async sendAndReceive(adapter: any, message: McpMessage): Promise<McpMessage> {
+    if (typeof adapter?.sendAndReceive === 'function') {
+      return adapter.sendAndReceive(message);
+    }
+    await adapter.send(message);
+    return adapter.receive();
   }
 
   private selectTemplate(step: OrchestratorStep): string | null {
@@ -128,4 +158,3 @@ export class OrchestratorEngine {
     return null;
   }
 }
-

@@ -3,6 +3,7 @@ import { BaseRouteHandler, RouteContext } from './RouteContext.js';
 import { OrchestratorConfig, SubagentConfig, OrchestratorConfigSchema, SubagentConfigSchema, GenerateRequestSchema } from '../../types/index.js';
 import { z } from 'zod';
 import { SubagentLoader } from '../../orchestrator/SubagentLoader.js';
+import { ExecuteRequestSchema } from '../../orchestrator/types.js';
 
 /**
  * Orchestrator management and execution routes
@@ -16,6 +17,15 @@ export class OrchestratorRoutes extends BaseRouteHandler {
 
   setupRoutes(): void {
     const { server } = this.ctx;
+
+    const toSafeFileStem = (name: string): string => {
+      const trimmed = name.trim();
+      if (!trimmed) throw new Error('Subagent name cannot be empty');
+      if (!/^[a-zA-Z0-9._-]+$/.test(trimmed)) {
+        throw new Error('Subagent name contains invalid characters');
+      }
+      return trimmed;
+    };
     
     // Get orchestrator status
     server.get('/api/orchestrator/status', async (_request: FastifyRequest, reply: FastifyReply) => {
@@ -100,18 +110,8 @@ export class OrchestratorRoutes extends BaseRouteHandler {
         }
         const loader = this.ctx.subagentLoader || this.subagentLoader || (this.ctx.getSubagentLoader ? this.ctx.getSubagentLoader() : undefined);
 
-        const StepSchema = z.object({
-          subagent: z.string().min(1).optional(),
-          tool: z.string().min(1).optional(),
-          params: z.record(z.any()).optional()
-        });
-        const Body = z.object({
-          goal: z.string().min(1).optional(),
-          steps: z.array(StepSchema).optional(),
-          context: z.record(z.any()).optional(),
-          parallel: z.boolean().optional(),
-          maxSteps: z.number().int().positive().max(64).optional(),
-          timeoutMs: z.number().int().positive().max(600_000).optional()
+        const Body = ExecuteRequestSchema.extend({
+          context: z.record(z.any()).optional()
         });
         const parsed = Body.parse((request.body as any) || {});
         if (!parsed.goal && (!parsed.steps || parsed.steps.length === 0)) {
@@ -132,7 +132,7 @@ export class OrchestratorRoutes extends BaseRouteHandler {
         }
 
         const { context: _context, ...execReq } = parsed;
-        const result = await engine.execute(execReq as any);
+        const result = await engine.execute(execReq);
         reply.send({
           success: result.success,
           plan: result.plan,
@@ -209,14 +209,27 @@ export class OrchestratorRoutes extends BaseRouteHandler {
     // Create/update subagent
     server.post('/api/orchestrator/subagents', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const _config = SubagentConfigSchema.parse((request.body as any) || {}) as SubagentConfig;
+        const config = SubagentConfigSchema.parse((request.body as any) || {}) as SubagentConfig;
         const status = this.ctx.getOrchestratorStatus ? this.ctx.getOrchestratorStatus() : undefined;
         if (!status) {
           return this.respondError(reply, 503, 'Orchestrator not available', { code: 'UNAVAILABLE' });
         }
 
-        // Save subagent config (simplified - actual implementation in manager)
-        reply.send({ success: true, message: 'Subagent saved successfully' });
+        const fs = await import('fs/promises');
+        const path = await import('path');
+        const safeName = toSafeFileStem(config.name);
+        await fs.mkdir(status.subagentsDir, { recursive: true });
+        await fs.writeFile(
+          path.join(status.subagentsDir, `${safeName}.json`),
+          JSON.stringify({ ...config, name: safeName }, null, 2),
+          'utf-8'
+        );
+
+        const loader = this.ctx.subagentLoader || this.subagentLoader || new SubagentLoader(status.subagentsDir, this.ctx.logger);
+        this.subagentLoader = loader;
+        await loader.loadAll();
+
+        reply.code(201).send({ success: true, name: safeName });
       } catch (error) {
         if (error instanceof z.ZodError) {
           return this.respondError(reply, 400, 'Invalid subagent config', { code: 'BAD_REQUEST', recoverable: true, meta: error.errors });
@@ -235,8 +248,24 @@ export class OrchestratorRoutes extends BaseRouteHandler {
           return this.respondError(reply, 503, 'Orchestrator not available', { code: 'UNAVAILABLE' });
         }
 
-        // Delete subagent (simplified - actual implementation in manager)
-        reply.send({ success: true, message: 'Subagent deleted successfully' });
+        const fs = await import('fs/promises');
+        const path = await import('path');
+        const safeName = toSafeFileStem(name);
+        const filePath = path.join(status.subagentsDir, `${safeName}.json`);
+        try {
+          await fs.unlink(filePath);
+        } catch (err: any) {
+          if (err?.code === 'ENOENT') {
+            return this.respondError(reply, 404, 'Subagent not found', { code: 'NOT_FOUND', recoverable: true });
+          }
+          throw err;
+        }
+
+        const loader = this.ctx.subagentLoader || this.subagentLoader || new SubagentLoader(status.subagentsDir, this.ctx.logger);
+        this.subagentLoader = loader;
+        await loader.loadAll();
+
+        reply.send({ success: true, name: safeName });
       } catch (error) {
         if (error instanceof z.ZodError) {
           return this.respondError(reply, 400, 'Invalid subagent name', { code: 'BAD_REQUEST', recoverable: true, meta: error.errors });
