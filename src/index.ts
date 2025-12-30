@@ -25,4 +25,4 @@ export { PinoLogger } from './utils/PinoLogger.js';
 export * from './skills/index.js';
 
 // Export Memory layer primitives
-export * from './memory/vector/index.js';
+export * from './memory/index.js';
