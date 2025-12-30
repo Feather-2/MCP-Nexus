@@ -12,7 +12,7 @@ import { CostTracker } from './cost-tracker.js';
 import { SlidingWindowRateLimiter } from './rate-limiter.js';
 import { AiError, type AiMessage, type AiRequest, type AiResult, type AiToolCall, type AiUsage, type ChannelConfig, type ChannelLease } from './types.js';
 
-import type { AssistantContent, CoreMessage, FinishReason, LanguageModel, LanguageModelUsage, ToolContent, UserContent } from 'ai';
+import type { AssistantContent, ModelMessage, FinishReason, LanguageModel, LanguageModelUsage, ToolContent, UserContent } from 'ai';
 import type { LanguageModelV2ToolResultOutput } from '@ai-sdk/provider';
 
 export interface LoadBalancer {
@@ -389,7 +389,7 @@ export class UnifiedAiClient {
     }
   }
 
-  private convertMessages(messages: AiMessage[]): CoreMessage[] {
+  private convertMessages(messages: AiMessage[]): ModelMessage[] {
     return messages.map((m) => {
       if (m.role === 'system') {
         return { role: 'system', content: typeof m.content === 'string' ? m.content : this.stringifyContent(m.content) };

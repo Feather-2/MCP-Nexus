@@ -3,6 +3,7 @@ import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
+import { trace, SpanStatusCode } from '@opentelemetry/api';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import { existsSync } from 'fs';
@@ -239,13 +240,49 @@ export class HttpApiServer {
 
   private setupObservability(): void {
     // Trace id + API version headers
-    this.server.addHook('onRequest', async (request, reply) => {
+    this.server.addHook('onRequest', (request, reply, done) => {
       const incoming = (request.headers['x-trace-id'] || request.headers['x-request-id']) as any;
-      const traceId = typeof incoming === 'string' && incoming.trim() ? incoming.trim() : createTraceId();
+      const clientTraceId = typeof incoming === 'string' && incoming.trim() ? incoming.trim() : undefined;
+
+      let span: any;
+      let otelTraceId: string | undefined;
+      try {
+        const tracer = trace.getTracer('pb-mcpgateway');
+        span = tracer.startSpan(`HTTP ${request.method} ${request.url}`, {
+          attributes: {
+            'http.method': request.method,
+            'http.target': request.url,
+            'http.user_agent': String(request.headers['user-agent'] || ''),
+            'net.peer.ip': request.ip
+          }
+        } as any);
+        const ctx = span?.spanContext?.();
+        const tid = ctx?.traceId;
+        if (typeof tid === 'string' && tid && !/^0+$/.test(tid)) {
+          otelTraceId = tid;
+        } else {
+          try { span?.end?.(); } catch {}
+          span = undefined;
+        }
+      } catch {
+        span = undefined;
+      }
+
+      const traceId = otelTraceId || clientTraceId || createTraceId();
       (request as any).traceId = traceId;
       (request as any).startedAtMs = Date.now();
-      reply.header('X-Trace-Id', traceId);
+      if (span) {
+        (request as any).otelSpan = span;
+        try {
+          span.setAttribute?.('pb.trace_id', traceId);
+          if (clientTraceId && clientTraceId !== traceId) {
+            span.setAttribute?.('pb.client_trace_id', clientTraceId);
+          }
+        } catch {}
+      }
+      try { reply.header('X-Trace-Id', traceId); } catch {}
       enterTrace(traceId);
+      done();
     });
 
     this.server.addHook('onSend', (request, reply, payload, done) => {
@@ -261,10 +298,11 @@ export class HttpApiServer {
       done(null, payload);
     });
 
-    this.server.addHook('onResponse', async (request, reply) => {
+    this.server.addHook('onResponse', (request, reply, done) => {
+      const startedAtMs = (request as any).startedAtMs as number | undefined;
+      const durationMs = typeof startedAtMs === 'number' ? Date.now() - startedAtMs : undefined;
+
       try {
-        const startedAtMs = (request as any).startedAtMs as number | undefined;
-        const durationMs = typeof startedAtMs === 'number' ? Date.now() - startedAtMs : undefined;
         this.logger.info('http.request', {
           method: request.method,
           url: request.url,
@@ -274,6 +312,24 @@ export class HttpApiServer {
       } catch {
         // ignore
       }
+
+      const span = (request as any).otelSpan;
+      if (span) {
+        try {
+          span.setAttribute?.('http.status_code', reply.statusCode);
+          if (typeof durationMs === 'number') {
+            span.setAttribute?.('http.server_duration_ms', durationMs);
+          }
+          if (reply.statusCode >= 500) {
+            span.setStatus?.({ code: SpanStatusCode.ERROR });
+          } else {
+            span.setStatus?.({ code: SpanStatusCode.OK });
+          }
+        } catch {}
+        try { span.end?.(); } catch {}
+      }
+
+      done();
     });
   }
 
@@ -741,6 +797,14 @@ export class HttpApiServer {
 
   private setupErrorHandlers(): void {
     this.server.setErrorHandler(async (error, request, reply) => {
+      try {
+        const span = (request as any).otelSpan;
+        if (span) {
+          span.recordException?.(error as any);
+          span.setStatus?.({ code: SpanStatusCode.ERROR, message: (error as any)?.message || String(error) });
+        }
+      } catch {}
+
       const errorDetails = {
         method: request.method,
         url: request.url,

@@ -18,6 +18,7 @@ import { PinoLogger } from './utils/PinoLogger.js';
 import { EventEmitter } from 'events';
 import { join } from 'path';
 import { OrchestratorManager, OrchestratorStatus } from './orchestrator/OrchestratorManager.js';
+import { startOpenTelemetry, shutdownOpenTelemetry } from './observability/otel.js';
 
 export class PbMcpGateway extends EventEmitter {
   private config: GatewayConfig;
@@ -93,6 +94,7 @@ export class PbMcpGateway extends EventEmitter {
     }
 
     try {
+      await startOpenTelemetry(this.logger, { serviceName: 'pb-mcpgateway' });
       this.logger.info('Starting PB MCP Nexus...');
 
       // Load configuration
@@ -210,6 +212,7 @@ export class PbMcpGateway extends EventEmitter {
 
       this.logger.info('PB MCP Nexus stopped successfully');
       this.emit('stopped');
+      await shutdownOpenTelemetry(this.logger);
 
     } catch (error) {
       this.logger.error('Error stopping gateway:', error);
