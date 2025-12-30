@@ -159,6 +159,14 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
     return await this.healthChecker.checkHealth(serviceId);
   }
 
+  reportHeartbeat(serviceId: string, update: { healthy: boolean; latency?: number; error?: string }): void {
+    try {
+      (this.healthChecker as any).reportHeartbeat?.(serviceId, update);
+    } catch {
+      // ignore
+    }
+  }
+
   async getHealthAggregates(): Promise<{
     global: { monitoring: number; healthy: number; unhealthy: number; avgLatency: number; p95?: number; p99?: number; errorRate?: number };
     perService: Array<{ id: string; last: HealthCheckResult | null; p95?: number; p99?: number; errorRate?: number; samples: number; lastError?: string }>
@@ -204,12 +212,14 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
 
   // Health Monitoring
   async startHealthMonitoring(): Promise<void> {
-    await this.healthChecker.startMonitoring();
+    const instances = await this.listInstances();
+    await Promise.all(instances.map((i) => this.healthChecker.startMonitoring(i.id)));
     this.logger.info('Health monitoring started');
   }
 
   async stopHealthMonitoring(): Promise<void> {
-    await this.healthChecker.stopMonitoring();
+    const instances = await this.listInstances();
+    await Promise.all(instances.map((i) => this.healthChecker.stopMonitoring(i.id)));
     this.logger.info('Health monitoring stopped');
   }
 

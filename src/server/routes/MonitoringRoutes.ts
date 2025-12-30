@@ -101,26 +101,26 @@ export class MonitoringRoutes extends BaseRouteHandler {
     // Get service metrics
     server.get('/api/metrics/services', async (request: FastifyRequest, reply: FastifyReply) => {
       const services = await this.ctx.serviceRegistry.listServices();
-      const serviceMetrics = [];
-
-      for (const service of services) {
-        try {
-          const health = await this.ctx.serviceRegistry.checkHealth(service.id);
-          serviceMetrics.push({
-            serviceId: service.id,
-            serviceName: service.config.name,
-            health,
-            uptime: Date.now() - service.startedAt.getTime()
-          });
-        } catch (error) {
-          serviceMetrics.push({
-            serviceId: service.id,
-            serviceName: service.config.name,
-            health: { status: 'unhealthy', error: error instanceof Error ? error.message : 'Unknown error' },
-            uptime: 0
-          });
-        }
-      }
+      const serviceMetrics = await Promise.all(
+        services.map(async (service) => {
+          try {
+            const health = await this.ctx.serviceRegistry.checkHealth(service.id);
+            return {
+              serviceId: service.id,
+              serviceName: service.config.name,
+              health,
+              uptime: Date.now() - service.startedAt.getTime()
+            };
+          } catch (error) {
+            return {
+              serviceId: service.id,
+              serviceName: service.config.name,
+              health: { status: 'unhealthy', error: error instanceof Error ? error.message : 'Unknown error' },
+              uptime: 0
+            };
+          }
+        })
+      );
 
       reply.send({ serviceMetrics });
     });

@@ -7,12 +7,17 @@ export class ServiceHealthChecker {
   private probe?: (serviceId: string) => Promise<HealthCheckResult>;
   private latencies: Map<string, number[]> = new Map();
   private counters: Map<string, { success: number; failure: number; lastError?: string }> = new Map();
+  private periodicRunning = false;
+  private inFlightChecks = new Map<string, Promise<HealthCheckResult>>();
+  private readonly concurrency = 8;
 
   constructor(private logger: Logger) {
     // Start periodic health checks
-    setInterval(() => {
-      this.performPeriodicChecks();
+    const t = setInterval(() => {
+      void this.performPeriodicChecks();
     }, this.checkInterval);
+    // Don't keep the process alive solely for background health probes (important for tests/CLI).
+    (t as any).unref?.();
   }
 
   setProbe(fn: (serviceId: string) => Promise<HealthCheckResult>): void {
@@ -47,25 +52,50 @@ export class ServiceHealthChecker {
     return status;
   }
 
-  async checkHealth(serviceId: string): Promise<HealthCheckResult> {
+  async checkHealth(serviceId: string, opts?: { force?: boolean; maxAgeMs?: number }): Promise<HealthCheckResult> {
+    const now = Date.now();
+    const maxAgeMs = opts?.maxAgeMs ?? this.checkInterval;
+    const cached = this.healthCache.get(serviceId);
+    if (!opts?.force && cached) {
+      const ts = cached.timestamp instanceof Date ? cached.timestamp.getTime() : new Date(cached.timestamp as any).getTime();
+      if (Number.isFinite(ts) && (now - ts) <= maxAgeMs) {
+        return cached;
+      }
+    }
+
+    const existing = this.inFlightChecks.get(serviceId);
+    if (existing) return existing;
+
+    const p = this.performActiveCheck(serviceId)
+      .finally(() => {
+        this.inFlightChecks.delete(serviceId);
+      });
+    this.inFlightChecks.set(serviceId, p);
+    return p;
+  }
+
+  /**
+   * Passive heartbeat reporting: updates cached health without performing an active probe.
+   * Useful to reduce long-tail latency and avoid side-effects on external services.
+   */
+  reportHeartbeat(serviceId: string, update: { healthy: boolean; latency?: number; error?: string }): void {
+    const res: HealthCheckResult = {
+      healthy: Boolean(update.healthy),
+      latency: typeof update.latency === 'number' ? update.latency : undefined,
+      error: update.error,
+      timestamp: new Date()
+    };
+    this.healthCache.set(serviceId, res);
+    this.recordMetrics(serviceId, res);
+  }
+
+  private async performActiveCheck(serviceId: string): Promise<HealthCheckResult> {
     try {
       const startTime = Date.now();
-      
-      // For now, implement a simple ping-style health check
-      // In a real implementation, this would send an actual MCP message
-      const healthy = await this.performHealthCheck(serviceId);
-      const latency = Date.now() - startTime;
 
-      const result: HealthCheckResult = {
-        healthy,
-        latency,
-        timestamp: new Date()
-      };
-
-      // Cache the result and record metrics
+      const result = await this.performHealthCheck(serviceId, startTime);
       this.healthCache.set(serviceId, result);
       this.recordMetrics(serviceId, result);
-      
       return result;
     } catch (error) {
       const result: HealthCheckResult = {
@@ -85,30 +115,42 @@ export class ServiceHealthChecker {
   }
 
   private async performPeriodicChecks(): Promise<void> {
-    for (const serviceId of this.monitoringServices) {
-      try {
-        await this.checkHealth(serviceId);
-      } catch (error) {
-        this.logger.warn(`Periodic health check failed for ${serviceId}:`, error);
-      }
+    if (this.periodicRunning) return;
+    this.periodicRunning = true;
+    try {
+      const ids = Array.from(this.monitoringServices);
+      const maxAgeMs = this.checkInterval;
+
+      await this.runWithConcurrency(ids, this.concurrency, async (serviceId) => {
+        try {
+          await this.checkHealth(serviceId, { force: false, maxAgeMs });
+        } catch (error) {
+          this.logger.warn(`Periodic health check failed for ${serviceId}:`, error);
+        }
+      });
+    } finally {
+      this.periodicRunning = false;
     }
   }
 
-  private async performHealthCheck(serviceId: string): Promise<boolean> {
+  private async performHealthCheck(serviceId: string, startedAtMs: number): Promise<HealthCheckResult> {
     // If external probe is provided, use it and update cache; return boolean
     if (this.probe) {
       try {
         const res = await this.probe(serviceId);
-        this.healthCache.set(serviceId, res);
-        return !!res.healthy;
+        return {
+          healthy: Boolean(res.healthy),
+          latency: typeof res.latency === 'number' ? res.latency : (Date.now() - startedAtMs),
+          error: res.error,
+          timestamp: res.timestamp instanceof Date ? res.timestamp : new Date(res.timestamp as any)
+        };
       } catch (e: any) {
-        this.healthCache.set(serviceId, { healthy: false, error: e?.message || 'probe failed', timestamp: new Date() });
-        return false;
+        return { healthy: false, error: e?.message || 'probe failed', latency: Date.now() - startedAtMs, timestamp: new Date() };
       }
     }
     // No fallback in production: require probe to be set
     // Provide a conservative default to avoid false-healthy
-    return false;
+    return { healthy: false, error: 'probe not configured', latency: Date.now() - startedAtMs, timestamp: new Date() };
   }
 
   async getHealthStats(): Promise<{
@@ -193,5 +235,24 @@ export class ServiceHealthChecker {
       const idx = Math.max(0, Math.min(sorted.length - 1, Math.floor(p * sorted.length) - 1));
       return sorted[idx] ?? 0;
     });
+  }
+
+  private async runWithConcurrency<T>(
+    items: T[],
+    limit: number,
+    worker: (item: T) => Promise<void>
+  ): Promise<void> {
+    const max = Math.max(1, Math.floor(limit || 1));
+    let idx = 0;
+
+    const runners = Array.from({ length: Math.min(max, items.length) }).map(async () => {
+      while (true) {
+        const i = idx++;
+        if (i >= items.length) return;
+        await worker(items[i]!);
+      }
+    });
+
+    await Promise.all(runners);
   }
 }

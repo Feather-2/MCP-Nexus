@@ -41,20 +41,21 @@ export class RoutingRoutes extends BaseRouteHandler {
       try {
         const services = await this.ctx.serviceRegistry.listServices();
         const serviceHealthMap = new Map<string, ServiceHealth>();
-
-        for (const service of services) {
-          try {
-            const health = await this.ctx.serviceRegistry.checkHealth(service.id);
-            serviceHealthMap.set(service.id, this.convertHealthResult(health));
-          } catch (error) {
-            serviceHealthMap.set(service.id, {
-              status: 'unhealthy',
-              responseTime: Infinity,
-              lastCheck: new Date(),
-              error: error instanceof Error ? error.message : 'Unknown error'
-            });
-          }
-        }
+        await Promise.all(
+          services.map(async (service) => {
+            try {
+              const health = await this.ctx.serviceRegistry.checkHealth(service.id);
+              serviceHealthMap.set(service.id, this.convertHealthResult(health));
+            } catch (error) {
+              serviceHealthMap.set(service.id, {
+                status: 'unhealthy',
+                responseTime: Infinity,
+                lastCheck: new Date(),
+                error: error instanceof Error ? error.message : 'Unknown error'
+              });
+            }
+          })
+        );
 
         const chain = this.ctx.middlewareChain instanceof MiddlewareChain
           ? this.ctx.middlewareChain
@@ -177,6 +178,7 @@ export class RoutingRoutes extends BaseRouteHandler {
           const response = await ((adapter as any).sendAndReceive?.(mcpMessage) ?? adapter.send(mcpMessage));
           const duration = Date.now() - startTs;
           this.ctx.addLogEntry('info', `Proxy response ${mcpMessage?.method || 'unknown'} (id=${mcpMessage?.id ?? 'auto'}) in ${duration}ms`, serviceId, { response });
+          try { this.ctx.serviceRegistry.reportHeartbeat(serviceId, { healthy: true, latency: duration }); } catch {}
           try {
             const preview = JSON.stringify(response?.result ?? response?.error ?? {}).slice(0, 800);
             this.ctx.addLogEntry('debug', `result: ${preview}${preview.length === 800 ? '…' : ''}`, serviceId);
@@ -186,6 +188,7 @@ export class RoutingRoutes extends BaseRouteHandler {
           await adapter.disconnect();
         }
       } catch (error) {
+        try { this.ctx.serviceRegistry.reportHeartbeat(serviceId, { healthy: false, error: (error as any)?.message || 'proxy failed' }); } catch {}
         this.ctx.addLogEntry('error', `Proxy failed: ${(error as Error)?.message || 'unknown error'}`, (request.params as any)?.serviceId);
         return this.respondError(reply, 500, error instanceof Error ? error.message : 'Proxy request failed', { code: 'PROXY_ERROR' });
       }
