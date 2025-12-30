@@ -1,5 +1,6 @@
 import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
+import path from 'node:path';
 import {
   McpProtocolStack,
   McpServiceConfig,
@@ -360,7 +361,6 @@ export class McpProtocolStackImpl implements McpProtocolStack {
   private buildSandboxEnv(baseEnv: NodeJS.ProcessEnv, overrideEnv: Record<string, any> = {}): NodeJS.ProcessEnv {
     try {
       if (overrideEnv && String(overrideEnv.SANDBOX) === 'portable') {
-        const path = require('path');
         const resolve = path.resolve.bind(path);
         const join = path.join.bind(path);
 
@@ -409,11 +409,8 @@ export class McpProtocolStackImpl implements McpProtocolStack {
     const pkg = args.find(a => typeof a === 'string' && a.startsWith('@modelcontextprotocol/'));
     if (!pkg) return undefined;
     try {
-      const pathMod = require('path');
-      const resolve = pathMod.resolve;
-      const _join = pathMod.join;
       // packages installed under mcp-sandbox/packages/@modelcontextprotocol/server-*
-      const pkgDir = resolve(process.cwd(), '../mcp-sandbox/packages', pkg);
+      const pkgDir = path.resolve(process.cwd(), '../mcp-sandbox/packages', pkg);
       return pkgDir;
     } catch {
       return undefined;

@@ -1,4 +1,6 @@
 const SKIP = process.platform === 'win32';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
 let Database: typeof import('better-sqlite3') | undefined;
 if (!SKIP) {
   // Lazy load to avoid native build errors on Windows CI

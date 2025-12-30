@@ -12,15 +12,15 @@ export class ExternalImportRoutes extends BaseRouteHandler {
   setupRoutes(): void {
     const { server } = this.ctx;
 
-    const getImporter = () => {
-      const { ExternalMcpConfigImporter } = require('../../config/ExternalMcpConfigImporter.js');
-      return new ExternalMcpConfigImporter(this.ctx.logger);
+    const getImporter = async () => {
+      const mod = await import('../../config/ExternalMcpConfigImporter.js');
+      return new mod.ExternalMcpConfigImporter(this.ctx.logger);
     };
 
     // Preview discovered configs
     server.get('/api/config/import/preview', async (_request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const importer = getImporter();
+        const importer = await getImporter();
         const discovered = await importer.discoverAll();
         reply.send({ success: true, discovered });
       } catch (error) {
@@ -31,7 +31,7 @@ export class ExternalImportRoutes extends BaseRouteHandler {
     // Apply imported configs as templates
     server.post('/api/config/import/apply', async (_request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const importer = getImporter();
+        const importer = await getImporter();
         const discovered = await importer.discoverAll();
         let applied = 0;
         for (const group of discovered) {

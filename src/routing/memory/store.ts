@@ -1,3 +1,9 @@
+import { createRequire } from 'node:module';
+import { randomUUID } from 'node:crypto';
+import { createRef, DEFAULT_MEMORY_STORE_CONFIG, parseRef } from './types.js';
+import type { MemoryStats, MemoryStore, MemoryStoreConfig, MemoryTier } from './types.js';
+
+const require = createRequire(import.meta.url);
 let BetterSqlite: any;
 try {
   // Native module; may be unavailable on some platforms (e.g., Windows CI)
@@ -7,9 +13,6 @@ try {
   BetterSqlite = null;
 }
 const SQLITE_AVAILABLE = Boolean(BetterSqlite);
-import { randomUUID } from 'node:crypto';
-import { createRef, DEFAULT_MEMORY_STORE_CONFIG, parseRef } from './types.js';
-import type { MemoryStats, MemoryStore, MemoryStoreConfig, MemoryTier } from './types.js';
 
 type EpochMs = number;
 type SqliteDb = any;
