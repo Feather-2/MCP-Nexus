@@ -1,12 +1,19 @@
 import { ServiceInstance, RoutingStrategy, Logger } from '../types/index.js';
 
+type InstanceMetrics = {
+  requestCount: number;
+  errorCount: number;
+  totalResponseTime: number;
+  lastRequestTime: Date;
+};
+
 export class IntelligentLoadBalancer {
-  private instanceMetrics = new Map<string, {
-    requestCount: number;
-    errorCount: number;
-    totalResponseTime: number;
-    lastRequestTime: Date;
-  }>();
+  /**
+   * In-memory metrics snapshot per instance.
+   * Note: Node is single-threaded, but we still treat entries as immutable to avoid accidental
+   * shared-object mutation if references escape (and to ease future async/remote metric backends).
+   */
+  private instanceMetrics = new Map<string, InstanceMetrics>();
 
   constructor(private logger: Logger) {}
 
@@ -49,16 +56,21 @@ export class IntelligentLoadBalancer {
   }
 
   recordRequest(serviceId: string, responseTime: number, success: boolean): void {
-    const metrics = this.instanceMetrics.get(serviceId);
-    if (metrics) {
-      metrics.requestCount++;
-      metrics.totalResponseTime += responseTime;
-      metrics.lastRequestTime = new Date();
-      
-      if (!success) {
-        metrics.errorCount++;
-      }
-    }
+    const prev = this.instanceMetrics.get(serviceId) || {
+      requestCount: 0,
+      errorCount: 0,
+      totalResponseTime: 0,
+      lastRequestTime: new Date(0)
+    };
+
+    const next: InstanceMetrics = {
+      requestCount: prev.requestCount + 1,
+      errorCount: prev.errorCount + (success ? 0 : 1),
+      totalResponseTime: prev.totalResponseTime + (Number.isFinite(responseTime) ? responseTime : 0),
+      lastRequestTime: new Date()
+    };
+
+    this.instanceMetrics.set(serviceId, next);
   }
 
   private selectByPerformance(instances: ServiceInstance[]): ServiceInstance {
