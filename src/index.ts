@@ -23,3 +23,6 @@ export { PinoLogger } from './utils/PinoLogger.js';
 
 // Export Skills subsystem
 export * from './skills/index.js';
+
+// Export Memory layer primitives
+export * from './memory/vector/index.js';
