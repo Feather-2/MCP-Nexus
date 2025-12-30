@@ -3,6 +3,7 @@ import { BaseRouteHandler, RouteContext } from './RouteContext.js';
 import { McpServiceConfig, McpServiceConfigSchema } from '../../types/index.js';
 import { applyGatewaySandboxPolicy } from '../../security/SandboxPolicy.js';
 import { z } from 'zod';
+import { assertNoPlaintextSecrets, redactMcpServiceConfig } from '../../security/secrets.js';
 
 /**
  * Template management routes
@@ -29,13 +30,14 @@ export class TemplateRoutes extends BaseRouteHandler {
       const gwConfig = this.ctx.configManager.getConfig();
 
       const enriched = templates.map((tpl) => {
+        const safeTpl = redactMcpServiceConfig(tpl as any);
         const requested = this.detectSandboxMode(tpl);
         try {
           const enforced = applyGatewaySandboxPolicy(tpl, gwConfig);
           const effective = this.detectSandboxMode(enforced.config);
           const forced = effective === 'container' && requested !== 'container';
           return {
-            ...tpl,
+            ...safeTpl,
             sandboxPolicy: {
               requested,
               effective,
@@ -47,7 +49,7 @@ export class TemplateRoutes extends BaseRouteHandler {
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e);
           return {
-            ...tpl,
+            ...safeTpl,
             sandboxPolicy: {
               requested,
               effective: requested,
@@ -78,7 +80,7 @@ export class TemplateRoutes extends BaseRouteHandler {
           const effective = this.detectSandboxMode(enforced.config);
           const forced = effective === 'container' && requested !== 'container';
           reply.send({
-            ...tpl,
+            ...redactMcpServiceConfig(tpl as any),
             sandboxPolicy: {
               requested,
               effective,
@@ -90,7 +92,7 @@ export class TemplateRoutes extends BaseRouteHandler {
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e);
           reply.send({
-            ...tpl,
+            ...redactMcpServiceConfig(tpl as any),
             sandboxPolicy: {
               requested,
               effective: requested,
@@ -110,6 +112,7 @@ export class TemplateRoutes extends BaseRouteHandler {
     server.post('/api/templates', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const config = McpServiceConfigSchema.parse((request.body as any) || {}) as McpServiceConfig;
+        assertNoPlaintextSecrets(config, { allowInsecure: process.env.PB_ALLOW_PLAINTEXT_SECRETS === '1', label: 'TemplateRoutes' });
         await this.ctx.serviceRegistry.registerTemplate(config);
         reply.code(201).send({
           success: true,
@@ -140,6 +143,7 @@ export class TemplateRoutes extends BaseRouteHandler {
           return this.respondError(reply, 404, 'Template not found', { code: 'NOT_FOUND', recoverable: true });
         }
         const updated = { ...tpl, env: { ...(tpl.env || {}), ...body.env } } as McpServiceConfig;
+        assertNoPlaintextSecrets(updated, { allowInsecure: process.env.PB_ALLOW_PLAINTEXT_SECRETS === '1', label: 'TemplateRoutes' });
         await this.ctx.serviceRegistry.registerTemplate(updated);
         reply.send({ success: true, message: 'Template env updated', name });
       } catch (error) {

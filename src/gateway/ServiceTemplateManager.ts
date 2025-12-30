@@ -1,5 +1,6 @@
 import { McpServiceConfig, Logger } from '../types/index.js';
 import { McpServiceConfigSchema } from '../types/index.js';
+import { assertNoPlaintextSecrets, findPlaintextSecrets } from '../security/secrets.js';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as path from 'path';
@@ -60,6 +61,12 @@ export class ServiceTemplateManager {
       }
       validatedTemplate.args = args as string[];
     }
+
+    // Security: refuse persisting plaintext secrets by default
+    assertNoPlaintextSecrets(validatedTemplate, {
+      allowInsecure: process.env.PB_ALLOW_PLAINTEXT_SECRETS === '1',
+      label: 'ServiceTemplateManager'
+    });
     this.templates.set(validatedTemplate.name, validatedTemplate);
     this.removedTemplates.delete(validatedTemplate.name);
 
@@ -136,7 +143,12 @@ export class ServiceTemplateManager {
     try {
       const content = await fs.readFile(templatePath, 'utf-8');
       const template = JSON.parse(content);
-      return McpServiceConfigSchema.parse(template);
+      const parsed = McpServiceConfigSchema.parse(template);
+      const plaintext = findPlaintextSecrets(parsed);
+      if (plaintext.length > 0 && process.env.PB_ALLOW_PLAINTEXT_SECRETS !== '1') {
+        this.logger.warn('Template contains plaintext secrets (consider using ${ENV_VAR} references)', { name, keys: plaintext });
+      }
+      return parsed;
     } catch (error) {
       if (error instanceof SyntaxError) {
         this.logger.warn(`Failed to parse template ${name}:`, error);

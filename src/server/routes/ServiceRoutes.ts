@@ -1,6 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseRouteHandler, RouteContext } from './RouteContext.js';
 import { z } from 'zod';
+import { redactMcpServiceConfig } from '../../security/secrets.js';
 
 interface _ServiceRequestBody {
   templateName?: string;
@@ -22,7 +23,8 @@ export class ServiceRoutes extends BaseRouteHandler {
     // List all services
     server.get('/api/services', async (request: FastifyRequest, reply: FastifyReply) => {
       const services = await this.ctx.serviceRegistry.listServices();
-      reply.send(services);
+      const safe = services.map((s: any) => ({ ...s, config: s?.config ? redactMcpServiceConfig(s.config) : s?.config }));
+      reply.send(safe);
     });
 
     // Get service by ID
@@ -38,7 +40,8 @@ export class ServiceRoutes extends BaseRouteHandler {
         return this.respondError(reply, 404, 'Service not found', { code: 'NOT_FOUND', recoverable: true });
       }
 
-      reply.send({ service });
+      const safe = { ...(service as any), config: (service as any).config ? redactMcpServiceConfig((service as any).config) : (service as any).config };
+      reply.send({ service: safe });
     });
 
     // Create service from template

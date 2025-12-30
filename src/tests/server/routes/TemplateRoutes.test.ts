@@ -70,6 +70,32 @@ describe('TemplateRoutes - validation & operations', () => {
     expect(ok.statusCode).toBe(201);
   });
 
+  it('rejects plaintext secrets in template env by default', async () => {
+    const res = await (server as any).server.inject({
+      method: 'POST',
+      url: '/api/templates',
+      payload: {
+        name: 'svc',
+        version: '2024-11-26',
+        transport: 'stdio',
+        command: 'node',
+        env: { GITHUB_TOKEN: 'secret123456' }
+      }
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().success).toBe(false);
+  });
+
+  it('redacts secrets when listing templates', async () => {
+    serviceRegistryStub.listTemplates.mockResolvedValueOnce([
+      { name: 'svc', version: '2024-11-26', transport: 'stdio', command: 'node', env: { GITHUB_TOKEN: 'secret123456' } }
+    ]);
+    const res = await (server as any).server.inject({ method: 'GET', url: '/api/templates' });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body[0].env.GITHUB_TOKEN).toBe('secr…3456');
+  });
+
   it('GET /api/templates/:name validates param and 404 when missing', async () => {
     const bad = await (server as any).server.inject({ method: 'GET', url: '/api/templates/' });
     expect([400,404]).toContain(bad.statusCode);

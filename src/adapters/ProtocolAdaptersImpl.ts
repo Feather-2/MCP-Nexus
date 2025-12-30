@@ -11,6 +11,7 @@ import { HttpTransportAdapter } from './HttpTransportAdapter.js';
 import { StreamableHttpAdapter } from './StreamableHttpAdapter.js';
 import { ContainerTransportAdapter } from './ContainerTransportAdapter.js';
 import { applyGatewaySandboxPolicy } from '../security/SandboxPolicy.js';
+import { resolveMcpServiceConfigEnvRefs } from '../security/secrets.js';
 
 export class ProtocolAdaptersImpl implements ProtocolAdapters {
   constructor(private logger: Logger, private getGatewayConfig?: () => GatewayConfig) {}
@@ -112,7 +113,7 @@ export class ProtocolAdaptersImpl implements ProtocolAdapters {
   async createAdapter(config: McpServiceConfig): Promise<TransportAdapter> {
     const gwConfig = this.getGatewayConfig?.();
     const enforced = applyGatewaySandboxPolicy(config, gwConfig);
-    const effectiveConfig = enforced.config;
+    const effectiveConfig = resolveMcpServiceConfigEnvRefs(enforced.config);
     if (enforced.applied) {
       try {
         this.logger.warn?.('Sandbox policy enforced for service', { name: config.name, reasons: enforced.reasons });
