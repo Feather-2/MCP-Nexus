@@ -1,3 +1,6 @@
+import type { SkillCapabilities } from '../security/CapabilityManifest.js';
+import type { AuditResult as SecurityAuditResult } from '../security/AuditPipeline.js';
+
 export type SkillScope = 'repo' | 'user' | 'system' | 'remote';
 
 export interface SkillMetadata {
@@ -31,6 +34,7 @@ export interface SkillMetadata {
 export interface Skill {
   metadata: SkillMetadata;
   body: string;
+  capabilities: SkillCapabilities;
   /**
    * Optional bundled support files (text only) keyed by relative path.
    * This is loaded on-demand to keep memory footprint small.
@@ -48,6 +52,7 @@ export interface AuditResult {
   passed: boolean;
   errors: string[];
   warnings: string[];
+  security?: SecurityAuditResult;
   dryRunResults?: {
     tool: string;
     success: boolean;
@@ -55,4 +60,3 @@ export interface AuditResult {
     error?: string;
   }[];
 }
-

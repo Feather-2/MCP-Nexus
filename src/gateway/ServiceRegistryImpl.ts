@@ -8,22 +8,22 @@ import {
   Logger
 } from '../types/index.js';
 import { ServiceTemplateManager } from './ServiceTemplateManager.js';
-import { ServiceInstanceManager } from './ServiceInstanceManager.js';
 import { ServiceHealthChecker } from './ServiceHealthChecker.js';
 import { IntelligentLoadBalancer } from './IntelligentLoadBalancer.js';
+import { ServiceObservationStore } from './service-state.js';
 
 export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry {
   private templateManager: ServiceTemplateManager;
-  private instanceManager: ServiceInstanceManager;
   private healthChecker: ServiceHealthChecker;
   private loadBalancer: IntelligentLoadBalancer;
+  private store: ServiceObservationStore;
 
   constructor(private logger: Logger) {
     super();
+    this.store = new ServiceObservationStore();
     this.templateManager = new ServiceTemplateManager(logger);
-    this.instanceManager = new ServiceInstanceManager(logger);
-    this.healthChecker = new ServiceHealthChecker(logger);
-    this.loadBalancer = new IntelligentLoadBalancer(logger);
+    this.healthChecker = new ServiceHealthChecker(logger, this.store);
+    this.loadBalancer = new IntelligentLoadBalancer(logger, this.store);
     // Initialize default templates and fix legacy placeholders asynchronously (safe guard)
     try {
       const maybePromise = (this.templateManager as any).initializeDefaults?.();
@@ -38,15 +38,34 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
   // Template Management
   async registerTemplate(template: McpServiceConfig): Promise<void> {
     await this.templateManager.register(template);
+    const stored = await this.templateManager.get(template.name).catch(() => null);
+    this.store.setTemplate(stored ?? template);
     this.logger.info(`Template registered: ${template.name}`);
   }
 
   async getTemplate(name: string): Promise<McpServiceConfig | null> {
-    return await this.templateManager.get(name);
+    const template = await this.templateManager.get(name);
+    if (template) {
+      this.store.setTemplate(template);
+    } else {
+      this.store.removeTemplate(name);
+    }
+    return this.store.getTemplate(name) ?? null;
   }
 
   async listTemplates(): Promise<McpServiceConfig[]> {
-    return await this.templateManager.list();
+    const templates = await this.templateManager.list();
+    const nextNames = new Set(templates.map((t) => t.name));
+    const prevNames = new Set(this.store.listTemplates().map((t) => t.name));
+
+    this.store.atomicUpdate((tx) => {
+      for (const tpl of templates) tx.setTemplate(tpl);
+      for (const name of prevNames) {
+        if (!nextNames.has(name)) tx.removeTemplate(name);
+      }
+    });
+
+    return this.store.listTemplates();
   }
 
   getTemplateManager(): ServiceTemplateManager {
@@ -59,7 +78,7 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
 
   // Instance Management
   async createInstance(templateName: string, overrides?: Partial<McpServiceConfig> & { instanceMode?: 'keep-alive' | 'managed' }): Promise<ServiceInstance> {
-    const template = await this.templateManager.get(templateName);
+    const template = await this.getTemplate(templateName);
     if (!template) {
       throw new Error(`Template ${templateName} not found`);
     }
@@ -85,13 +104,38 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
       config.args = args as string[];
     }
 
-    const instance = await this.instanceManager.create(config);
-
     // Apply instance mode (keep-alive | managed)
     const instanceMode = (overrides as any)?.instanceMode as ('keep-alive' | 'managed' | undefined);
-    if (instanceMode) {
-      try { await this.instanceManager.setMetadata(instance.id, 'mode', instanceMode); } catch { /* ignored */ }
-    }
+    const now = new Date();
+    const instanceId = this.generateInstanceId(config.name);
+
+    const instance: ServiceInstance = {
+      id: instanceId,
+      config,
+      state: 'idle',
+      startTime: now,
+      startedAt: now,
+      errorCount: 0,
+      metadata: {
+        createdAt: now.toISOString(),
+        version: config.version,
+        transport: config.transport,
+        ...(instanceMode ? { mode: instanceMode } : {})
+      }
+    };
+
+    // Atomic: instance + initial metrics
+    this.store.atomicUpdate((tx) => {
+      tx.setInstance(instance);
+      tx.setMetrics(instance.id, {
+        serviceId: instance.id,
+        requestCount: 0,
+        errorCount: 0,
+        avgResponseTime: 0,
+        addedAt: now,
+        lastRequestTime: now
+      });
+    });
 
     // Start health checking for keep-alive; skip for managed
     if (instanceMode !== 'managed') {
@@ -106,11 +150,11 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
   }
 
   async getInstance(serviceId: string): Promise<ServiceInstance | null> {
-    return await this.instanceManager.get(serviceId);
+    return this.store.getInstance(serviceId) ?? null;
   }
 
   async listInstances(): Promise<ServiceInstance[]> {
-    return await this.instanceManager.list();
+    return this.store.listInstances();
   }
 
   // Alias methods for PbMcpGateway compatibility
@@ -139,17 +183,15 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
 
   async removeTemplate(templateName: string): Promise<void> {
     await this.templateManager.remove(templateName);
+    this.store.removeTemplate(templateName);
   }
 
   async removeInstance(serviceId: string): Promise<void> {
     // Stop health checking
     await this.healthChecker.stopMonitoring(serviceId);
 
-    // Remove from load balancer
-    this.loadBalancer.removeInstance(serviceId);
-
-    // Remove instance
-    await this.instanceManager.remove(serviceId);
+    // Remove instance and derived state from store (single source of truth)
+    this.store.removeInstance(serviceId);
 
     this.logger.info(`Instance removed: ${serviceId}`);
   }
@@ -177,31 +219,20 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
   }
 
   async getHealthyInstances(templateName?: string): Promise<ServiceInstance[]> {
-    const allInstances = await this.listInstances();
-    const healthyInstances: ServiceInstance[] = [];
-
-    for (const instance of allInstances) {
-      if (templateName && instance.config.name !== templateName) {
-        continue;
-      }
-
-      const health = await this.healthChecker.checkHealth(instance.id);
-      if (health.healthy) {
-        healthyInstances.push(instance);
-      }
-    }
-
-    return healthyInstances;
+    const instances = templateName ? this.store.listInstances(templateName) : this.store.listInstances();
+    return instances.filter((instance) => this.store.getHealth(instance.id)?.healthy === true);
   }
 
   // Metadata helpers for instances (exposed for server to annotate diagnostics)
   async setInstanceMetadata(serviceId: string, key: string, value: any): Promise<void> {
-    await (this.instanceManager as any).setMetadata?.(serviceId, key, value);
+    const updated = this.store.patchInstance(serviceId, { metadata: { [key]: value } });
+    if (!updated) {
+      throw new Error(`Instance ${serviceId} not found`);
+    }
   }
 
   async selectBestInstance(templateName: string, strategy: RoutingStrategy = 'performance'): Promise<ServiceInstance | null> {
-    const instances = await this.listInstances();
-    const filteredInstances = instances.filter(instance => instance.config.name === templateName);
+    const filteredInstances = this.store.listInstances(templateName);
 
     if (filteredInstances.length === 0) {
       return null;
@@ -216,9 +247,8 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
     await this.healthChecker.startMonitoring();
 
     // Prefer per-instance monitoring when instances are available.
-    const instances = await this.listInstances().catch(() => []);
-    const list = Array.isArray(instances) ? instances : [];
-    await Promise.all(list.map((i) => this.healthChecker.startMonitoring(i.id)));
+    const instances = this.store.listInstances();
+    await Promise.all(instances.map((i) => this.healthChecker.startMonitoring(i.id)));
     this.logger.info('Health monitoring started');
   }
 
@@ -226,9 +256,8 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
     // Backward compatibility: older tests/callers expect a no-arg call.
     await this.healthChecker.stopMonitoring();
 
-    const instances = await this.listInstances().catch(() => []);
-    const list = Array.isArray(instances) ? instances : [];
-    await Promise.all(list.map((i) => this.healthChecker.stopMonitoring(i.id)));
+    const instances = this.store.listInstances();
+    await Promise.all(instances.map((i) => this.healthChecker.stopMonitoring(i.id)));
     this.logger.info('Health monitoring stopped');
   }
 
@@ -237,19 +266,17 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
   }
 
   async selectInstance(templateName: string, strategy?: RoutingStrategy): Promise<ServiceInstance | null> {
-    const healthyInstances = await this.getHealthyInstances(templateName);
+    const instances = this.store.listInstances(templateName);
+    if (instances.length === 0) return null;
 
-    if (healthyInstances.length === 0) {
-      return null;
-    }
-
-    return this.loadBalancer.selectInstance(healthyInstances, strategy);
+    const healthy = instances.filter((i) => this.store.getHealth(i.id)?.healthy === true);
+    const pool = healthy.length > 0 ? healthy : instances;
+    return this.loadBalancer.selectInstance(pool, strategy);
   }
 
   // Advanced Features
   async getInstancesByTemplate(templateName: string): Promise<ServiceInstance[]> {
-    const allInstances = await this.listInstances();
-    return allInstances.filter(instance => instance.config.name === templateName);
+    return this.store.listInstances(templateName);
   }
 
   async scaleTemplate(templateName: string, targetCount: number): Promise<ServiceInstance[]> {
@@ -294,7 +321,7 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
     instancesByState: Record<string, number>;
   }> {
     const templates = await this.listTemplates();
-    const instances = await this.listInstances();
+    const instances = this.store.listInstances();
 
     let healthyCount = 0;
     const stateCount: Record<string, number> = {};
@@ -304,8 +331,8 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
       stateCount[instance.state] = (stateCount[instance.state] || 0) + 1;
 
       // Count healthy instances
-      const health = await this.healthChecker.checkHealth(instance.id);
-      if (health.healthy) {
+      const health = this.store.getHealth(instance.id);
+      if (health?.healthy) {
         healthyCount++;
       }
     }
@@ -316,5 +343,11 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
       healthyInstances: healthyCount,
       instancesByState: stateCount
     };
+  }
+
+  private generateInstanceId(templateName: string): string {
+    const timestamp = Date.now();
+    const random = Math.random().toString(36).substring(2, 8);
+    return `${templateName}-${timestamp}-${random}`;
   }
 }

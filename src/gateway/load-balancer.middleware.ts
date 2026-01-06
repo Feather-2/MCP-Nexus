@@ -108,12 +108,14 @@ function updateMetrics(existing: ServiceMetrics | undefined, instanceId: string,
   const prevAvg = existing?.avgResponseTime ?? 0;
   const nextAvg = latencyMs === undefined ? prevAvg : (prevAvg * prevCount + latencyMs) / nextCount;
 
+  const now = new Date();
   return {
     serviceId: instanceId,
     requestCount: nextCount,
     errorCount: nextErr,
     avgResponseTime: nextAvg,
-    lastRequestTime: new Date()
+    addedAt: existing?.addedAt ?? now,
+    lastRequestTime: now
   };
 }
 
@@ -174,4 +176,3 @@ export class LoadBalancerMiddleware implements Middleware {
     this.stateManager.updateMetrics(instanceId, next);
   }
 }
-

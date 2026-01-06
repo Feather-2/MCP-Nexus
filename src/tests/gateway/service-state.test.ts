@@ -43,7 +43,14 @@ describe('ServiceStateManager', () => {
     const metrics = new Map<string, LoadBalancerMetrics>([
       [
         'a-1',
-        { serviceId: 'a-1', requestCount: 1, errorCount: 0, avgResponseTime: 10, lastRequestTime: new Date() }
+        {
+          serviceId: 'a-1',
+          requestCount: 1,
+          errorCount: 0,
+          avgResponseTime: 10,
+          addedAt: new Date(),
+          lastRequestTime: new Date()
+        }
       ]
     ]);
 
@@ -84,6 +91,7 @@ describe('ServiceStateManager', () => {
       requestCount: 3,
       errorCount: 1,
       avgResponseTime: 42,
+      addedAt: new Date(),
       lastRequestTime: new Date()
     };
     mgr.updateMetrics(instance.id, metrics);
@@ -100,6 +108,7 @@ describe('ServiceStateManager', () => {
       requestCount: 1,
       errorCount: 1,
       avgResponseTime: 10,
+      addedAt: new Date(),
       lastRequestTime: new Date()
     });
 

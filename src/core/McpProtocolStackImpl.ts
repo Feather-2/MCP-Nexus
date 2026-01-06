@@ -14,6 +14,7 @@ import {
 import { ProcessStateManager } from './ProcessStateManager.js';
 import { McpProtocolHandshaker } from './McpProtocolHandshaker.js';
 import { UnifiedErrorHandler } from '../utils/ErrorHandler.js';
+import { JsonRpcStreamParser } from './JsonRpcStreamParser.js';
 
 export class McpProtocolStackImpl implements McpProtocolStack {
   private instances = new Map<string, ServiceInstance>();
@@ -70,52 +71,22 @@ export class McpProtocolStackImpl implements McpProtocolStack {
         reject(new Error(`Timeout waiting for response to message ${messageId} from ${serviceId}`));
       }, 30000);
 
-      let buffer = '';
-      const tryParseBuffer = () => {
-        const trimmed = buffer.trim();
-        if (!trimmed) return false;
-        if (trimmed.endsWith('}')) {
-          let candidate = trimmed;
-          const boundary = trimmed.lastIndexOf('}{');
-          if (boundary !== -1) {
-            candidate = trimmed.slice(boundary + 1); // start from last '{'
-          }
-          try {
-            const msg = JSON.parse(candidate) as McpMessage;
-            if (msg && msg.id === messageId) {
-              clearTimeout(timeout);
-              process.stdout!.off('data', onData);
-              resolve(msg);
-              return true;
-            }
-          } catch {
-            // ignore; may be partial or malformed
-          }
+      const parser = new JsonRpcStreamParser<McpMessage>({
+        onError: () => {
+          // ignore parse errors and keep waiting for the matching response
         }
-        return false;
-      };
+      });
+
       const onData = (data: Buffer) => {
-        buffer += data.toString();
-        let newlineIndex = buffer.indexOf('\n');
-        while (newlineIndex !== -1) {
-          const line = buffer.slice(0, newlineIndex).trim();
-          buffer = buffer.slice(newlineIndex + 1);
-          newlineIndex = buffer.indexOf('\n');
-          if (!line) continue;
-          try {
-            const response = JSON.parse(line) as McpMessage;
-            if (response && response.id === messageId) {
-              clearTimeout(timeout);
-              process.stdout!.off('data', onData);
-              resolve(response);
-              return;
-            }
-          } catch {
-            // Ignore malformed line; continue accumulating
+        const messages = parser.push(data);
+        for (const msg of messages) {
+          if (msg && msg.id === messageId) {
+            clearTimeout(timeout);
+            process.stdout!.off('data', onData);
+            resolve(msg);
+            return;
           }
         }
-        // No newline-delimited message; attempt to parse full buffer
-        tryParseBuffer();
       };
 
       process.stdout?.on('data', onData);
@@ -134,50 +105,27 @@ export class McpProtocolStackImpl implements McpProtocolStack {
         reject(new Error(`Timeout waiting for message from ${serviceId}`));
       }, timeoutMs);
 
-      let buffer = '';
-      const tryParseBuffer = () => {
-        const trimmed = buffer.trim();
-        if (!trimmed) return false;
-        if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
-          try {
-            const msg = JSON.parse(trimmed) as McpMessage;
-            // Ignore handshake/no-id messages
-            if ((msg as any).id !== undefined || (msg as any).method) {
-              clearTimeout(timeout);
-              process.stdout!.off('data', onData);
-              resolve(msg);
-              return true;
-            }
-          } catch {
-            // If looks like a full object but malformed, reject fast
-            clearTimeout(timeout);
-            process.stdout!.off('data', onData);
-            reject(new Error('Malformed JSON message'));
-            return true;
-          }
-        }
-        return false;
-      };
+      const parser = new JsonRpcStreamParser<McpMessage>({
+        throwOnParseError: true
+      });
+
       const onData = (data: Buffer) => {
-        buffer += data.toString();
-        let newlineIndex = buffer.indexOf('\n');
-        while (newlineIndex !== -1) {
-          const line = buffer.slice(0, newlineIndex).trim();
-          buffer = buffer.slice(newlineIndex + 1);
-          newlineIndex = buffer.indexOf('\n');
-          if (!line) continue;
-          try {
-            const message = JSON.parse(line) as McpMessage;
+        try {
+          const messages = parser.push(data);
+          for (const message of messages) {
+            if (!message) continue;
+            // Ignore handshake/no-id messages (compat with previous behavior)
+            if ((message as any).id === undefined && !(message as any).method) continue;
             clearTimeout(timeout);
             process.stdout!.off('data', onData);
             resolve(message);
             return;
-          } catch {
-            // Ignore and continue reading further lines
           }
+        } catch (error) {
+          clearTimeout(timeout);
+          process.stdout!.off('data', onData);
+          reject(error instanceof Error ? error : new Error(String(error)));
         }
-        // attempt parse for single-object buffer without newline
-        tryParseBuffer();
       };
 
       process.stdout?.on('data', onData);

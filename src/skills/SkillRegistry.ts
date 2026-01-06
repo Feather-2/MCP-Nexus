@@ -3,8 +3,31 @@ import { mkdir, rm, writeFile } from 'fs/promises';
 import { z } from 'zod';
 import { stringify as stringifyYaml } from 'yaml';
 import type { Logger } from '../types/index.js';
+import { mergeWithDefaults, validateCapabilities } from '../security/CapabilityManifest.js';
+import type { SkillCapabilities } from '../security/CapabilityManifest.js';
 import type { Skill, SkillMetadata } from './types.js';
 import { SkillLoader } from './SkillLoader.js';
+
+const SkillCapabilitiesSchema = z.object({
+  filesystem: z.object({
+    read: z.array(z.string()).optional(),
+    write: z.array(z.string()).optional()
+  }).partial().optional(),
+  network: z.object({
+    allowedHosts: z.array(z.string()).optional(),
+    allowedPorts: z.array(z.union([z.number(), z.string()])).optional()
+  }).partial().optional(),
+  env: z.array(z.string()).optional(),
+  subprocess: z.object({
+    allowed: z.boolean().optional(),
+    allowedCommands: z.array(z.string()).optional()
+  }).partial().optional(),
+  resources: z.object({
+    maxMemoryMB: z.union([z.number(), z.string()]).optional(),
+    maxCpuPercent: z.union([z.number(), z.string()]).optional(),
+    timeoutMs: z.union([z.number(), z.string()]).optional()
+  }).partial().optional()
+}).partial();
 
 const SkillFrontmatterSchema = z.object({
   name: z.string().min(1),
@@ -16,7 +39,8 @@ const SkillFrontmatterSchema = z.object({
     traits: z.array(z.string()).optional(),
     allowedTools: z.string().optional(),
     priority: z.number().optional()
-  }).partial().optional()
+  }).partial().optional(),
+  capabilities: SkillCapabilitiesSchema.optional()
 }).partial();
 
 export interface RegisterSkillInput {
@@ -29,6 +53,7 @@ export interface RegisterSkillInput {
   traits?: string[];
   allowedTools?: string;
   priority?: number;
+  capabilities?: Partial<SkillCapabilities>;
   supportFiles?: Array<{ path: string; content: string }>;
   overwrite?: boolean;
 }
@@ -117,6 +142,9 @@ export class SkillRegistry {
 
     await mkdir(skillDir, { recursive: true });
 
+    const capabilities = mergeWithDefaults(input.capabilities as any);
+    validateCapabilities(capabilities);
+
     const frontmatter = SkillFrontmatterSchema.parse({
       name,
       description: input.description,
@@ -127,7 +155,8 @@ export class SkillRegistry {
         traits: input.traits,
         allowedTools: input.allowedTools,
         priority: input.priority
-      }
+      },
+      capabilities
     });
 
     const yamlText = stringifyYaml(frontmatter).trimEnd();

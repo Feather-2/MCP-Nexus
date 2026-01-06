@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import path from 'path';
 import { McpServiceConfig, McpMessage, Logger, McpVersion, TransportAdapter } from '../types/index.js';
 import { StdioTransportAdapter } from './StdioTransportAdapter.js';
+import { ExecutableResolver } from '../security/ExecutableResolver.js';
 
 export interface ContainerAdapterPolicyOptions {
   allowedVolumeRoots?: string[]; // absolute paths
@@ -70,7 +71,7 @@ export class ContainerTransportAdapter extends EventEmitter implements Transport
       const allowedRoots = Array.isArray(policyOpts?.allowedVolumeRoots) && policyOpts!.allowedVolumeRoots!.length
         ? policyOpts!.allowedVolumeRoots!
         : [path.resolve(process.cwd())];
-      const allowed = allowedRoots.some((root) => hostResolved.startsWith(path.resolve(String(root))));
+      const allowed = allowedRoots.some((root) => ExecutableResolver.isWithinAllowedRoot(hostResolved, path.resolve(String(root))));
       if (!allowed) {
         throw new Error(`Volume hostPath not allowed: ${v.hostPath}`);
       }

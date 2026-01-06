@@ -1,6 +1,9 @@
 import { Logger } from '../types/index.js';
 import chalk from 'chalk';
 
+/**
+ * @deprecated Use PinoLogger instead. This class will be removed in a future version.
+ */
 export class SimpleLogger implements Logger {
   private logLevel: number;
   private levels = {

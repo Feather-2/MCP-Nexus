@@ -1,325 +1,202 @@
 import { ServiceRegistryImpl } from '../../gateway/ServiceRegistryImpl.js';
 import { ServiceTemplateManager } from '../../gateway/ServiceTemplateManager.js';
-import { ServiceInstanceManager } from '../../gateway/ServiceInstanceManager.js';
 import { ServiceHealthChecker } from '../../gateway/ServiceHealthChecker.js';
 import { IntelligentLoadBalancer } from '../../gateway/IntelligentLoadBalancer.js';
-import { McpServiceConfig, ServiceInstance, Logger } from '../../types/index.js';
+import type { Logger, McpServiceConfig, ServiceInstance } from '../../types/index.js';
 
-// Mock the dependencies
 vi.mock('../../gateway/ServiceTemplateManager.js');
-vi.mock('../../gateway/ServiceInstanceManager.js');
 vi.mock('../../gateway/ServiceHealthChecker.js');
 vi.mock('../../gateway/IntelligentLoadBalancer.js');
 
-describe('ServiceRegistryImpl', () => {
+function makeTemplate(name: string, overrides: Partial<McpServiceConfig> = {}): McpServiceConfig {
+  return {
+    name,
+    version: '2024-11-26',
+    transport: 'stdio',
+    command: 'node',
+    args: ['-v'],
+    timeout: 5000,
+    retries: 2,
+    ...overrides
+  };
+}
+
+describe('ServiceRegistryImpl (store façade)', () => {
   let registry: ServiceRegistryImpl;
   let mockLogger: Logger;
   let mockTemplateManager: ServiceTemplateManager;
-  let mockInstanceManager: ServiceInstanceManager;
   let mockHealthChecker: ServiceHealthChecker;
   let mockLoadBalancer: IntelligentLoadBalancer;
 
   beforeEach(() => {
     mockLogger = {
+      trace: vi.fn(),
       debug: vi.fn(),
       info: vi.fn(),
       warn: vi.fn(),
-      error: vi.fn(),
-      trace: vi.fn()
+      error: vi.fn()
     };
 
-    // Create mocked instances
     mockTemplateManager = {
-      register: vi.fn(),
+      register: vi.fn().mockResolvedValue(undefined),
       get: vi.fn(),
       list: vi.fn(),
-      remove: vi.fn(),
+      remove: vi.fn().mockResolvedValue(undefined),
       initializeDefaults: vi.fn()
     } as any;
 
-    mockInstanceManager = {
-      create: vi.fn(),
-      get: vi.fn(),
-      list: vi.fn(),
-      remove: vi.fn(),
-      updateState: vi.fn(),
-      getMetrics: vi.fn()
-    } as any;
-
     mockHealthChecker = {
+      setProbe: vi.fn(),
       startMonitoring: vi.fn().mockResolvedValue(undefined),
       stopMonitoring: vi.fn().mockResolvedValue(undefined),
       checkHealth: vi.fn(),
-      getHealthStatus: vi.fn().mockResolvedValue({})
+      getHealthStatus: vi.fn().mockResolvedValue({}),
+      getHealthStats: vi.fn().mockResolvedValue({ monitoring: 0, healthy: 0, unhealthy: 0, avgLatency: 0 }),
+      getPerServiceStats: vi.fn().mockReturnValue([])
     } as any;
 
     mockLoadBalancer = {
-      selectInstance: vi.fn(),
       addInstance: vi.fn(),
       removeInstance: vi.fn(),
-      updateMetrics: vi.fn(),
-      getStrategy: vi.fn(),
-      setStrategy: vi.fn()
+      selectInstance: vi.fn()
     } as any;
 
-    // Mock the constructors to return our mock instances
     vi.mocked(ServiceTemplateManager).mockImplementation(() => mockTemplateManager);
-    vi.mocked(ServiceInstanceManager).mockImplementation(() => mockInstanceManager);
     vi.mocked(ServiceHealthChecker).mockImplementation(() => mockHealthChecker);
     vi.mocked(IntelligentLoadBalancer).mockImplementation(() => mockLoadBalancer);
 
     registry = new ServiceRegistryImpl(mockLogger);
   });
 
-  describe('template management', () => {
-    it('should register a template', async () => {
-      const template: McpServiceConfig = {
-        name: 'test-service',
-        version: '2024-11-26',
-        transport: 'stdio',
-        command: 'node',
-        args: ['-v'],
-        timeout: 5000,
-        retries: 2
-      };
-
-      vi.mocked(mockTemplateManager.register).mockResolvedValueOnce(undefined);
-
-      await registry.registerTemplate(template);
-
-      expect(mockTemplateManager.register).toHaveBeenCalledWith(template);
-      expect(mockLogger.info).toHaveBeenCalledWith('Template registered: test-service');
-    });
-
-    it('should get a template', async () => {
-      const template: McpServiceConfig = {
-        name: 'test-service',
-        version: '2024-11-26',
-        transport: 'stdio',
-        command: 'node',
-        args: ['-v'],
-        timeout: 5000,
-        retries: 2
-      };
-
-      vi.mocked(mockTemplateManager.get).mockResolvedValueOnce(template);
-
-      const result = await registry.getTemplate('test-service');
-
-      expect(mockTemplateManager.get).toHaveBeenCalledWith('test-service');
-      expect(result).toEqual(template);
-    });
-
-    it('should return null for non-existent template', async () => {
-      vi.mocked(mockTemplateManager.get).mockResolvedValueOnce(null);
-
-      const result = await registry.getTemplate('non-existent');
-
-      expect(result).toBeNull();
-    });
-
-    it('should list templates', async () => {
-      const templates: McpServiceConfig[] = [
-        {
-          name: 'service1',
-          version: '2024-11-26',
-          transport: 'stdio',
-          command: 'node',
-          args: ['-v'],
-          timeout: 5000,
-          retries: 2
-        },
-        {
-          name: 'service2',
-          version: '2024-11-26',
-          transport: 'http',
-          command: 'python',
-          args: ['--version'],
-          timeout: 8000,
-          retries: 1
-        }
-      ];
-
-      vi.mocked(mockTemplateManager.list).mockResolvedValueOnce(templates);
-
-      const result = await registry.listTemplates();
-
-      expect(mockTemplateManager.list).toHaveBeenCalled();
-      expect(result).toEqual(templates);
-    });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
-  describe('instance management', () => {
-    const mockTemplate: McpServiceConfig = {
-      name: 'test-service',
-      version: '2024-11-26',
-      transport: 'stdio',
-      command: 'node',
-      args: ['-v'],
-      timeout: 5000,
-      retries: 2
-    };
+  it('registerTemplate updates the observation store', async () => {
+    const template = makeTemplate('svc-a');
+    vi.mocked(mockTemplateManager.get).mockResolvedValueOnce(template);
 
-    const mockInstance: ServiceInstance = {
-      id: 'instance-123',
-      config: mockTemplate,
-      state: 'idle',
-      startedAt: new Date(),
-      lastHealthCheck: new Date(),
-      errorCount: 0,
-      metadata: {}
-    };
+    await registry.registerTemplate(template);
 
-    it('should create instance from template', async () => {
-      vi.mocked(mockTemplateManager.get).mockResolvedValueOnce(mockTemplate);
-      vi.mocked(mockInstanceManager.create).mockResolvedValueOnce(mockInstance);
+    expect(mockTemplateManager.register).toHaveBeenCalledWith(template);
+    expect(mockTemplateManager.get).toHaveBeenCalledWith('svc-a');
 
-      const result = await registry.createInstance('test-service');
-
-      expect(mockTemplateManager.get).toHaveBeenCalledWith('test-service');
-      expect(mockInstanceManager.create).toHaveBeenCalledWith(mockTemplate);
-      expect(result).toEqual(mockInstance);
-      expect(mockLogger.info).toHaveBeenCalledWith('Instance created from template test-service: instance-123');
-    });
-
-    it('should create instance with overrides', async () => {
-      const overrides = { timeout: 10000 };
-      const expectedConfig = { ...mockTemplate, ...overrides };
-
-      vi.mocked(mockTemplateManager.get).mockResolvedValueOnce(mockTemplate);
-      vi.mocked(mockInstanceManager.create).mockResolvedValueOnce({ ...mockInstance, config: expectedConfig });
-
-      const result = await registry.createInstance('test-service', overrides);
-
-      expect(mockInstanceManager.create).toHaveBeenCalledWith(expectedConfig);
-      expect(result.config.timeout).toBe(10000);
-    });
-
-    it('should throw error for non-existent template', async () => {
-      vi.mocked(mockTemplateManager.get).mockResolvedValueOnce(null);
-
-      await expect(registry.createInstance('non-existent')).rejects.toThrow('Template non-existent not found');
-    });
-
-    it('should get instance', async () => {
-      vi.mocked(mockInstanceManager.get).mockResolvedValueOnce(mockInstance);
-
-      const result = await registry.getInstance('instance-123');
-
-      expect(mockInstanceManager.get).toHaveBeenCalledWith('instance-123');
-      expect(result).toEqual(mockInstance);
-    });
-
-    it('should list instances', async () => {
-      const instances = [mockInstance];
-      vi.mocked(mockInstanceManager.list).mockResolvedValueOnce(instances);
-
-      const result = await registry.listInstances();
-
-      expect(mockInstanceManager.list).toHaveBeenCalled();
-      expect(result).toEqual(instances);
-    });
-
-    it('should remove instance', async () => {
-      vi.mocked(mockInstanceManager.remove).mockResolvedValueOnce(undefined);
-
-      await registry.removeInstance('instance-123');
-
-      expect(mockInstanceManager.remove).toHaveBeenCalledWith('instance-123');
-      expect(mockLogger.info).toHaveBeenCalledWith('Instance removed: instance-123');
-    });
+    const store = (registry as any).store;
+    expect(store.getTemplate('svc-a')).toEqual(template);
   });
 
-  describe('health monitoring', () => {
-    it('should start health monitoring', async () => {
-      vi.mocked(mockHealthChecker.startMonitoring).mockResolvedValueOnce(undefined);
+  it('createInstance persists instance+metrics in store (atomically)', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2020-01-01T00:00:00.000Z'));
 
-      await registry.startHealthMonitoring();
+    const template = makeTemplate('svc-a');
+    vi.mocked(mockTemplateManager.get).mockResolvedValue(template);
 
-      expect(mockHealthChecker.startMonitoring).toHaveBeenCalled();
-      expect(mockLogger.info).toHaveBeenCalledWith('Health monitoring started');
-    });
+    const instance = await registry.createInstance('svc-a', { timeout: 10000 });
+    expect(instance.id).toMatch(/^svc-a-/);
+    expect(instance.config.timeout).toBe(10000);
 
-    it('should stop health monitoring', async () => {
-      vi.mocked(mockHealthChecker.stopMonitoring).mockResolvedValueOnce(undefined);
-
-      await registry.stopHealthMonitoring();
-
-      expect(mockHealthChecker.stopMonitoring).toHaveBeenCalled();
-      expect(mockLogger.info).toHaveBeenCalledWith('Health monitoring stopped');
-    });
-
-    it('should get health status', async () => {
-      const healthStatus = {
-        'instance-123': {
-          healthy: true,
-          latency: 150,
-          timestamp: new Date()
-        }
-      };
-
-      vi.mocked(mockHealthChecker.getHealthStatus).mockResolvedValueOnce(healthStatus);
-
-      const result = await registry.getHealthStatus();
-
-      expect(mockHealthChecker.getHealthStatus).toHaveBeenCalled();
-      expect(result).toEqual(healthStatus);
-    });
+    const store = (registry as any).store;
+    expect(store.getInstance(instance.id)).toEqual(instance);
+    expect(store.getMetrics(instance.id)).toMatchObject({ serviceId: instance.id, requestCount: 0, errorCount: 0 });
   });
 
-  describe('load balancing', () => {
-    it('should select best instance', async () => {
-      const instances = [
-        { id: 'instance-1', config: { name: 'service1' } },
-        { id: 'instance-2', config: { name: 'service1' } }
-      ] as ServiceInstance[];
+  it('createInstance respects instanceMode=managed (no monitoring)', async () => {
+    const template = makeTemplate('svc-a');
+    vi.mocked(mockTemplateManager.get).mockResolvedValue(template);
 
-      const selectedInstance = instances[0];
+    const instance = await registry.createInstance('svc-a', { instanceMode: 'managed' } as any);
+    expect(instance.metadata.mode).toBe('managed');
+    expect(mockHealthChecker.startMonitoring).not.toHaveBeenCalled();
+  });
 
-      vi.mocked(mockInstanceManager.list).mockResolvedValueOnce(instances);
-      vi.mocked(mockLoadBalancer.selectInstance).mockResolvedValueOnce(selectedInstance);
+  it('removeInstance removes instance and derived state from store', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2020-01-01T00:00:00.000Z'));
 
-      const result = await registry.selectBestInstance('service1');
+    const template = makeTemplate('svc-a');
+    vi.mocked(mockTemplateManager.get).mockResolvedValue(template);
 
-      expect(mockInstanceManager.list).toHaveBeenCalled();
-      expect(mockLoadBalancer.selectInstance).toHaveBeenCalledWith(instances, 'performance');
-      expect(result).toEqual(selectedInstance);
+    const instance = await registry.createInstance('svc-a');
+    const store = (registry as any).store;
+
+    // Seed derived state to verify cascading removal.
+    store.updateHealth(instance.id, { healthy: true, timestamp: new Date() });
+    store.updateMetrics(instance.id, {
+      serviceId: instance.id,
+      requestCount: 3,
+      errorCount: 1,
+      avgResponseTime: 10,
+      addedAt: new Date(),
+      lastRequestTime: new Date()
     });
 
-    it('should return null when no instances available', async () => {
-      vi.mocked(mockInstanceManager.list).mockResolvedValueOnce([]);
+    await registry.removeInstance(instance.id);
 
-      const result = await registry.selectBestInstance('service1');
+    expect(mockHealthChecker.stopMonitoring).toHaveBeenCalledWith(instance.id);
+    expect(store.getInstance(instance.id)).toBeUndefined();
+    expect(store.getHealth(instance.id)).toBeUndefined();
+    expect(store.getMetrics(instance.id)).toBeUndefined();
+  });
 
-      expect(result).toBeNull();
+  it('selectBestInstance filters by template and does not trigger probes', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2020-01-01T00:00:00.000Z'));
+
+    const templateA = makeTemplate('svc-a');
+    const templateB = makeTemplate('svc-b');
+    vi.mocked(mockTemplateManager.get).mockImplementation(async (name: string) => (name === 'svc-b' ? templateB : templateA));
+
+    const i1 = await registry.createInstance('svc-a');
+    vi.advanceTimersByTime(1);
+    const i2 = await registry.createInstance('svc-a');
+    vi.advanceTimersByTime(1);
+    await registry.createInstance('svc-b');
+
+    vi.mocked(mockLoadBalancer.selectInstance).mockImplementation((instances: ServiceInstance[]) => instances[0] ?? null);
+    (mockHealthChecker.checkHealth as any).mockImplementation(() => {
+      throw new Error('probe should not run');
     });
 
-    it('should filter instances by service name', async () => {
-      const instances = [
-        { id: 'instance-1', config: { name: 'service1' } },
-        { id: 'instance-2', config: { name: 'service2' } }
-      ] as ServiceInstance[];
+    const selected = await registry.selectBestInstance('svc-a');
 
-      const filteredInstances = [instances[0]];
-      const selectedInstance = instances[0];
+    expect(selected?.id).toBe(i1.id);
+    expect(mockLoadBalancer.selectInstance).toHaveBeenCalledWith([i1, i2], 'performance');
+    expect(mockHealthChecker.checkHealth).not.toHaveBeenCalled();
+  });
 
-      vi.mocked(mockInstanceManager.list).mockResolvedValueOnce(instances);
-      vi.mocked(mockLoadBalancer.selectInstance).mockResolvedValueOnce(selectedInstance);
-
-      await registry.selectBestInstance('service1');
-
-      expect(mockLoadBalancer.selectInstance).toHaveBeenCalledWith(filteredInstances, 'performance');
+  it('getRegistryStats does not trigger probes (reads health from store)', async () => {
+    const template = makeTemplate('svc-a');
+    vi.mocked(mockTemplateManager.list).mockResolvedValueOnce([template]);
+    vi.mocked(mockTemplateManager.get).mockResolvedValue(template);
+    (mockHealthChecker.checkHealth as any).mockImplementation(() => {
+      throw new Error('probe should not run');
     });
 
-    it('should use custom strategy', async () => {
-      const instances = [{ id: 'instance-1', config: { name: 'service1' } }] as ServiceInstance[];
+    const instance = await registry.createInstance('svc-a');
+    const store = (registry as any).store;
+    store.updateHealth(instance.id, { healthy: true, timestamp: new Date() });
 
-      vi.mocked(mockInstanceManager.list).mockResolvedValueOnce(instances);
-      vi.mocked(mockLoadBalancer.selectInstance).mockResolvedValueOnce(instances[0]);
+    const stats = await registry.getRegistryStats();
+    expect(stats.totalTemplates).toBe(1);
+    expect(stats.totalInstances).toBe(1);
+    expect(stats.healthyInstances).toBe(1);
+    expect(mockHealthChecker.checkHealth).not.toHaveBeenCalled();
+  });
 
-      await registry.selectBestInstance('service1', 'performance');
-
-      expect(mockLoadBalancer.selectInstance).toHaveBeenCalledWith(instances, 'performance');
+  it('selectInstance does not trigger probes (falls back when no cached health)', async () => {
+    const template = makeTemplate('svc-a');
+    vi.mocked(mockTemplateManager.get).mockResolvedValue(template);
+    (mockHealthChecker.checkHealth as any).mockImplementation(() => {
+      throw new Error('probe should not run');
     });
+    vi.mocked(mockLoadBalancer.selectInstance).mockImplementation((instances: ServiceInstance[]) => instances[0] ?? null);
+
+    const instance = await registry.createInstance('svc-a');
+    const selected = await registry.selectInstance('svc-a');
+
+    expect(selected?.id).toBe(instance.id);
+    expect(mockHealthChecker.checkHealth).not.toHaveBeenCalled();
   });
 });

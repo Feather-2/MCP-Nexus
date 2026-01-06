@@ -32,6 +32,7 @@ export class SlidingWindowRateLimiter {
 
     if (cleanupIntervalMs > 0) {
       this.cleanupTimer = setInterval(() => this.cleanup(), cleanupIntervalMs);
+      (this.cleanupTimer as any).unref?.();
     }
   }
 

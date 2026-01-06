@@ -1,4 +1,12 @@
 import { defineConfig } from 'vitest/config';
+import os from 'os';
+import path from 'path';
+
+const coverageReportsDirectory =
+  process.env.VITEST_COVERAGE_DIR ??
+  (process.platform === 'linux' && process.cwd().startsWith('/mnt/')
+    ? path.join(os.tmpdir(), 'pb-mcpgateway-coverage')
+    : 'coverage');
 
 export default defineConfig({
   resolve: {
@@ -12,6 +20,8 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
+      reportsDirectory: coverageReportsDirectory,
+      include: ['src/**'],
       exclude: [
         '**/*.test.ts',
         '**/dist/**',

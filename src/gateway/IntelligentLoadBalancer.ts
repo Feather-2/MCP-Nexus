@@ -1,40 +1,103 @@
 import { ServiceInstance, RoutingStrategy, Logger } from '../types/index.js';
+import type { ServiceMetrics, ServiceObservationStore } from './service-state.js';
 
-type InstanceMetrics = {
-  requestCount: number;
-  errorCount: number;
-  totalResponseTime: number;
-  lastRequestTime: Date;
-};
+type MetricsStore = Pick<ServiceObservationStore, 'getMetrics' | 'updateMetrics' | 'removeMetrics' | 'listInstances'>;
+
+function updateMetrics(existing: ServiceMetrics | undefined, serviceId: string, responseTime: number, success: boolean): ServiceMetrics {
+  const prevCount = existing?.requestCount ?? 0;
+  const nextCount = prevCount + 1;
+
+  const prevErr = existing?.errorCount ?? 0;
+  const nextErr = prevErr + (success ? 0 : 1);
+
+  const prevAvg = existing?.avgResponseTime ?? 0;
+  const nextAvg =
+    Number.isFinite(responseTime) && responseTime >= 0 ? (prevAvg * prevCount + responseTime) / nextCount : prevAvg;
+
+  const now = new Date();
+  return {
+    serviceId,
+    requestCount: nextCount,
+    errorCount: nextErr,
+    avgResponseTime: nextAvg,
+    addedAt: existing?.addedAt ?? now,
+    lastRequestTime: now
+  };
+}
 
 export class IntelligentLoadBalancer {
-  /**
-   * In-memory metrics snapshot per instance.
-   * Note: Node is single-threaded, but we still treat entries as immutable to avoid accidental
-   * shared-object mutation if references escape (and to ease future async/remote metric backends).
-   */
-  private instanceMetrics = new Map<string, InstanceMetrics>();
+  private readonly warmupDurationMs: number;
+  private rrCursorByKey = new Map<string, number>();
 
-  constructor(private logger: Logger) {}
+  constructor(
+    private logger: Logger,
+    private store: MetricsStore,
+    options?: { warmupDurationMs?: number }
+  ) {
+    const configured = options?.warmupDurationMs;
+    this.warmupDurationMs =
+      typeof configured === 'number' && Number.isFinite(configured) && configured > 0 ? configured : 10_000;
+  }
+
+  private nextCursor(key: string): number {
+    const cursor = this.rrCursorByKey.get(key) ?? 0;
+    this.rrCursorByKey.set(key, cursor + 1);
+    return cursor;
+  }
+
+  private pickRoundRobin(key: string, candidates: readonly ServiceInstance[]): ServiceInstance {
+    if (candidates.length === 1) return candidates[0];
+    const stable = [...candidates].sort((a, b) => a.id.localeCompare(b.id));
+    const cursor = this.nextCursor(key);
+    return stable[cursor % stable.length];
+  }
+
+  private computeWarmupFactor(metrics: ServiceMetrics | undefined): number {
+    if (!metrics?.addedAt) return 1;
+    if (!Number.isFinite(this.warmupDurationMs) || this.warmupDurationMs <= 0) return 1;
+
+    const elapsedMs = Date.now() - metrics.addedAt.getTime();
+    if (!Number.isFinite(elapsedMs) || elapsedMs <= 0) return 0;
+
+    const factor = elapsedMs / this.warmupDurationMs;
+    if (factor >= 1) return 1;
+    if (factor <= 0) return 0;
+    return factor;
+  }
 
   addInstance(instance: ServiceInstance): void {
-    if (!this.instanceMetrics.has(instance.id)) {
-      this.instanceMetrics.set(instance.id, {
+    const existing = this.store.getMetrics(instance.id);
+    if (!existing) {
+      const now = new Date();
+      this.store.updateMetrics(instance.id, {
+        serviceId: instance.id,
         requestCount: 0,
         errorCount: 0,
-        totalResponseTime: 0,
-        lastRequestTime: new Date()
+        avgResponseTime: 0,
+        addedAt: now,
+        lastRequestTime: now
       });
+      return;
+    }
+
+    if (!existing.addedAt) {
+      const now = new Date();
+      const addedAt = existing.requestCount > 0 ? new Date(now.getTime() - this.warmupDurationMs) : now;
+      this.store.updateMetrics(instance.id, { ...existing, addedAt });
     }
   }
 
   removeInstance(serviceId: string): void {
-    this.instanceMetrics.delete(serviceId);
+    this.store.removeMetrics(serviceId);
   }
 
   selectInstance(instances: ServiceInstance[], strategy: RoutingStrategy = 'performance'): ServiceInstance | null {
     if (instances.length === 0) {
       return null;
+    }
+
+    for (const instance of instances) {
+      this.addInstance(instance);
     }
 
     if (instances.length === 1) {
@@ -56,61 +119,52 @@ export class IntelligentLoadBalancer {
   }
 
   recordRequest(serviceId: string, responseTime: number, success: boolean): void {
-    const prev = this.instanceMetrics.get(serviceId) || {
-      requestCount: 0,
-      errorCount: 0,
-      totalResponseTime: 0,
-      lastRequestTime: new Date(0)
-    };
-
-    const next: InstanceMetrics = {
-      requestCount: prev.requestCount + 1,
-      errorCount: prev.errorCount + (success ? 0 : 1),
-      totalResponseTime: prev.totalResponseTime + (Number.isFinite(responseTime) ? responseTime : 0),
-      lastRequestTime: new Date()
-    };
-
-    this.instanceMetrics.set(serviceId, next);
+    const prev = this.store.getMetrics(serviceId);
+    const next = updateMetrics(prev, serviceId, responseTime, success);
+    this.store.updateMetrics(serviceId, next);
   }
 
   private selectByPerformance(instances: ServiceInstance[]): ServiceInstance {
     // Select instance with best response time and lowest error rate
-    let bestInstance = instances[0];
-    let bestScore = this.calculatePerformanceScore(bestInstance.id);
+    const EPS = 1e-9;
+    let bestScore = -Infinity;
+    let best: ServiceInstance[] = [];
 
-    for (let i = 1; i < instances.length; i++) {
-      const score = this.calculatePerformanceScore(instances[i].id);
-      if (score > bestScore) {
+    for (const instance of instances) {
+      const score = this.calculatePerformanceScore(instance.id);
+      if (score > bestScore + EPS) {
         bestScore = score;
-        bestInstance = instances[i];
+        best = [instance];
+      } else if (Math.abs(score - bestScore) <= EPS) {
+        best.push(instance);
       }
     }
 
-    return bestInstance;
+    return this.pickRoundRobin('performance', best);
   }
 
   private selectByLoadBalance(instances: ServiceInstance[]): ServiceInstance {
     // Round-robin or least connections
-    let bestInstance = instances[0];
-    let leastRequests = this.getRequestCount(bestInstance.id);
+    let leastRequests = Infinity;
+    let best: ServiceInstance[] = [];
 
-    for (let i = 1; i < instances.length; i++) {
-      const requestCount = this.getRequestCount(instances[i].id);
+    for (const instance of instances) {
+      const requestCount = this.getRequestCount(instance.id);
       if (requestCount < leastRequests) {
         leastRequests = requestCount;
-        bestInstance = instances[i];
+        best = [instance];
+      } else if (requestCount === leastRequests) {
+        best.push(instance);
       }
     }
 
-    return bestInstance;
+    return this.pickRoundRobin('load-balance', best);
   }
 
   private selectByCost(instances: ServiceInstance[]): ServiceInstance {
     // For now, just use round-robin
     // In a real implementation, this would consider API costs, compute costs, etc.
-    const now = Date.now();
-    const index = Math.floor(now / 1000) % instances.length;
-    return instances[index];
+    return this.pickRoundRobin('cost', instances);
   }
 
   private selectByContentAware(instances: ServiceInstance[]): ServiceInstance {
@@ -120,24 +174,27 @@ export class IntelligentLoadBalancer {
   }
 
   private calculatePerformanceScore(serviceId: string): number {
-    const metrics = this.instanceMetrics.get(serviceId);
+    const metrics = this.store.getMetrics(serviceId);
     if (!metrics || metrics.requestCount === 0) {
-      return 1; // New instances get benefit of doubt
+      const warmupFactor = this.computeWarmupFactor(metrics);
+      return warmupFactor; // New instances ramp up linearly during warmup
     }
 
-    const avgResponseTime = metrics.totalResponseTime / metrics.requestCount;
-    const errorRate = metrics.errorCount / metrics.requestCount;
+    const avgResponseTime = metrics.avgResponseTime;
+    const errorRate = metrics.requestCount > 0 ? metrics.errorCount / metrics.requestCount : 0;
     
     // Higher score is better
     // Penalize high response time and error rate
     const responseTimeScore = Math.max(0, 1 - (avgResponseTime / 5000)); // 5s max
     const errorRateScore = Math.max(0, 1 - errorRate);
     
-    return (responseTimeScore + errorRateScore) / 2;
+    const baseScore = (responseTimeScore + errorRateScore) / 2;
+    const warmupFactor = this.computeWarmupFactor(metrics);
+    return baseScore * warmupFactor;
   }
 
   private getRequestCount(serviceId: string): number {
-    const metrics = this.instanceMetrics.get(serviceId);
+    const metrics = this.store.getMetrics(serviceId);
     return metrics?.requestCount || 0;
   }
 
@@ -154,19 +211,17 @@ export class IntelligentLoadBalancer {
       errorCount: number;
       avgResponseTime: number;
       errorRate: number;
-    }> = [];
-
-    for (const [serviceId, metrics] of this.instanceMetrics) {
+      }> = [];
+    const instances = this.store.listInstances();
+    for (const instance of instances) {
+      const metrics = this.store.getMetrics(instance.id);
+      if (!metrics) continue;
       stats.push({
-        serviceId,
+        serviceId: instance.id,
         requestCount: metrics.requestCount,
         errorCount: metrics.errorCount,
-        avgResponseTime: metrics.requestCount > 0 
-          ? metrics.totalResponseTime / metrics.requestCount 
-          : 0,
-        errorRate: metrics.requestCount > 0 
-          ? metrics.errorCount / metrics.requestCount 
-          : 0
+        avgResponseTime: metrics.avgResponseTime,
+        errorRate: metrics.requestCount > 0 ? metrics.errorCount / metrics.requestCount : 0
       });
     }
 

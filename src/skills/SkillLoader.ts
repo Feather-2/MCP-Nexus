@@ -5,6 +5,7 @@ import { access, readdir, readFile, stat } from 'fs/promises';
 import { constants } from 'fs';
 import { parse as parseYaml } from 'yaml';
 import type { Logger } from '../types/index.js';
+import { mergeWithDefaults, validateCapabilities } from '../security/CapabilityManifest.js';
 import type { Skill, SkillMetadata, SkillScope } from './types.js';
 
 export interface SkillLoaderOptions {
@@ -96,6 +97,57 @@ function parseTags(value: unknown): Record<string, string> | undefined {
     out[key] = val;
   }
   return Object.keys(out).length ? out : undefined;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function requireCapabilityKeys(raw: unknown, skillName: string): void {
+  if (!isPlainObject(raw)) {
+    throw new Error(`Skill "${skillName}" capabilities must be an object`);
+  }
+  const requiredTop = ['filesystem', 'network', 'env', 'subprocess', 'resources'];
+  for (const key of requiredTop) {
+    if (!Object.prototype.hasOwnProperty.call(raw, key)) {
+      throw new Error(`Skill "${skillName}" capabilities.${key} is required`);
+    }
+  }
+
+  const fs = (raw as any).filesystem;
+  if (!isPlainObject(fs)) throw new Error(`Skill "${skillName}" capabilities.filesystem must be an object`);
+  for (const key of ['read', 'write']) {
+    if (!Object.prototype.hasOwnProperty.call(fs, key)) {
+      throw new Error(`Skill "${skillName}" capabilities.filesystem.${key} is required`);
+    }
+  }
+
+  const net = (raw as any).network;
+  if (!isPlainObject(net)) throw new Error(`Skill "${skillName}" capabilities.network must be an object`);
+  for (const key of ['allowedHosts', 'allowedPorts']) {
+    if (!Object.prototype.hasOwnProperty.call(net, key)) {
+      throw new Error(`Skill "${skillName}" capabilities.network.${key} is required`);
+    }
+  }
+
+  const env = (raw as any).env;
+  if (!Array.isArray(env)) throw new Error(`Skill "${skillName}" capabilities.env must be an array`);
+
+  const sub = (raw as any).subprocess;
+  if (!isPlainObject(sub)) throw new Error(`Skill "${skillName}" capabilities.subprocess must be an object`);
+  for (const key of ['allowed', 'allowedCommands']) {
+    if (!Object.prototype.hasOwnProperty.call(sub, key)) {
+      throw new Error(`Skill "${skillName}" capabilities.subprocess.${key} is required`);
+    }
+  }
+
+  const res = (raw as any).resources;
+  if (!isPlainObject(res)) throw new Error(`Skill "${skillName}" capabilities.resources must be an object`);
+  for (const key of ['maxMemoryMB', 'maxCpuPercent', 'timeoutMs']) {
+    if (!Object.prototype.hasOwnProperty.call(res, key)) {
+      throw new Error(`Skill "${skillName}" capabilities.resources.${key} is required`);
+    }
+  }
 }
 
 function extractFrontmatterFields(frontmatter: any): {
@@ -319,7 +371,15 @@ export class SkillLoader {
         priority: Number.isFinite(extracted.priority) ? Number(extracted.priority) : 0
       };
 
-      const skill: Skill = { metadata, body };
+      const capabilitiesRaw = (frontmatter as any)?.capabilities;
+      if (capabilitiesRaw === undefined) {
+        throw new Error(`Skill "${name}" capabilities are required`);
+      }
+      requireCapabilityKeys(capabilitiesRaw, name);
+      const capabilities = mergeWithDefaults(capabilitiesRaw as any);
+      validateCapabilities(capabilities);
+
+      const skill: Skill = { metadata, body, capabilities };
       if (this.loadSupportFiles) {
         skill.supportFiles = await this.loadSupportFilesForSkill(path.dirname(skillMdPath));
       }

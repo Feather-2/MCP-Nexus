@@ -1,3 +1,5 @@
+import type { FastifyReply, FastifyRequest } from 'fastify';
+
 export type Stage =
   | 'beforeAgent'
   | 'beforeModel'
@@ -6,11 +8,19 @@ export type Stage =
   | 'afterTool'
   | 'afterAgent';
 
+export interface HttpContext {
+  request: FastifyRequest;
+  reply: FastifyReply;
+}
+
 export interface Context {
   requestId: string;
   sessionId?: string;
   startTime: number;
   metadata: Record<string, unknown>;
+  traceId?: string;
+  signal?: AbortSignal;
+  http?: HttpContext;
 }
 
 export interface State {
@@ -29,4 +39,3 @@ export interface Middleware {
   afterTool?(ctx: Context, state: State): Promise<void>;
   afterAgent?(ctx: Context, state: State): Promise<void>;
 }
-

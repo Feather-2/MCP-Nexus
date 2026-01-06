@@ -2,6 +2,8 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { BaseRouteHandler, RouteContext } from './RouteContext.js';
 import { SkillAuditor, SkillMatcher, SkillRegistry, SkillLoader } from '../../skills/index.js';
+import type { Skill } from '../../skills/types.js';
+import { mergeWithDefaults, validateCapabilities } from '../../security/CapabilityManifest.js';
 
 const ListQuerySchema = z.object({
   q: z.string().optional(),
@@ -32,6 +34,88 @@ const AuditBodySchema = z.object({
   timeoutMsPerTool: z.number().int().positive().max(60000).optional()
 });
 
+const SkillCapabilitiesSchema = z.object({
+  filesystem: z.object({
+    read: z.array(z.string()).optional(),
+    write: z.array(z.string()).optional()
+  }).partial().optional(),
+  network: z.object({
+    allowedHosts: z.array(z.string()).optional(),
+    allowedPorts: z.array(z.union([z.number(), z.string()])).optional()
+  }).partial().optional(),
+  env: z.array(z.string()).optional(),
+  subprocess: z.object({
+    allowed: z.boolean().optional(),
+    allowedCommands: z.array(z.string()).optional()
+  }).partial().optional(),
+  resources: z.object({
+    maxMemoryMB: z.union([z.number(), z.string()]).optional(),
+    maxCpuPercent: z.union([z.number(), z.string()]).optional(),
+    timeoutMs: z.union([z.number(), z.string()]).optional()
+  }).partial().optional()
+}).partial();
+
+const SkillDefinitionSchema = z.object({
+  metadata: z.object({
+    name: z.string().min(1),
+    description: z.string().min(1),
+    shortDescription: z.string().optional(),
+    scope: z.enum(['repo', 'user', 'system', 'remote']).optional(),
+    path: z.string().optional(),
+    keywords: z.array(z.string()).optional(),
+    keywordsAll: z.array(z.string()).optional(),
+    tags: z.record(z.string()).optional(),
+    traits: z.array(z.string()).optional(),
+    allowedTools: z.string().optional(),
+    priority: z.number().optional()
+  }),
+  body: z.string().min(1),
+  capabilities: SkillCapabilitiesSchema.optional(),
+  supportFiles: z.union([
+    z.array(z.object({ path: z.string().min(1), content: z.string() })),
+    z.record(z.string())
+  ]).optional()
+});
+
+function normalizeSupportFiles(input?: z.infer<typeof SkillDefinitionSchema>['supportFiles']): Map<string, string> | undefined {
+  if (!input) return undefined;
+  if (Array.isArray(input)) {
+    const entries = input.map((f) => [String(f.path), String(f.content ?? '')] as const);
+    return new Map(entries);
+  }
+  const record = input as Record<string, string>;
+  return new Map(Object.entries(record).map(([p, c]) => [String(p), String(c ?? '')]));
+}
+
+function buildSkillFromDefinition(input: z.infer<typeof SkillDefinitionSchema>): Skill {
+  const caps = mergeWithDefaults(input.capabilities as any);
+  validateCapabilities(caps);
+
+  const keywords = Array.isArray(input.metadata.keywords) ? input.metadata.keywords.map(String) : [];
+  const keywordsAll = Array.isArray(input.metadata.keywordsAll)
+    ? input.metadata.keywordsAll.map(String)
+    : keywords;
+
+  return {
+    metadata: {
+      name: String(input.metadata.name),
+      description: String(input.metadata.description),
+      shortDescription: input.metadata.shortDescription,
+      path: input.metadata.path ?? '',
+      scope: input.metadata.scope ?? 'remote',
+      keywords,
+      keywordsAll,
+      tags: input.metadata.tags,
+      traits: input.metadata.traits,
+      allowedTools: input.metadata.allowedTools,
+      priority: input.metadata.priority ?? 0
+    },
+    body: String(input.body),
+    capabilities: caps,
+    supportFiles: normalizeSupportFiles(input.supportFiles)
+  };
+}
+
 const MatchBodySchema = z.object({
   input: z.string().min(1),
   maxResults: z.number().int().positive().max(20).optional(),
@@ -46,6 +130,9 @@ export class SkillRoutes extends BaseRouteHandler {
   private readonly auditor: SkillAuditor;
   private readonly supportLoader: SkillLoader;
   private readonly initPromise: Promise<void>;
+  private registryVersion = 0;
+  private matcherIndexVersion = -1;
+  private matcherIndexCache?: ReturnType<SkillMatcher['buildIndex']>;
 
   constructor(ctx: RouteContext) {
     super(ctx);
@@ -72,7 +159,17 @@ export class SkillRoutes extends BaseRouteHandler {
       loadSupportFiles: true
     });
 
-    this.initPromise = this.registry.reload();
+    this.initPromise = this.registry.reload().then(() => {
+      this.registryVersion += 1;
+    });
+  }
+
+  private getMatcherIndex(): ReturnType<SkillMatcher['buildIndex']> {
+    if (this.matcherIndexCache && this.matcherIndexVersion === this.registryVersion) return this.matcherIndexCache;
+    const index = this.matcher.buildIndex(this.registry.all());
+    this.matcherIndexCache = index;
+    this.matcherIndexVersion = this.registryVersion;
+    return index;
   }
 
   setupRoutes(): void {
@@ -147,6 +244,8 @@ export class SkillRoutes extends BaseRouteHandler {
       try {
         await this.initPromise;
         const skill = await this.registry.register(body);
+        this.registryVersion += 1;
+        this.matcherIndexCache = undefined;
         reply.send({ success: true, skill: { metadata: skill.metadata } });
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to register skill';
@@ -160,6 +259,10 @@ export class SkillRoutes extends BaseRouteHandler {
       try {
         await this.initPromise;
         const deleted = await this.registry.delete(params.name);
+        if (deleted) {
+          this.registryVersion += 1;
+          this.matcherIndexCache = undefined;
+        }
         reply.send({ success: true, deleted });
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to delete skill';
@@ -168,15 +271,33 @@ export class SkillRoutes extends BaseRouteHandler {
     });
 
     server.post('/api/skills/audit', async (request: FastifyRequest, reply: FastifyReply) => {
-      let body: z.infer<typeof AuditBodySchema>;
       try {
-        body = AuditBodySchema.parse((request.body as any) || {});
-      } catch (e) {
-        const err = e as z.ZodError;
-        return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
-      }
+        const raw = (request.body as any) || {};
 
-      try {
+        const isDefinition =
+          raw &&
+          typeof raw === 'object' &&
+          raw.metadata &&
+          typeof raw.metadata === 'object' &&
+          typeof raw.body === 'string';
+
+        if (isDefinition) {
+          const def = SkillDefinitionSchema.parse(raw);
+          let skill: Skill;
+          try {
+            skill = buildSkillFromDefinition(def);
+          } catch (e: any) {
+            return this.respondError(reply, 400, e?.message || 'Invalid skill definition', {
+              code: 'BAD_REQUEST',
+              recoverable: true
+            });
+          }
+          const result = await this.auditor.auditSecurity(skill);
+          reply.send({ success: true, result });
+          return;
+        }
+
+        const body = AuditBodySchema.parse(raw);
         await this.initPromise;
         const skill = this.registry.get(body.name);
         if (!skill) {
@@ -186,6 +307,9 @@ export class SkillRoutes extends BaseRouteHandler {
         const result = await this.auditor.auditSkill(skill, { dryRun: body.dryRun, timeoutMsPerTool: body.timeoutMsPerTool });
         reply.send({ success: true, result });
       } catch (error) {
+        if (error instanceof z.ZodError) {
+          return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: error.errors });
+        }
         const message = error instanceof Error ? error.message : 'Failed to audit skill';
         return this.respondError(reply, 500, message, { code: 'SKILL_AUDIT_FAILED' });
       }
@@ -202,7 +326,7 @@ export class SkillRoutes extends BaseRouteHandler {
 
       try {
         await this.initPromise;
-        const matches = this.matcher.match(body.input, this.registry.all(), {
+        const matches = this.matcher.match(body.input, this.getMatcherIndex(), {
           maxResults: body.maxResults,
           minScore: body.minScore
         });
@@ -235,4 +359,3 @@ export class SkillRoutes extends BaseRouteHandler {
     });
   }
 }
-

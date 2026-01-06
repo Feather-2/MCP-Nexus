@@ -73,7 +73,8 @@ describe('HttpApiServer - SSE CORS and Rate Limit', () => {
     expect(res.statusCode).toBe(200);
     // Second with same key should be 429
     res = await server.inject({ method: 'GET', url: '/api/logs', headers: { 'x-api-key': 'A-key-123' } });
-    expect([429, 200]).toContain(res.statusCode); // allow slight flakiness if plugin is lenient in inject
+    expect(res.statusCode).toBe(429);
+    expect(res.json().error?.code).toBe('RATE_LIMITED');
     // Another key B - should be allowed separately
     const resB = await server.inject({ method: 'GET', url: '/api/logs', headers: { 'x-api-key': 'B-key-456' } });
     expect(resB.statusCode).toBe(200);
@@ -83,6 +84,7 @@ describe('HttpApiServer - SSE CORS and Rate Limit', () => {
     const res1 = await server.inject({ method: 'GET', url: '/api/logs' });
     expect(res1.statusCode).toBe(200);
     const res2 = await server.inject({ method: 'GET', url: '/api/logs' });
-    expect([429, 200]).toContain(res2.statusCode);
+    expect(res2.statusCode).toBe(429);
+    expect(res2.json().error?.code).toBe('RATE_LIMITED');
   });
 });

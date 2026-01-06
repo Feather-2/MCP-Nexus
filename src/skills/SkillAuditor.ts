@@ -1,5 +1,10 @@
 import type { GatewayConfig, Logger, McpServiceConfig } from '../types/index.js';
 import { applyGatewaySandboxPolicy } from '../security/SandboxPolicy.js';
+import { AuditPipeline, type AiAnalyzer, type AuditResult as SecurityAuditResult, type BehaviorAnalyzer } from '../security/AuditPipeline.js';
+import { HardRuleEngine } from '../security/HardRuleEngine.js';
+import { RiskScorer } from '../security/RiskScorer.js';
+import { EntropyAnalyzer } from '../security/analyzers/EntropyAnalyzer.js';
+import { PermissionAnalyzer } from '../security/analyzers/PermissionAnalyzer.js';
 import type { ProtocolAdaptersImpl } from '../adapters/ProtocolAdaptersImpl.js';
 import type { AuditResult, Skill } from './types.js';
 
@@ -12,6 +17,9 @@ export interface SkillAuditorOptions {
   getGatewayConfig: () => GatewayConfig;
   templates: TemplateProvider;
   protocolAdapters?: ProtocolAdaptersImpl;
+  auditPipeline?: AuditPipeline;
+  aiAuditor?: AiAnalyzer;
+  behaviorAnalyzer?: BehaviorAnalyzer;
 }
 
 function parseAllowedTools(spec?: string): string[] {
@@ -33,7 +41,24 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
 }
 
 export class SkillAuditor {
-  constructor(private opts: SkillAuditorOptions) {}
+  private readonly pipeline: AuditPipeline;
+
+  constructor(private opts: SkillAuditorOptions) {
+    this.pipeline =
+      opts.auditPipeline ??
+      new AuditPipeline({
+        hardRuleEngine: new HardRuleEngine(),
+        entropyAnalyzer: new EntropyAnalyzer(),
+        permissionAnalyzer: new PermissionAnalyzer(),
+        riskScorer: new RiskScorer(),
+        aiAuditor: opts.aiAuditor,
+        behaviorAnalyzer: opts.behaviorAnalyzer
+      });
+  }
+
+  async auditSecurity(skill: Skill): Promise<SecurityAuditResult> {
+    return this.pipeline.audit(skill);
+  }
 
   async auditSkill(skill: Skill, options?: { dryRun?: boolean; timeoutMsPerTool?: number }): Promise<AuditResult> {
     const errors: string[] = [];
@@ -76,6 +101,12 @@ export class SkillAuditor {
     }
 
     const result: AuditResult = { passed: errors.length === 0, errors, warnings };
+
+    try {
+      result.security = await this.auditSecurity(skill);
+    } catch (e: any) {
+      warnings.push(`Security audit failed: ${e?.message || String(e)}`);
+    }
 
     const dryRun = Boolean(options?.dryRun);
     if (!dryRun || !result.passed) return result;

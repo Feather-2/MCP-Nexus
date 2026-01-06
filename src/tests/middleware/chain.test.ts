@@ -236,4 +236,76 @@ describe('MiddlewareChain', () => {
       expect(state.error).toBeInstanceOf(Error);
     }
   });
+
+  it('short-circuits when an AbortSignal is triggered', async () => {
+    const controller = new AbortController();
+    const calls: string[] = [];
+
+    const mw1: Middleware = {
+      name: 'mw1',
+      beforeAgent: async () => {
+        calls.push('mw1');
+        await new Promise<void>(() => {});
+      }
+    };
+
+    const mw2: Middleware = {
+      name: 'mw2',
+      beforeAgent: async () => {
+        calls.push('mw2');
+      }
+    };
+
+    const chain = new MiddlewareChain([mw1, mw2]);
+    const ctx = { ...createContext(), signal: controller.signal } as any;
+    const state = createState();
+
+    const p = chain.execute('beforeAgent', ctx, state);
+    controller.abort('stop');
+
+    await expect(p).rejects.toThrow(/aborted/i);
+    expect(calls).toEqual(['mw1']);
+    expect(state.aborted).toBe(true);
+
+    const err = state.error;
+    expect(err).toBeInstanceOf(Error);
+    if (err instanceof Error) {
+      const cause = (err as { cause?: unknown }).cause;
+      expect(cause).toBeInstanceOf(Error);
+      if (cause instanceof Error) {
+        expect(cause.name).toBe('AbortError');
+      }
+    }
+  });
+
+  it('uses a total stage timeout budget across middleware', async () => {
+    vi.useFakeTimers();
+
+    const calls: string[] = [];
+    const mw1: Middleware = {
+      name: 'mw1',
+      beforeAgent: async () => {
+        calls.push('mw1');
+        await new Promise<void>((resolve) => setTimeout(resolve, 6));
+      }
+    };
+
+    const mw2: Middleware = {
+      name: 'mw2',
+      beforeAgent: async () => {
+        calls.push('mw2');
+        await new Promise<void>((resolve) => setTimeout(resolve, 6));
+      }
+    };
+
+    const chain = new MiddlewareChain([mw1, mw2], { stageTimeoutMs: { beforeAgent: 10 } });
+    const ctx = createContext();
+    const state = createState();
+
+    const run = chain.execute('beforeAgent', ctx, state);
+    const assertion = expect(run).rejects.toThrow(/timed out/i);
+    await vi.advanceTimersByTimeAsync(11);
+    await assertion;
+    expect(calls).toEqual(['mw1', 'mw2']);
+  });
 });

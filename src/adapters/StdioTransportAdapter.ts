@@ -3,6 +3,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { TransportAdapter, McpServiceConfig, McpMessage, Logger, McpVersion } from '../types/index.js';
 import { EventEmitter } from 'events';
+import { JsonRpcStreamParser } from '../core/JsonRpcStreamParser.js';
 
 function stripNpmVersion(spec: string): string {
   const trimmed = spec.trim();
@@ -85,6 +86,14 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
 
   private process: ChildProcess | null = null;
   private connected = false;
+  private readonly stdoutParser = new JsonRpcStreamParser<McpMessage>({
+    onError: (error, context) => {
+      this.logger.warn(`Failed to parse stdio JSON-RPC frame`, {
+        error: String(error?.message || error),
+        rawLength: context.raw?.length
+      });
+    }
+  });
   private messageQueue: McpMessage[] = [];
   private responseCallbacks = new Map<string | number, {
     resolve: (value: McpMessage) => void;
@@ -365,6 +374,7 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
 
       this.connected = false;
       this.process = null;
+      this.stdoutParser.reset();
       this.logger.info(`Stdio adapter disconnected for ${this.config.name}`);
     } catch (error) {
       this.logger.error(`Error disconnecting stdio adapter:`, error);
@@ -484,25 +494,12 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
 
     // Handle stdout messages
     if (this.process.stdout) {
-      let buffer = '';
-
+      this.stdoutParser.reset();
       this.process.stdout.on('data', (data) => {
-        buffer += data.toString();
-
-        // Process complete JSON messages (newline-delimited)
-        let newlineIndex;
-        while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
-          const messageStr = buffer.slice(0, newlineIndex).trim();
-          buffer = buffer.slice(newlineIndex + 1);
-
-          if (messageStr) {
-            try {
-              const message = JSON.parse(messageStr) as McpMessage;
-              this.handleMessage(message);
-            } catch (error) {
-              this.logger.warn(`Failed to parse message:`, { messageStr, error });
-            }
-          }
+        const messages = this.stdoutParser.push(data);
+        for (const message of messages) {
+          if (!message || typeof message !== 'object') continue;
+          this.handleMessage(message);
         }
       });
     }

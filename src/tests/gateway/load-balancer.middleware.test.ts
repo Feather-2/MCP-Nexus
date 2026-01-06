@@ -99,8 +99,22 @@ describe('LoadBalancerMiddleware', () => {
     mgr.setInstance(makeInstance('b', 'svc-a'));
     mgr.updateHealth('a', { healthy: true, timestamp: new Date() });
     mgr.updateHealth('b', { healthy: true, timestamp: new Date() });
-    mgr.updateMetrics('a', { serviceId: 'a', requestCount: 5, errorCount: 0, avgResponseTime: 10, lastRequestTime: new Date() });
-    mgr.updateMetrics('b', { serviceId: 'b', requestCount: 1, errorCount: 0, avgResponseTime: 10, lastRequestTime: new Date() });
+    mgr.updateMetrics('a', {
+      serviceId: 'a',
+      requestCount: 5,
+      errorCount: 0,
+      avgResponseTime: 10,
+      addedAt: new Date(),
+      lastRequestTime: new Date()
+    });
+    mgr.updateMetrics('b', {
+      serviceId: 'b',
+      requestCount: 1,
+      errorCount: 0,
+      avgResponseTime: 10,
+      addedAt: new Date(),
+      lastRequestTime: new Date()
+    });
 
     const mw = new LoadBalancerMiddleware(mgr, { strategy: 'least-conn' });
     const ctx = makeCtx({ templateId: 'svc-a' });
@@ -186,7 +200,14 @@ describe('LoadBalancerMiddleware', () => {
     const mgr = new ServiceStateManager();
     const mw = new LoadBalancerMiddleware(mgr);
 
-    mgr.updateMetrics('a', { serviceId: 'a', requestCount: 1, errorCount: 0, avgResponseTime: 99, lastRequestTime: new Date() });
+    mgr.updateMetrics('a', {
+      serviceId: 'a',
+      requestCount: 1,
+      errorCount: 0,
+      avgResponseTime: 99,
+      addedAt: new Date(),
+      lastRequestTime: new Date()
+    });
 
     const state = makeState();
     state.values.set(SELECTED_INSTANCE_ID_STATE_KEY, 'a');
@@ -252,8 +273,22 @@ describe('LoadBalancerMiddleware', () => {
     mgr.setInstance(makeInstance('b', 'svc-a'));
     mgr.updateHealth('a', { healthy: true, timestamp: new Date() });
     mgr.updateHealth('b', { healthy: true, timestamp: new Date() });
-    mgr.updateMetrics('a', { serviceId: 'a', requestCount: 1, errorCount: 0, avgResponseTime: 10, lastRequestTime: new Date() });
-    mgr.updateMetrics('b', { serviceId: 'b', requestCount: 1, errorCount: 0, avgResponseTime: 10, lastRequestTime: new Date() });
+    mgr.updateMetrics('a', {
+      serviceId: 'a',
+      requestCount: 1,
+      errorCount: 0,
+      avgResponseTime: 10,
+      addedAt: new Date(),
+      lastRequestTime: new Date()
+    });
+    mgr.updateMetrics('b', {
+      serviceId: 'b',
+      requestCount: 1,
+      errorCount: 0,
+      avgResponseTime: 10,
+      addedAt: new Date(),
+      lastRequestTime: new Date()
+    });
 
     const mw = new LoadBalancerMiddleware(mgr, { strategy: 'least-conn' });
     const state = makeState();

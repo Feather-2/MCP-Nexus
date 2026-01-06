@@ -512,6 +512,7 @@ export interface LoadBalancerMetrics {
   requestCount: number;
   errorCount: number;
   avgResponseTime: number;
+  addedAt: Date;
   lastRequestTime: Date;
 }
 

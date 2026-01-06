@@ -12,16 +12,13 @@ import { AuthenticationLayerImpl } from './auth/AuthenticationLayerImpl.js';
 import { GatewayRouterImpl } from './router/GatewayRouterImpl.js';
 import { ProtocolAdaptersImpl } from './adapters/ProtocolAdaptersImpl.js';
 import { ConfigManagerImpl } from './config/ConfigManagerImpl.js';
-import { SecurityMiddleware } from './middleware/SecurityMiddleware.js';
 import { HttpApiServer } from './server/HttpApiServer.js';
 import { PinoLogger } from './utils/PinoLogger.js';
 import { EventEmitter } from 'events';
-import { join } from 'path';
 import { OrchestratorManager, OrchestratorStatus } from './orchestrator/OrchestratorManager.js';
-import { startOpenTelemetry, shutdownOpenTelemetry } from './observability/otel.js';
+import { GatewayBootstrapper } from './bootstrap/GatewayBootstrapper.js';
 
 export class PbMcpGateway extends EventEmitter {
-  private config: GatewayConfig;
   private logger: Logger;
   private configManager: ConfigManagerImpl;
   private protocolAdapters: ProtocolAdaptersImpl;
@@ -30,52 +27,25 @@ export class PbMcpGateway extends EventEmitter {
   private router: GatewayRouterImpl;
   private httpServer: HttpApiServer;
   private orchestratorManager: OrchestratorManager;
+  private readonly bootstrapper: GatewayBootstrapper;
   private orchestratorStatus: OrchestratorStatus | null = null;
   private _isStarted = false;
 
-  constructor(configPath?: string, logger?: Logger) {
+  constructor(configPath?: string, logger?: Logger, bootstrapper?: GatewayBootstrapper) {
     super();
 
-    // Set up logger
-    this.logger = logger || new PinoLogger({ level: 'info' });
+    this.bootstrapper = bootstrapper ?? new GatewayBootstrapper({ configPath, logger });
+    const runtime = this.bootstrapper.bootstrap();
 
-    // Initialize config manager
-    const defaultConfigPath = configPath || join(process.cwd(), 'config', 'gateway.json');
-    // Ensure ServiceTemplateManager uses the same templates directory as ConfigManager
-    try {
-      const templatesDir = join(process.cwd(), 'config', 'templates');
-      process.env.PB_TEMPLATES_DIR = templatesDir;
-    } catch (error) {
-      this.logger.warn('Failed to set templates directory:', error);
-    }
-    this.configManager = new ConfigManagerImpl(defaultConfigPath, this.logger);
-    this.orchestratorManager = new OrchestratorManager(defaultConfigPath, this.logger);
+    this.logger = runtime.logger;
+    this.configManager = runtime.configManager;
+    this.protocolAdapters = runtime.protocolAdapters;
+    this._serviceRegistry = runtime.serviceRegistry;
+    this.authLayer = runtime.authLayer;
+    this.router = runtime.router;
+    this.httpServer = runtime.httpServer;
+    this.orchestratorManager = runtime.orchestratorManager;
 
-    // Initialize default config
-    this.config = this.configManager.getConfig();
-
-    // Initialize core components
-    this.protocolAdapters = new ProtocolAdaptersImpl(this.logger, () => this.config);
-    this._serviceRegistry = new ServiceRegistryImpl(this.logger);
-    this.authLayer = new AuthenticationLayerImpl(this.config, this.logger);
-    this.router = new GatewayRouterImpl(this.logger, this.config.loadBalancingStrategy);
-    this.httpServer = new HttpApiServer(
-      this.config,
-      this.logger,
-      this.configManager,
-      {
-        serviceRegistry: this._serviceRegistry,
-        authLayer: this.authLayer,
-        router: this.router,
-        protocolAdapters: this.protocolAdapters
-      }
-    );
-    this.httpServer.setOrchestratorManager(this.orchestratorManager);
-
-    // Register Security Middleware
-    this.httpServer.addMiddleware(new SecurityMiddleware());
-
-    this.registerHealthProbe();
     this.setupEventHandlers();
   }
 
@@ -94,86 +64,16 @@ export class PbMcpGateway extends EventEmitter {
     }
 
     try {
-      await startOpenTelemetry(this.logger, { serviceName: 'pb-mcpgateway' });
-      this.logger.info('Starting PB MCP Nexus...');
-
-      // Load configuration
-      this.config = await this.configManager.loadConfig();
-      this.logger.info('Configuration loaded', {
-        authMode: this.config.authMode,
-        port: this.config.port,
-        host: this.config.host
-      });
-
-      // Load orchestrator configuration
-      const orchestratorConfig = await this.orchestratorManager.loadConfig();
-      this.orchestratorStatus = this.orchestratorManager.getStatus();
-      if (this.orchestratorStatus.enabled) {
-        this.logger.info('Orchestrator enabled', {
-          mode: orchestratorConfig.mode,
-          subagentsDir: this.orchestratorStatus.subagentsDir
-        });
-      } else {
-        this.logger.info('Orchestrator disabled', {
-          reason: this.orchestratorStatus.reason || 'disabled by configuration'
-        });
-      }
-      this.httpServer.updateOrchestratorStatus(this.orchestratorStatus);
-
-      // Load service templates
-      await this.configManager.loadTemplates();
-      const templates = this.configManager.getLoadedTemplates();
-      this.logger.info(`Loaded ${templates.length} service templates`);
-
-      // Register templates with service registry
-      for (const template of templates) {
-        // Convert ServiceTemplate to McpServiceConfig
-        const serviceConfig: McpServiceConfig = {
-          name: template.name,
-          version: template.version,
-          transport: template.transport,
-          command: template.command,
-          args: template.args,
-          env: template.env,
-          workingDirectory: template.workingDirectory,
-          timeout: template.timeout ?? 30000, // Provide default
-          retries: template.retries ?? 3, // Provide default
-          healthCheck: template.healthCheck,
-          // Preserve extended fields when templates are authored via API / disk (defense-in-depth)
-          container: (template as any).container,
-          security: (template as any).security
-        };
-        await this._serviceRegistry.registerTemplate(serviceConfig);
-      }
-
-      // Start HTTP API server (skip in test environments)
-      const isTestEnv = Boolean(process.env.VITEST) || process.env.NODE_ENV === 'test' || process.env.DISABLE_HTTP_SERVER === '1';
-      if (!isTestEnv) {
-        await this.httpServer.start();
-      } else {
-        this.logger.debug?.('HTTP server disabled in test environment');
-      }
+      const result = await this.bootstrapper.start();
+      this.orchestratorStatus = result.orchestratorStatus;
 
       // Mark as started
       this._isStarted = true;
 
-      this.logger.info('PB MCP Nexus started successfully', {
-        port: this.config.port,
-        host: this.config.host,
-        authMode: this.config.authMode,
-        templates: templates.length
-      });
-
       this.emit('started', {
-        config: this.config,
-        templatesCount: templates.length
+        config: result.config,
+        templatesCount: result.templatesCount
       });
-
-      // Start configuration watching if enabled
-      if (this.config.enableMetrics) {
-        this.configManager.startConfigWatch();
-      }
-
     } catch (error) {
       this.logger.error('Failed to start gateway:', error);
       this.emit('error', error);
@@ -194,25 +94,11 @@ export class PbMcpGateway extends EventEmitter {
     }
 
     try {
-      this.logger.info('Stopping PB MCP Nexus...');
-
-      // Stop configuration watching
-      this.configManager.stopConfigWatch();
-
-      // Stop HTTP server
-      await this.httpServer.stop();
-
-      // Stop all services
-      const services = await this._serviceRegistry.listServices();
-      for (const service of services) {
-        await this._serviceRegistry.stopService(service.id);
-      }
+      await this.bootstrapper.stop();
 
       this._isStarted = false;
 
-      this.logger.info('PB MCP Nexus stopped successfully');
       this.emit('stopped');
-      await shutdownOpenTelemetry(this.logger);
 
     } catch (error) {
       this.logger.error('Error stopping gateway:', error);
@@ -299,7 +185,7 @@ export class PbMcpGateway extends EventEmitter {
 
   async updateConfig(updates: Partial<GatewayConfig>): Promise<GatewayConfig> {
     const newConfig = await this.configManager.updateConfig(updates);
-    this.config = newConfig;
+    this.bootstrapper.setCurrentConfig(newConfig);
 
     // Update components with new config
     if (updates.loadBalancingStrategy) {
@@ -316,7 +202,8 @@ export class PbMcpGateway extends EventEmitter {
 
   async importConfig(configData: string): Promise<void> {
     await this.configManager.importConfig(configData);
-    this.config = this.configManager.getConfig();
+    const config = this.configManager.getConfig();
+    this.bootstrapper.setCurrentConfig(config);
     this.emit('configImported');
   }
 
@@ -511,46 +398,6 @@ export class PbMcpGateway extends EventEmitter {
     }
   }
 
-  /**
-   * Wire a real health probe so ServiceHealthChecker reports correctly
-   * even when HTTP server is disabled in tests.
-   */
-  private registerHealthProbe(): void {
-    try {
-      this._serviceRegistry.setHealthProbe(async (serviceId: string) => {
-        const service = await this._serviceRegistry.getService(serviceId);
-        if (!service) {
-          return { healthy: false, error: 'Service not found', timestamp: new Date() } as any;
-        }
-        if ((service as any).state !== 'running') {
-          return { healthy: false, error: 'Service not running', timestamp: new Date() } as any;
-        }
-        const start = Date.now();
-        try {
-          const adapter = await this.protocolAdapters.createAdapter(service.config);
-          await adapter.connect();
-          try {
-            const msg: any = { jsonrpc: '2.0', id: `health-${Date.now()}`, method: 'tools/list', params: {} };
-            const res = (adapter as any).sendAndReceive ? await (adapter as any).sendAndReceive(msg) : await adapter.send(msg as any);
-            const latency = Date.now() - start;
-            const ok = !!(res && (res as any).result);
-            if (!ok && (res as any)?.error?.message) {
-              try { await this._serviceRegistry.setInstanceMetadata(serviceId, 'lastProbeError', (res as any).error.message); } catch {}
-            }
-            return { healthy: ok, latency, timestamp: new Date() };
-          } finally {
-            await adapter.disconnect();
-          }
-        } catch (e: any) {
-          const errMsg = e?.message || 'probe failed';
-          try { await this._serviceRegistry.setInstanceMetadata(serviceId, 'lastProbeError', errMsg); } catch {}
-          return { healthy: false, error: errMsg, latency: Date.now() - start, timestamp: new Date() } as any;
-        }
-      });
-    } catch (err) {
-      this.logger.warn('Failed to register health probe for gateway registry', err as any);
-    }
-  }
 }
 
 // Factory function for easier instantiation

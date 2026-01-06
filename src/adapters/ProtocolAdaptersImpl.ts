@@ -16,20 +16,71 @@ import { resolveMcpServiceConfigEnvRefs } from '../security/secrets.js';
 export class ProtocolAdaptersImpl implements ProtocolAdapters {
   constructor(private logger: Logger, private getGatewayConfig?: () => GatewayConfig) {}
 
-  async createStdioAdapter(config: McpServiceConfig): Promise<TransportAdapter> {
-    const sandboxed = (config.env as any)?.SANDBOX === 'portable';
-    this.logger.info(`Creating stdio adapter for ${config.name}${sandboxed ? ' [SANDBOX: portable]' : ''}`);
-    return new StdioTransportAdapter(config, this.logger);
+  private prepareConfig(config: McpServiceConfig): { enforced: ReturnType<typeof applyGatewaySandboxPolicy>; effective: McpServiceConfig } {
+    const gwConfig = this.getGatewayConfig?.();
+    const enforced = applyGatewaySandboxPolicy(config, gwConfig);
+    const effective = resolveMcpServiceConfigEnvRefs(enforced.config);
+    if (enforced.applied) {
+      try {
+        this.logger.warn?.('Sandbox policy enforced for service', { name: config.name, reasons: enforced.reasons });
+      } catch { /* ignored */ }
+    }
+    return { enforced, effective };
+  }
+
+  private async createAdapterInternal(config: McpServiceConfig, enforced: ReturnType<typeof applyGatewaySandboxPolicy>): Promise<TransportAdapter> {
+    switch (config.transport) {
+      case 'stdio': {
+        // Detect container sandbox
+        if ((config as any)?.container || (config.env as any)?.SANDBOX === 'container') {
+          this.logger.info(`Creating container-stdio adapter for ${config.name} [SANDBOX: container]`);
+          // Pass global sandbox policy hints to adapter for env/volume validation defaults
+          const sandbox = enforced.policy.container;
+          return new ContainerTransportAdapter(config, this.logger, {
+            allowedVolumeRoots: sandbox.allowedVolumeRoots,
+            envSafePrefixes: sandbox.envSafePrefixes,
+            defaultNetwork: sandbox.defaultNetwork,
+            defaultReadonlyRootfs: sandbox.defaultReadonlyRootfs
+          });
+        }
+
+        const sandboxed = (config.env as any)?.SANDBOX === 'portable';
+        this.logger.info(`Creating stdio adapter for ${config.name}${sandboxed ? ' [SANDBOX: portable]' : ''}`);
+        return new StdioTransportAdapter(config, this.logger);
+      }
+      case 'http':
+        this.logger.debug(`Creating HTTP adapter for ${config.name}`);
+        return new HttpTransportAdapter(config, this.logger);
+      case 'streamable-http':
+        this.logger.debug(`Creating Streamable HTTP adapter for ${config.name}`);
+        return new StreamableHttpAdapter(config, this.logger);
+      default:
+        throw new Error(`Unsupported transport type: ${config.transport}`);
+    }
   }
 
   async createHttpAdapter(config: McpServiceConfig): Promise<TransportAdapter> {
-    this.logger.debug(`Creating HTTP adapter for ${config.name}`);
-    return new HttpTransportAdapter(config, this.logger);
+    const prepared = this.prepareConfig(config);
+    if (prepared.effective.transport !== 'http') {
+      throw new Error(`createHttpAdapter expected transport=http, got ${prepared.effective.transport}`);
+    }
+    return this.createAdapterInternal(prepared.effective, prepared.enforced);
   }
 
   async createStreamableAdapter(config: McpServiceConfig): Promise<TransportAdapter> {
-    this.logger.debug(`Creating Streamable HTTP adapter for ${config.name}`);
-    return new StreamableHttpAdapter(config, this.logger);
+    const prepared = this.prepareConfig(config);
+    if (prepared.effective.transport !== 'streamable-http') {
+      throw new Error(`createStreamableAdapter expected transport=streamable-http, got ${prepared.effective.transport}`);
+    }
+    return this.createAdapterInternal(prepared.effective, prepared.enforced);
+  }
+
+  async createStdioAdapter(config: McpServiceConfig): Promise<TransportAdapter> {
+    const prepared = this.prepareConfig(config);
+    if (prepared.effective.transport !== 'stdio') {
+      throw new Error(`createStdioAdapter expected transport=stdio, got ${prepared.effective.transport}`);
+    }
+    return this.createAdapterInternal(prepared.effective, prepared.enforced);
   }
 
   async detectProtocol(endpoint: string): Promise<TransportType> {
@@ -111,36 +162,7 @@ export class ProtocolAdaptersImpl implements ProtocolAdapters {
 
   // Factory method to create appropriate adapter based on config
   async createAdapter(config: McpServiceConfig): Promise<TransportAdapter> {
-    const gwConfig = this.getGatewayConfig?.();
-    const enforced = applyGatewaySandboxPolicy(config, gwConfig);
-    const effectiveConfig = resolveMcpServiceConfigEnvRefs(enforced.config);
-    if (enforced.applied) {
-      try {
-        this.logger.warn?.('Sandbox policy enforced for service', { name: config.name, reasons: enforced.reasons });
-      } catch { /* ignored */ }
-    }
-
-    switch (effectiveConfig.transport) {
-      case 'stdio':
-        // Detect container sandbox
-        if ((effectiveConfig as any)?.container || (effectiveConfig.env as any)?.SANDBOX === 'container') {
-          this.logger.info(`Creating container-stdio adapter for ${effectiveConfig.name} [SANDBOX: container]`);
-          // Pass global sandbox policy hints to adapter for env/volume validation defaults
-          const sandbox = enforced.policy.container;
-          return new ContainerTransportAdapter(effectiveConfig, this.logger, {
-            allowedVolumeRoots: sandbox.allowedVolumeRoots,
-            envSafePrefixes: sandbox.envSafePrefixes,
-            defaultNetwork: sandbox.defaultNetwork,
-            defaultReadonlyRootfs: sandbox.defaultReadonlyRootfs
-          });
-        }
-        return this.createStdioAdapter(effectiveConfig);
-      case 'http':
-        return this.createHttpAdapter(effectiveConfig);
-      case 'streamable-http':
-        return this.createStreamableAdapter(effectiveConfig);
-      default:
-        throw new Error(`Unsupported transport type: ${effectiveConfig.transport}`);
-    }
+    const prepared = this.prepareConfig(config);
+    return this.createAdapterInternal(prepared.effective, prepared.enforced);
   }
 }

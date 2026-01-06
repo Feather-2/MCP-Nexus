@@ -13,10 +13,13 @@ import {
   ServiceContentAnalysis
 } from '../types/index.js';
 import { EventEmitter } from 'events';
+import { RadixTree } from './RadixTree.js';
 
 export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
   private routingRules: RoutingRule[] = [];
   private routeHandlers = new Map<string, RouteHandler>();
+  private pathRuleIndex = new RadixTree<RoutingRule>();
+  private nonPathRules: RoutingRule[] = [];
   private serviceMetrics = new Map<string, ServiceLoadMetrics>();
   private costMetrics = new Map<string, ServiceCostMetrics>();
   private contentAnalysis = new Map<string, ServiceContentAnalysis>();
@@ -34,6 +37,7 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
   ) {
     super();
     this.initializeDefaultRules();
+    this.rebuildRuleIndex();
     this.startMetricsCollection();
   }
 
@@ -168,6 +172,7 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
     
     // Sort by priority (higher priority first)
     this.routingRules.sort((a, b) => (b.priority || 0) - (a.priority || 0));
+    this.rebuildRuleIndex();
 
     this.logger.info(`Added routing rule: ${normalized.name}`, { rule: normalized });
     this.emit('routingRuleAdded', normalized);
@@ -181,6 +186,7 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
     }
 
     const removedRule = this.routingRules.splice(index, 1)[0];
+    this.rebuildRuleIndex();
     this.logger.info(`Removed routing rule: ${ruleName}`);
     this.emit('routingRuleRemoved', removedRule);
     
@@ -194,12 +200,18 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
 
   disableRoutingRule(ruleName: string): void {
     const rule = this.routingRules.find(r => r.name === ruleName || (r as any).id === ruleName);
-    if (rule) rule.enabled = false;
+    if (rule) {
+      rule.enabled = false;
+      this.rebuildRuleIndex();
+    }
   }
 
   enableRoutingRule(ruleName: string): void {
     const rule = this.routingRules.find(r => r.name === ruleName || (r as any).id === ruleName);
-    if (rule) rule.enabled = true;
+    if (rule) {
+      rule.enabled = true;
+      this.rebuildRuleIndex();
+    }
   }
 
   async updateLoadBalancingStrategy(strategy: LoadBalancingStrategy): Promise<void> {
@@ -275,61 +287,112 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
     this.serviceMetrics.set(serviceId, metrics as any);
   }
 
-  private applyRoutingRules(request: RouteRequest): ServiceInstance[] {
-    let filteredServices = [...request.availableServices];
-    const appliedRules: string[] = [];
+  private rebuildRuleIndex(): void {
+    const tree = new RadixTree<RoutingRule>();
+    const nonPathRules: RoutingRule[] = [];
 
     for (const rule of this.routingRules) {
       if (!rule.enabled) continue;
+      const pattern = this.getRulePathPattern(rule);
+      if (pattern) tree.insert(pattern, rule);
+      else nonPathRules.push(rule);
+    }
 
-      if (this.evaluateCondition(rule.condition, request)) {
-        appliedRules.push(rule.name);
-        
-        switch (rule.action.type) {
-          case 'filter':
-            filteredServices = filteredServices.filter(service => 
-              this.evaluateServiceFilter(rule.action.criteria!, service)
-            );
-            // Apply highest-priority filter only
-            this.logger.debug(`Applied filter rule: ${rule.name}`);
-            return filteredServices;
-            
-          case 'prefer':
-            // Mark preferred services (handled in selection)
-            filteredServices.forEach(service => {
-              if (this.evaluateServiceFilter(rule.action.criteria!, service)) {
-                (service as any)._preferred = true;
-              }
-            });
-            break;
-            
-          case 'reject':
-            filteredServices = filteredServices.filter(service => 
-              !this.evaluateServiceFilter(rule.action.criteria!, service)
-            );
-            break;
-            
-          case 'redirect':
-            if (rule.action.targetServiceGroup) {
-              // This would need integration with service registry to find target services
-              this.logger.info(`Redirect rule applied: ${rule.name}`, { 
-                targetServiceGroup: rule.action.targetServiceGroup 
-              });
+    this.pathRuleIndex = tree;
+    this.nonPathRules = nonPathRules;
+  }
+
+  private getRulePathPattern(rule: RoutingRule): string | null {
+    const condition = (rule as any)?.condition as unknown;
+    if (!condition || typeof condition !== 'object') return null;
+    if (!('pathPattern' in condition)) return null;
+    const value = (condition as any).pathPattern;
+    if (value == null) return null;
+    return String(value);
+  }
+
+  private getCandidateRules(request: RouteRequest): RoutingRule[] {
+    const path = String((request as any).path ?? '');
+    const candidates = [...this.nonPathRules, ...this.pathRuleIndex.match(path)];
+
+    const seen = new Set<RoutingRule>();
+    const unique: RoutingRule[] = [];
+    for (const rule of candidates) {
+      if (seen.has(rule)) continue;
+      seen.add(rule);
+      unique.push(rule);
+    }
+
+    unique.sort((a, b) => (b.priority || 0) - (a.priority || 0));
+    return unique;
+  }
+
+  private getPreferredServiceIds(request: RouteRequest): ReadonlySet<string> | undefined {
+    const value = (request as any)._preferredServiceIds as unknown;
+    return value instanceof Set ? (value as Set<string>) : undefined;
+  }
+
+  private applyRoutingRules(request: RouteRequest): ServiceInstance[] {
+    let filteredServices = [...request.availableServices];
+    const appliedRules: string[] = [];
+    const preferredServiceIds = new Set<string>();
+    const candidateRules = this.getCandidateRules(request);
+    let filterApplied = false;
+
+    for (const rule of candidateRules) {
+      if (!rule.enabled) continue;
+      if (!this.evaluateCondition(rule.condition, request)) continue;
+
+      appliedRules.push(rule.name);
+      if (filterApplied) continue;
+
+      switch (rule.action.type) {
+        case 'filter':
+          filteredServices = filteredServices.filter(service => 
+            this.evaluateServiceFilter(rule.action.criteria!, service)
+          );
+          // Apply highest-priority filter only
+          this.logger.debug(`Applied filter rule: ${rule.name}`);
+          filterApplied = true;
+          break;
+          
+        case 'prefer':
+          // Track preferred services without mutating input objects
+          for (const service of filteredServices) {
+            if (this.evaluateServiceFilter(rule.action.criteria!, service)) {
+              preferredServiceIds.add(service.id);
             }
-            break;
-          case 'allow':
-            // no-op allow
-            break;
-          case 'deny':
-            filteredServices = [];
-            break;
-          case 'balance':
-            // placeholder for future; no-op
-            break;
-        }
+          }
+          break;
+          
+        case 'reject':
+          filteredServices = filteredServices.filter(service => 
+            !this.evaluateServiceFilter(rule.action.criteria!, service)
+          );
+          break;
+          
+        case 'redirect':
+          if (rule.action.targetServiceGroup) {
+            // This would need integration with service registry to find target services
+            this.logger.info(`Redirect rule applied: ${rule.name}`, { 
+              targetServiceGroup: rule.action.targetServiceGroup 
+            });
+          }
+          break;
+        case 'allow':
+          // no-op allow
+          break;
+        case 'deny':
+          filteredServices = [];
+          break;
+        case 'balance':
+          // placeholder for future; no-op
+          break;
       }
     }
 
+    (request as any)._preferredServiceIds = preferredServiceIds;
+    (request as any)._appliedRules = appliedRules;
     this.logger.debug(`Applied ${appliedRules.length} routing rules`, { appliedRules });
     return filteredServices;
   }
@@ -387,7 +450,11 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
         return this.selectRoundRobin(healthyServices);
         
       case 'performance-based':
-        return this.selectPerformanceBased(healthyServices, request.serviceHealthMap);
+        return this.selectPerformanceBased(
+          healthyServices,
+          request.serviceHealthMap,
+          this.getPreferredServiceIds(request)
+        );
         
       case 'cost-optimized':
         return this.selectCostOptimized(healthyServices);
@@ -435,7 +502,11 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
       case 'round-robin':
         return this.selectRoundRobin(healthyServices);
       case 'performance-based':
-        return this.selectPerformanceBased(healthyServices, request.serviceHealthMap);
+        return this.selectPerformanceBased(
+          healthyServices,
+          request.serviceHealthMap,
+          this.getPreferredServiceIds(request)
+        );
       case 'cost-optimized':
         return this.selectCostOptimized(healthyServices);
       case 'content-aware':
@@ -453,7 +524,8 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
 
   private selectPerformanceBased(
     services: ServiceInstance[], 
-    healthMap: Map<string, ServiceHealth>
+    healthMap: Map<string, ServiceHealth>,
+    preferredServiceIds?: ReadonlySet<string>
   ): ServiceInstance {
     // Score services based on performance metrics
     const scoredServices = services.map(service => {
@@ -482,8 +554,8 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
         score += metrics.successRate * 20;
       }
       
-      // Prefer services marked as preferred by routing rules
-      if ((service as any)._preferred) {
+      // Prefer services selected by routing rules without mutating the instance.
+      if (preferredServiceIds?.has(service.id)) {
         score += 25;
       }
       
@@ -653,10 +725,14 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
   }
 
   private getAppliedRules(request: RouteRequest): string[] {
+    const cached = (request as any)._appliedRules as unknown;
+    if (Array.isArray(cached)) return [...cached];
+
     const appliedRules: string[] = [];
     
-    for (const rule of this.routingRules) {
-      if (rule.enabled && this.evaluateCondition(rule.condition, request)) {
+    for (const rule of this.getCandidateRules(request)) {
+      if (!rule.enabled) continue;
+      if (this.evaluateCondition(rule.condition, request)) {
         appliedRules.push(rule.name);
       }
     }
@@ -723,9 +799,10 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
 
   private startMetricsCollection(): void {
     // Periodically update service metrics
-    setInterval(() => {
+    const interval = setInterval(() => {
       this.refreshServiceMetrics();
     }, 30000); // Every 30 seconds
+    (interval as any).unref?.();
   }
 
   private refreshServiceMetrics(serviceId?: string, directMetrics?: any): void {

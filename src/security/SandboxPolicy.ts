@@ -1,5 +1,6 @@
 import path from 'path';
 import type { GatewayConfig, McpServiceConfig } from '../types/index.js';
+import { ExecutableResolver } from './ExecutableResolver.js';
 
 export type NormalizedSecurityProfile = 'dev' | 'default' | 'locked-down';
 export type NormalizedPortableNetworkPolicy = 'full' | 'local-only' | 'blocked';
@@ -142,12 +143,13 @@ function applyPortableSandboxPolicy(template: McpServiceConfig, policy: Normaliz
   if (template.transport !== 'stdio') return { config: template, applied: false };
 
   const cmdBase = basenameCrossPlatform(String((template as any).command || ''));
+  const cmdKey = cmdBase.endsWith('.js') ? cmdBase.slice(0, -3) : cmdBase;
   const args = Array.isArray((template as any).args) ? ([...(template as any).args] as string[]) : [];
   const env = { ...((template as any).env || {}) } as Record<string, string>;
 
   const hasExplicitSandbox = typeof env.SANDBOX === 'string' && env.SANDBOX.length > 0;
-  const isNpx = cmdBase === 'npx';
-  const isNpmExec = cmdBase === 'npm' && args.includes('exec');
+  const isNpx = cmdKey === 'npx' || cmdKey === 'npx-cli';
+  const isNpmExec = (cmdKey === 'npm' || cmdKey === 'npm-cli') && args.includes('exec');
   if (!isNpx && !isNpmExec) return { config: template, applied: false };
 
   let applied = false;
@@ -199,6 +201,21 @@ function applyPortableSandboxPolicy(template: McpServiceConfig, policy: Normaliz
   }
 
   return applied ? { config: { ...template, args, env }, applied } : { config: template, applied: false };
+}
+
+function normalizeStdioExecutableCommand(template: McpServiceConfig, reasons: string[]): McpServiceConfig {
+  if (!template || template.transport !== 'stdio') return template;
+  const command = String((template as any).command || '').trim();
+  if (!command) return template;
+
+  const resolver = new ExecutableResolver({
+    cwd: template.workingDirectory ? path.resolve(String(template.workingDirectory)) : undefined
+  });
+  const resolved = resolver.resolveOrThrow(command);
+  if (resolved.resolvedPath === command) return template;
+
+  reasons.push('sandbox.exec.normalized');
+  return { ...(template as any), command: resolved.resolvedPath } as McpServiceConfig;
 }
 
 export function normalizeSandboxPolicy(gatewayConfig?: GatewayConfig): NormalizedSandboxPolicy {
@@ -280,7 +297,7 @@ function validateVolumesAllowed(template: McpServiceConfig, policy: NormalizedSa
   for (const v of vols) {
     if (!v || !v.hostPath || !v.containerPath) continue;
     const hostResolved = path.resolve(String(v.hostPath));
-    const ok = policy.container.allowedVolumeRoots.some((root) => hostResolved.startsWith(root));
+    const ok = policy.container.allowedVolumeRoots.some((root) => ExecutableResolver.isWithinAllowedRoot(hostResolved, root));
     if (!ok) {
       throw new Error(`Volume hostPath not allowed by policy: ${v.hostPath}`);
     }
@@ -298,60 +315,69 @@ export function applyGatewaySandboxPolicy(template: McpServiceConfig, gatewayCon
     return { config: template, policy, applied: false, reasons };
   }
 
-  // Portable sandbox enforcement (npm/npx) before container quarantine.
-  const portable = applyPortableSandboxPolicy(template, policy, reasons);
-  let next = portable.config;
-  let applied = portable.applied;
-
-  const trustLevel = resolveTrustLevel(next, policy);
+  const trustLevel = resolveTrustLevel(template, policy);
   const requireContainerByProfile = policy.profile === 'locked-down';
   const requireContainerByTrust = policy.container.requiredForUntrusted && trustLevel !== 'trusted';
-  const requireContainerByService = Boolean((next as any)?.security?.requireContainer);
+  const requireContainerByService = Boolean((template as any)?.security?.requireContainer);
   const preferContainer = policy.container.prefer && trustLevel !== 'trusted';
 
   const requireContainer = requireContainerByService || requireContainerByProfile || requireContainerByTrust || preferContainer;
 
-  if (!requireContainer) {
-    return { config: next, policy, applied, reasons };
-  }
+  const requestedSandbox = String(((template as any)?.env as any)?.SANDBOX || '');
+  const requestedContainer = requestedSandbox === 'container' || Boolean((template as any)?.container);
 
-  if (requireContainerByService) reasons.push('service.security.requireContainer');
-  if (requireContainerByProfile) reasons.push(`sandbox.profile=${policy.profile}`);
-  if (requireContainerByTrust) reasons.push(`trustLevel=${trustLevel}`);
-  if (preferContainer) reasons.push('sandbox.container.prefer');
-
-  next = {
-    ...next,
-    env: { ...(next.env || {}), SANDBOX: 'container' },
-    container: { ...((next as any).container || {}) }
-  };
-
-  // Default container params
-  const container: any = (next as any).container || {};
-  if (!container.image) container.image = suggestContainerImage(next);
-  if (typeof container.readonlyRootfs !== 'boolean') {
-    container.readonlyRootfs = policy.container.defaultReadonlyRootfs;
-  }
-
-  const networkPolicy = (next as any)?.security?.networkPolicy as string | undefined;
-  if (networkPolicy === 'blocked' || networkPolicy === 'local-only') {
-    container.network = 'none';
-  } else if (networkPolicy === 'full') {
-    // If explicitly allowed, default to bridge unless configured otherwise.
-    if (!container.network) container.network = policy.container.defaultNetwork === 'none' ? 'bridge' : policy.container.defaultNetwork;
-  } else {
-    // inherit
-    if (!container.network) {
-      // Default to none; trusted services can opt-in to full via security.networkPolicy=full or container.network.
-      container.network = 'none';
+  // If the service will run inside a container, do NOT normalize the inner command to a host realpath.
+  if (requireContainer || requestedContainer) {
+    if (!requireContainer) {
+      // Still validate volumes against global allowlist when a container config is provided.
+      validateVolumesAllowed(template, policy);
+      return { config: template, policy, applied: false, reasons };
     }
+
+    if (requireContainerByService) reasons.push('service.security.requireContainer');
+    if (requireContainerByProfile) reasons.push(`sandbox.profile=${policy.profile}`);
+    if (requireContainerByTrust) reasons.push(`trustLevel=${trustLevel}`);
+    if (preferContainer) reasons.push('sandbox.container.prefer');
+
+    let next: McpServiceConfig = {
+      ...template,
+      env: { ...(template.env || {}), SANDBOX: 'container' },
+      container: { ...((template as any).container || {}) }
+    };
+
+    // Default container params
+    const container: any = (next as any).container || {};
+    if (!container.image) container.image = suggestContainerImage(next);
+    if (typeof container.readonlyRootfs !== 'boolean') {
+      container.readonlyRootfs = policy.container.defaultReadonlyRootfs;
+    }
+
+    const networkPolicy = (next as any)?.security?.networkPolicy as string | undefined;
+    if (networkPolicy === 'blocked' || networkPolicy === 'local-only') {
+      container.network = 'none';
+    } else if (networkPolicy === 'full') {
+      // If explicitly allowed, default to bridge unless configured otherwise.
+      if (!container.network) container.network = policy.container.defaultNetwork === 'none' ? 'bridge' : policy.container.defaultNetwork;
+    } else {
+      // inherit
+      if (!container.network) {
+        // Default to none; trusted services can opt-in to full via security.networkPolicy=full or container.network.
+        container.network = 'none';
+      }
+    }
+
+    (next as any).container = container;
+
+    // Validate volumes against global allowlist (defense-in-depth; adapter will re-check).
+    validateVolumesAllowed(next, policy);
+
+    return { config: next, policy, applied: true, reasons };
   }
 
-  (next as any).container = container;
+  // Host execution path: normalize to absolute realpath, then apply portable sandbox (npm/npx).
+  const normalized = normalizeStdioExecutableCommand(template, reasons);
+  const portable = applyPortableSandboxPolicy(normalized, policy, reasons);
+  const applied = portable.applied || normalized !== template;
 
-  // Validate volumes against global allowlist (defense-in-depth; adapter will re-check).
-  validateVolumesAllowed(next, policy);
-
-  applied = true;
-  return { config: next, policy, applied, reasons };
+  return { config: portable.config, policy, applied, reasons };
 }

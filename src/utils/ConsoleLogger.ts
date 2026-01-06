@@ -1,5 +1,8 @@
 import { Logger } from '../types/index.js';
 
+/**
+ * @deprecated Use PinoLogger instead. This class will be removed in a future version.
+ */
 export class ConsoleLogger implements Logger {
   private logLevel: string;
   private logLevels = {

@@ -1,7 +1,6 @@
 import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
-import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
 import { trace, SpanStatusCode } from '@opentelemetry/api';
 import { fileURLToPath } from 'url';
@@ -13,7 +12,6 @@ import {
   GatewayConfig,
   McpServiceConfig,
   ServiceInstance,
-  AuthRequest,
   RouteRequest,
   ServiceHealth,
   HealthCheckResult,
@@ -53,7 +51,14 @@ import {
   SkillRoutes
 } from './routes/index.js';
 import { Middleware } from '../middleware/types.js';
-import { MiddlewareChain } from '../middleware/chain.js';
+import {
+  MiddlewareChain,
+  MiddlewareTimeoutError,
+  MiddlewareAbortedError,
+  MiddlewareStageError
+} from '../middleware/chain.js';
+import { AuthMiddleware } from '../middleware/AuthMiddleware.js';
+import { RateLimitMiddleware } from '../middleware/RateLimitMiddleware.js';
 
 interface RouteRequestBody {
   method: string;
@@ -84,6 +89,7 @@ export class HttpApiServer {
   private mcpGenerator?: McpGenerator;
   private sandboxStreamClients: Set<FastifyReply> = new Set();
   private middlewares: Middleware[] = [];
+  private readonly middlewareChain: MiddlewareChain;
   // Demo 日志与 SSE 清理定时器
   private demoLogTimer?: ReturnType<typeof setInterval>;
   private sseCleanupTimer?: ReturnType<typeof setInterval>;
@@ -115,9 +121,29 @@ export class HttpApiServer {
     this.serviceRegistry = components?.serviceRegistry || new ServiceRegistryImpl(logger);
     this.authLayer = components?.authLayer || new AuthenticationLayerImpl(config, logger);
     this.router = components?.router || new GatewayRouterImpl(logger, config.loadBalancingStrategy);
-    if (components?.middlewareChain) {
-      (this as any)._componentsMiddlewareChain = components.middlewareChain;
-    }
+    this.middlewareChain = components?.middlewareChain ?? new MiddlewareChain([], {
+      stageTimeoutMs: { beforeAgent: this.config.requestTimeout ?? 0 }
+    });
+
+    // Built-in cross-cutting middleware (migrated from Fastify hooks).
+    const configProvider = {
+      getConfig: () =>
+        typeof (this.configManager as any)?.getConfig === 'function'
+          ? (this.configManager as any).getConfig()
+          : this.config
+    };
+    this.addMiddleware(
+      new RateLimitMiddleware(configProvider, {
+        respondError: this.respondError.bind(this),
+        requiresRateLimit: (req) => req.url.startsWith('/api/') && !req.url.startsWith('/api/health')
+      })
+    );
+    this.addMiddleware(
+      new AuthMiddleware(this.authLayer as any, {
+        respondError: this.respondError.bind(this),
+        requiresAuth: (req) => req.url.startsWith('/api/')
+      })
+    );
 
     this.setupRoutes();
     this.registerApiVersionAliases();
@@ -127,7 +153,15 @@ export class HttpApiServer {
     // Initialize log system
     this.initializeLogSystem();
 
-    // Wire health probe into ServiceRegistry's HealthChecker (centralized)
+    // Auto-wire a default health probe only when core components are owned by this server instance.
+    // When components are injected (e.g., via GatewayBootstrapper), wiring is centralized upstream.
+    const shouldAutoWireHealthProbe = !components?.serviceRegistry || !components?.protocolAdapters;
+    if (shouldAutoWireHealthProbe) {
+      this.registerDefaultHealthProbe();
+    }
+  }
+
+  private registerDefaultHealthProbe(): void {
     try {
       this.serviceRegistry.setHealthProbe(async (serviceId: string) => {
         const service = await this.serviceRegistry.getService(serviceId);
@@ -144,19 +178,27 @@ export class HttpApiServer {
           await adapter.connect();
           try {
             const msg: any = { jsonrpc: '2.0', id: `health-${Date.now()}`, method: 'tools/list', params: {} };
-            const res = (adapter as any).sendAndReceive ? await (adapter as any).sendAndReceive(msg) : await adapter.send(msg as any);
+            const res = (adapter as any).sendAndReceive
+              ? await (adapter as any).sendAndReceive(msg)
+              : await adapter.send(msg as any);
             const latency = Date.now() - start;
             const ok = !!(res && (res as any).result);
             if (!ok && (res as any)?.error?.message) {
               // Attach last error to instance metadata for quick surfacing in UI
-              try { await this.serviceRegistry.setInstanceMetadata(serviceId, 'lastProbeError', (res as any).error.message); } catch {}
+              try {
+                await this.serviceRegistry.setInstanceMetadata(serviceId, 'lastProbeError', (res as any).error.message);
+              } catch {}
             }
             return { healthy: ok, latency, timestamp: new Date() };
-          } finally { await adapter.disconnect(); }
+          } finally {
+            await adapter.disconnect();
+          }
         } catch (e: any) {
           // Surface known env-related missing variable errors from stderr or message
           const errMsg = e?.message || 'probe failed';
-          try { await this.serviceRegistry.setInstanceMetadata(serviceId, 'lastProbeError', errMsg); } catch {}
+          try {
+            await this.serviceRegistry.setInstanceMetadata(serviceId, 'lastProbeError', errMsg);
+          } catch {}
           return { healthy: false, error: errMsg, latency: Date.now() - start, timestamp: new Date() } as any;
         }
       });
@@ -188,6 +230,7 @@ export class HttpApiServer {
 
       this.addLogEntry(level, message, service);
     }, 3000 + Math.random() * 7000); // Random interval between 3-10 seconds
+    (this.demoLogTimer as any).unref?.();
 
     // Periodic cleanup of disconnected SSE clients
     this.sseCleanupTimer = setInterval(() => {
@@ -206,6 +249,7 @@ export class HttpApiServer {
         }
       } catch {}
     }, 30000);
+    (this.sseCleanupTimer as any).unref?.();
   }
 
   private setupApiVersioning(): void {
@@ -438,42 +482,66 @@ export class HttpApiServer {
       addLogEntry: this.addLogEntry.bind(this),
       respondError: this.respondError.bind(this),
       middlewares: this.middlewares,
-      middlewareChain: this.componentsMiddlewareChain()
+      middlewareChain: this.middlewareChain
     } as any;
   }
 
-  /**
-   * Resolve middleware chain, allowing external injection for tests/custom stacks.
-   */
-  private componentsMiddlewareChain(): MiddlewareChain {
-    const fromComponents = (this as any)._componentsMiddlewareChain as MiddlewareChain | undefined;
-    if (fromComponents) return fromComponents;
-    return new MiddlewareChain(this.middlewares);
-  }
-
-  
-
   private setupMiddleware(): void {
-    // Distributed-friendly rate limiting (fallback to memory store by default)
-    if (this.config.rateLimiting?.enabled) {
-      const cfg = this.config.rateLimiting as any;
-      const base = {
-        max: cfg.maxRequests,
-        timeWindow: cfg.windowMs,
-        keyGenerator: (req: any) => {
-          const apiKey = this.extractApiKey(req) || this.extractBearerToken(req) || '';
-          return apiKey ? `key:${apiKey.slice(0, 32)}` : `ip:${req.ip}`;
-        },
-        allowList: [] as string[]
-      } as any;
-
-      // Optional Redis store
-      if (cfg.store === 'redis' && cfg.redis) {
-        base.name = 'rate-limit';
-        base.redis = cfg.redis;
+    // Business logic middleware chain bridge (auth / rate-limit live in chain).
+    this.server.addHook('preHandler', async (request: FastifyRequest, reply: FastifyReply) => {
+      const controller = new AbortController();
+      try {
+        request.raw.on('aborted', () => controller.abort(new Error('client aborted')));
+        request.raw.on('close', () => controller.abort(new Error('client closed')));
+      } catch {
+        // ignore
       }
-      this.server.register(rateLimit as any, base);
-    }
+
+      const traceId = (request as any).traceId as string | undefined;
+      const startedAtMs = (request as any).startedAtMs as number | undefined;
+      const mwCtx = {
+        requestId: traceId || `http-${Date.now()}`,
+        traceId,
+        startTime: typeof startedAtMs === 'number' ? startedAtMs : Date.now(),
+        metadata: {
+          method: request.method,
+          url: request.url,
+          ip: request.ip
+        },
+        http: { request, reply },
+        signal: controller.signal
+      };
+      const mwState = {
+        stage: 'beforeAgent' as const,
+        values: new Map<string, unknown>(),
+        aborted: false
+      };
+
+      (request as any).__mwCtx = mwCtx;
+      (request as any).__mwState = mwState;
+
+      try {
+        await this.middlewareChain.execute('beforeAgent', mwCtx as any, mwState as any);
+      } catch (error) {
+        if ((reply as any).sent || (reply as any).raw?.headersSent) return;
+        const mapped = this.mapMiddlewareError(error);
+        return this.respondError(reply, mapped.status, mapped.message, {
+          code: mapped.code,
+          recoverable: mapped.recoverable,
+          meta: mapped.meta
+        });
+      }
+
+      if (mwState.aborted) {
+        if ((reply as any).sent || (reply as any).raw?.headersSent) return;
+        const mapped = this.mapMiddlewareError((mwState as any).error || new Error('Request aborted'));
+        return this.respondError(reply, mapped.status, mapped.message, {
+          code: mapped.code,
+          recoverable: mapped.recoverable,
+          meta: mapped.meta
+        });
+      }
+    });
 
     // Security headers via helmet (production-ready defaults)
     this.server.register(helmet, {
@@ -536,35 +604,7 @@ export class HttpApiServer {
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key']
     });
-
-    // Authentication middleware
-    this.server.addHook('preHandler', async (request: FastifyRequest, reply: FastifyReply) => {
-      // Skip auth for health check and public endpoints (including static files)
-      // Require auth for /api/*
-      const requiresAuth = request.url.startsWith('/api/');
-      if (request.url === '/health' || request.url === '/api/health' || !requiresAuth) {
-        return;
-      }
-
-      const authRequest: AuthRequest = {
-        token: this.extractBearerToken(request),
-        apiKey: this.extractApiKey(request),
-        clientIp: request.ip,
-        method: request.method,
-        resource: request.url
-      };
-
-      const authResponse = await this.authLayer.authenticate(authRequest);
-
-      if (!authResponse.success) {
-        return this.respondError(reply, 401, authResponse.error || 'Unauthorized', { code: 'UNAUTHORIZED', recoverable: true });
-      }
-
-      // Attach auth info to request
-      (request as any).auth = authResponse;
-    });
-
-    // Remove custom per-request sliding window limiter in favor of plugin above
+    // No extra auth / rate-limit hooks here (handled by middleware chain).
 
     // Request logging
     this.server.addHook('onRequest', async (request: FastifyRequest) => {
@@ -583,6 +623,18 @@ export class HttpApiServer {
         // ignore
       }
       done(null, payload);
+    });
+
+    // Post-response stage for middleware chain (best-effort).
+    this.server.addHook('onResponse', async (request: FastifyRequest) => {
+      try {
+        const mwCtx = (request as any).__mwCtx as any;
+        const mwState = (request as any).__mwState as any;
+        if (!mwCtx || !mwState) return;
+        await this.middlewareChain.execute('afterAgent', mwCtx, mwState);
+      } catch {
+        // ignore
+      }
     });
   }
 
@@ -768,6 +820,43 @@ export class HttpApiServer {
     return reply.code(status).send(payload as any);
   }
 
+  private mapMiddlewareError(error: unknown): { status: number; code: string; message: string; recoverable: boolean; meta?: any } {
+    const err = error instanceof Error ? error : new Error(String(error));
+    const stageErr = err instanceof MiddlewareStageError ? err : undefined;
+    const causeCandidate = (stageErr?.cause as any) ?? (err as any).cause;
+    const root = causeCandidate instanceof Error ? causeCandidate : err;
+
+    if (root instanceof MiddlewareTimeoutError) {
+      return {
+        status: 504,
+        code: 'MIDDLEWARE_TIMEOUT',
+        message: root.message,
+        recoverable: true,
+        meta: { stage: root.stage, middlewareName: root.middlewareName, timeoutMs: root.timeoutMs }
+      };
+    }
+
+    if (root instanceof MiddlewareAbortedError || root.name === 'AbortError') {
+      return {
+        status: 499,
+        code: 'REQUEST_ABORTED',
+        message: root.message,
+        recoverable: true,
+        meta: { stage: (root as any).stage, middlewareName: (root as any).middlewareName }
+      };
+    }
+
+    return {
+      status: 500,
+      code: 'MIDDLEWARE_ERROR',
+      message: root.message || err.message || 'Middleware error',
+      recoverable: false,
+      meta: stageErr
+        ? { stage: stageErr.stage, middlewareName: stageErr.middlewareName, cause: root.message }
+        : { cause: root.message }
+    };
+  }
+
   setOrchestratorManager(manager: OrchestratorManager): void {
     this.orchestratorManager = manager;
   }
@@ -866,6 +955,7 @@ export class HttpApiServer {
 
   addMiddleware(middleware: Middleware): void {
     this.middlewares.push(middleware);
+    this.middlewareChain.use(middleware);
   }
 
 }

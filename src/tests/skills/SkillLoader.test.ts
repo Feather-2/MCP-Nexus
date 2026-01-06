@@ -27,6 +27,21 @@ describe('SkillLoader', () => {
         '---',
         'name: my-skill',
         'description: Test skill',
+        'capabilities:',
+        '  filesystem:',
+        '    read: ["./"]',
+        '    write: []',
+        '  network:',
+        '    allowedHosts: []',
+        '    allowedPorts: []',
+        '  env: []',
+        '  subprocess:',
+        '    allowed: false',
+        '    allowedCommands: []',
+        '  resources:',
+        '    maxMemoryMB: 512',
+        '    maxCpuPercent: 50',
+        '    timeoutMs: 60000',
         'metadata:',
         '  short-description: Quick',
         '  keywords: [sql, database]',
@@ -68,4 +83,3 @@ describe('SkillLoader', () => {
     );
   });
 });
-

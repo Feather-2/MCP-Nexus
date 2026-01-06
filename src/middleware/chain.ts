@@ -30,6 +30,20 @@ export class MiddlewareTimeoutError extends Error {
   }
 }
 
+export class MiddlewareAbortedError extends Error {
+  readonly stage: Stage;
+  readonly middlewareName: string;
+  readonly reason: unknown;
+
+  constructor(stage: Stage, middlewareName: string, reason: unknown) {
+    super(`middleware "${middlewareName}" ${stage} aborted`);
+    this.name = 'AbortError';
+    this.stage = stage;
+    this.middlewareName = middlewareName;
+    this.reason = reason;
+  }
+}
+
 export class MiddlewareStageError extends Error {
   readonly stage: Stage;
   readonly middlewareName: string;
@@ -86,6 +100,8 @@ export class MiddlewareChain {
     if (state.aborted) return;
 
     const timeoutMs = this.resolveTimeoutMs(stage, options?.timeoutMs);
+    const stageDeadlineMs =
+      Number.isFinite(timeoutMs) && timeoutMs > 0 ? Date.now() + timeoutMs : undefined;
 
     for (const mw of this.middlewares) {
       if (state.aborted) return;
@@ -93,7 +109,16 @@ export class MiddlewareChain {
       if (!hook) continue;
 
       try {
-        await this.withTimeout(hook.call(mw, ctx, state), timeoutMs, stage, middlewareName(mw));
+        const remainingMs =
+          stageDeadlineMs === undefined ? timeoutMs : stageDeadlineMs - Date.now();
+        await this.withTimeout(
+          hook.call(mw, ctx, state),
+          remainingMs,
+          timeoutMs,
+          ctx.signal,
+          stage,
+          middlewareName(mw)
+        );
       } catch (err) {
         const cause = asError(err);
         const wrapped = new MiddlewareStageError(stage, middlewareName(mw), cause);
@@ -111,24 +136,64 @@ export class MiddlewareChain {
 
   private async withTimeout(
     promise: Promise<void>,
-    timeoutMs: number,
+    remainingMs: number,
+    configuredTimeoutMs: number,
+    signal: AbortSignal | undefined,
     stage: Stage,
     middlewareNameValue: string
   ): Promise<void> {
-    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    const hasTimeout = Number.isFinite(configuredTimeoutMs) && configuredTimeoutMs > 0;
+    const hasSignal = !!signal;
+
+    if (!hasTimeout && !hasSignal) {
       await promise;
       return;
     }
 
+    if (hasTimeout && (!Number.isFinite(remainingMs) || remainingMs <= 0)) {
+      throw new MiddlewareTimeoutError(stage, middlewareNameValue, configuredTimeoutMs);
+    }
+
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutId = setTimeout(() => reject(new MiddlewareTimeoutError(stage, middlewareNameValue, timeoutMs)), timeoutMs);
-    });
+    let abortListener: (() => void) | undefined;
+
+    const timeoutPromise = hasTimeout
+      ? new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(
+            () => reject(new MiddlewareTimeoutError(stage, middlewareNameValue, configuredTimeoutMs)),
+            Math.max(0, remainingMs)
+          );
+        })
+      : undefined;
+
+    const abortPromise = hasSignal
+      ? new Promise<never>((_, reject) => {
+          if (!signal) return;
+          if (signal.aborted) {
+            reject(new MiddlewareAbortedError(stage, middlewareNameValue, signal.reason));
+            return;
+          }
+          abortListener = () => reject(new MiddlewareAbortedError(stage, middlewareNameValue, signal.reason));
+          try {
+            signal.addEventListener('abort', abortListener, { once: true });
+          } catch {
+            // Older AbortSignal implementations: fall back to a non-cancellable promise.
+          }
+        })
+      : undefined;
 
     try {
-      await Promise.race([promise, timeoutPromise]);
+      const races = [promise, timeoutPromise, abortPromise].filter(Boolean) as Array<Promise<void>>;
+      await Promise.race(races);
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
+      if (abortListener && signal) {
+        try {
+          signal.removeEventListener('abort', abortListener);
+        } catch {
+          // ignore
+        }
+      }
     }
   }
 }

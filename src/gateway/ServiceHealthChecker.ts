@@ -1,8 +1,8 @@
 import { HealthCheckResult, Logger } from '../types/index.js';
+import type { ServiceObservationStore } from './service-state.js';
 
 export class ServiceHealthChecker {
   private monitoringServices = new Set<string>();
-  private healthCache = new Map<string, HealthCheckResult>();
   private checkInterval = 5000; // 5 seconds
   private probe?: (serviceId: string) => Promise<HealthCheckResult>;
   private latencies: Map<string, number[]> = new Map();
@@ -11,7 +11,10 @@ export class ServiceHealthChecker {
   private inFlightChecks = new Map<string, Promise<HealthCheckResult>>();
   private readonly concurrency = 8;
 
-  constructor(private logger: Logger) {
+  constructor(
+    private logger: Logger,
+    private store: ServiceObservationStore
+  ) {
     // Start periodic health checks
     const t = setInterval(() => {
       void this.performPeriodicChecks();
@@ -34,7 +37,7 @@ export class ServiceHealthChecker {
   async stopMonitoring(serviceId?: string): Promise<void> {
     if (serviceId) {
       this.monitoringServices.delete(serviceId);
-      this.healthCache.delete(serviceId);
+      this.store.removeHealth(serviceId);
       this.logger.debug(`Stopped health monitoring for: ${serviceId}`);
     }
   }
@@ -43,7 +46,7 @@ export class ServiceHealthChecker {
     const status: Record<string, HealthCheckResult> = {};
     
     for (const serviceId of this.monitoringServices) {
-      const healthCheck = this.healthCache.get(serviceId);
+      const healthCheck = this.store.getHealth(serviceId);
       if (healthCheck) {
         status[serviceId] = healthCheck;
       }
@@ -55,7 +58,7 @@ export class ServiceHealthChecker {
   async checkHealth(serviceId: string, opts?: { force?: boolean; maxAgeMs?: number }): Promise<HealthCheckResult> {
     const now = Date.now();
     const maxAgeMs = opts?.maxAgeMs ?? this.checkInterval;
-    const cached = this.healthCache.get(serviceId);
+    const cached = this.store.getHealth(serviceId);
     if (!opts?.force && cached) {
       const ts = cached.timestamp instanceof Date ? cached.timestamp.getTime() : new Date(cached.timestamp as any).getTime();
       if (Number.isFinite(ts) && (now - ts) <= maxAgeMs) {
@@ -85,7 +88,7 @@ export class ServiceHealthChecker {
       error: update.error,
       timestamp: new Date()
     };
-    this.healthCache.set(serviceId, res);
+    this.store.updateHealth(serviceId, res);
     this.recordMetrics(serviceId, res);
   }
 
@@ -94,7 +97,7 @@ export class ServiceHealthChecker {
       const startTime = Date.now();
 
       const result = await this.performHealthCheck(serviceId, startTime);
-      this.healthCache.set(serviceId, result);
+      this.store.updateHealth(serviceId, result);
       this.recordMetrics(serviceId, result);
       return result;
     } catch (error) {
@@ -104,14 +107,14 @@ export class ServiceHealthChecker {
         timestamp: new Date()
       };
 
-      this.healthCache.set(serviceId, result);
+      this.store.updateHealth(serviceId, result);
       this.recordMetrics(serviceId, result);
       return result;
     }
   }
 
   getLastHealthCheck(serviceId: string): HealthCheckResult | null {
-    return this.healthCache.get(serviceId) || null;
+    return this.store.getHealth(serviceId) || null;
   }
 
   private async performPeriodicChecks(): Promise<void> {
@@ -170,13 +173,10 @@ export class ServiceHealthChecker {
     let totalSuccess = 0;
     let totalFailure = 0;
 
-    for (const [_serviceId, result] of this.healthCache) {
-      if (result.healthy) {
-        healthy++;
-      } else {
-        unhealthy++;
-      }
-
+    for (const serviceId of this.monitoringServices) {
+      const result = this.store.getHealth(serviceId);
+      if (!result) continue;
+      if (result.healthy) healthy++; else unhealthy++;
       if (result.latency !== undefined) {
         totalLatency += result.latency;
         latencyCount++;
@@ -210,7 +210,7 @@ export class ServiceHealthChecker {
       const total = ctr.success + ctr.failure;
       const errorRate = total > 0 ? ctr.failure / total : 0;
       const latencies = hist.slice(-30);
-      out.push({ id, last: this.healthCache.get(id) || null, p95, p99, errorRate, samples: hist.length, lastError: ctr.lastError, latencies });
+      out.push({ id, last: this.store.getHealth(id) || null, p95, p99, errorRate, samples: hist.length, lastError: ctr.lastError, latencies });
     }
     return out;
   }

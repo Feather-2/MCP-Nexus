@@ -40,8 +40,10 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
     super(ctx);
     this.rotateVerificationCode();
     this.codeRotationTimer = setInterval(() => this.rotateVerificationCode(), this.codeRotationMs);
+    (this.codeRotationTimer as any).unref?.();
     // Periodic cleanup to prevent rateCounters memory leak
     this.rateCleanupTimer = setInterval(() => this.cleanupRateCounters(), LocalMcpProxyRoutes.RATE_CLEANUP_INTERVAL_MS);
+    (this.rateCleanupTimer as any).unref?.();
   }
 
   setupRoutes(): void {
