@@ -17,3 +17,4 @@ export { AiRoutes } from './AiRoutes.js';
 export { SandboxRoutes } from './SandboxRoutes.js';
 export { ToolRoutes } from './ToolRoutes.js';
 export { SkillRoutes } from './SkillRoutes.js';
+export { AuditRoutes } from './AuditRoutes.js';

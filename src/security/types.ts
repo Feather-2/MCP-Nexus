@@ -1,4 +1,25 @@
-export type RiskDecision = 'approve' | 'review' | 'reject';
+export type RiskDecision = 'approve' | 'review' | 'reject' | 'provisional_approve';
+
+/**
+ * Handle for tracking async audit completion.
+ */
+export interface AsyncAuditHandle {
+  requestId: string;
+  status: 'pending' | 'completed' | 'failed';
+  getResult(): Promise<import('./AuditPipeline.js').AuditResult>;
+}
+
+/**
+ * Result from synchronous (fast-path) audit.
+ */
+export interface SyncAuditResult {
+  decision: RiskDecision;
+  score: number;
+  findings: import('./AuditPipeline.js').AuditFinding[];
+  reviewRequired: boolean;
+  /** Present when decision is provisional_approve and AI audit is running async. */
+  asyncHandle?: AsyncAuditHandle;
+}
 
 export interface RiskSignal {
   /**

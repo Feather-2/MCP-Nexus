@@ -177,6 +177,18 @@ export interface CostConfig {
   budgetPeriod?: 'hour' | 'day' | 'month';
 }
 
+/**
+ * Attribution context for cost tracking.
+ */
+export interface CostAttribution {
+  /** Skill ID that triggered the request. */
+  skillId?: string;
+  /** Service/instance ID that handled the request. */
+  serviceId?: string;
+  /** Unique request ID for tracing. */
+  requestId?: string;
+}
+
 // 14. AI Client 配置
 export interface AiClientConfig {
   channels: ChannelConfig[];

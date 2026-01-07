@@ -1,4 +1,4 @@
-import type { AiUsage, CostConfig, ModelPricing } from './types.js';
+import type { AiUsage, CostConfig, ModelPricing, CostAttribution } from './types.js';
 
 // 默认定价 (USD per 1K tokens)
 export const DEFAULT_PRICING: Record<string, ModelPricing> = {
@@ -18,6 +18,9 @@ type ModelUsageStats = {
   completionTokens: number;
   costUsd: number;
 };
+
+// Export for external use
+export type { ModelUsageStats };
 
 type UsageSnapshot = {
   totalCostUsd: number;
@@ -79,6 +82,11 @@ export class CostTracker {
 
   private readonly usageByModel = new Map<string, ModelUsageStats>();
 
+  // Attribution-based aggregations
+  private readonly usageBySkill = new Map<string, ModelUsageStats>();
+  private readonly usageByService = new Map<string, ModelUsageStats>();
+  private readonly usageByRequest = new Map<string, ModelUsageStats>();
+
   constructor(config?: CostConfig) {
     this.pricing = { ...DEFAULT_PRICING, ...(config?.pricing ?? {}) };
     this.budgetUsd = config?.budgetUsd;
@@ -105,7 +113,7 @@ export class CostTracker {
     return (safePrompt / 1000) * pricing.promptPer1kTokens + (safeCompletion / 1000) * pricing.completionPer1kTokens;
   }
 
-  record(model: string, usage: AiUsage): void {
+  record(model: string, usage: AiUsage, attribution?: CostAttribution): void {
     this.ensureCurrentPeriod();
 
     const promptTokens = safeNonNegativeInteger(usage.promptTokens);
@@ -116,14 +124,36 @@ export class CostTracker {
     this.totalCompletionTokens += completionTokens;
     this.totalCostUsd += costUsd;
 
-    const existing = this.usageByModel.get(model);
+    // Update model-level aggregation
+    this.updateUsageMap(this.usageByModel, model, promptTokens, completionTokens, costUsd);
+
+    // Update attribution-based aggregations
+    if (attribution?.skillId) {
+      this.updateUsageMap(this.usageBySkill, attribution.skillId, promptTokens, completionTokens, costUsd);
+    }
+    if (attribution?.serviceId) {
+      this.updateUsageMap(this.usageByService, attribution.serviceId, promptTokens, completionTokens, costUsd);
+    }
+    if (attribution?.requestId) {
+      this.updateUsageMap(this.usageByRequest, attribution.requestId, promptTokens, completionTokens, costUsd);
+    }
+  }
+
+  private updateUsageMap(
+    map: Map<string, ModelUsageStats>,
+    key: string,
+    promptTokens: number,
+    completionTokens: number,
+    costUsd: number
+  ): void {
+    const existing = map.get(key);
     if (existing) {
       existing.requests += 1;
       existing.promptTokens += promptTokens;
       existing.completionTokens += completionTokens;
       existing.costUsd += costUsd;
     } else {
-      this.usageByModel.set(model, {
+      map.set(key, {
         requests: 1,
         promptTokens,
         completionTokens,
@@ -168,6 +198,57 @@ export class CostTracker {
     return out;
   }
 
+  /**
+   * Get usage aggregated by skill ID.
+   */
+  getUsageBySkill(): Record<string, ModelUsageStats> {
+    this.ensureCurrentPeriod();
+    const out: Record<string, ModelUsageStats> = {};
+
+    for (const [skillId, stats] of this.usageBySkill.entries()) {
+      out[skillId] = { ...stats };
+    }
+
+    return out;
+  }
+
+  /**
+   * Get usage aggregated by service ID.
+   */
+  getUsageByService(): Record<string, ModelUsageStats> {
+    this.ensureCurrentPeriod();
+    const out: Record<string, ModelUsageStats> = {};
+
+    for (const [serviceId, stats] of this.usageByService.entries()) {
+      out[serviceId] = { ...stats };
+    }
+
+    return out;
+  }
+
+  /**
+   * Get usage for a specific request ID.
+   */
+  getUsageByRequest(requestId: string): ModelUsageStats | undefined {
+    this.ensureCurrentPeriod();
+    const stats = this.usageByRequest.get(requestId);
+    return stats ? { ...stats } : undefined;
+  }
+
+  /**
+   * Get all request-level usage (for debugging/admin).
+   */
+  getAllRequestUsage(): Record<string, ModelUsageStats> {
+    this.ensureCurrentPeriod();
+    const out: Record<string, ModelUsageStats> = {};
+
+    for (const [requestId, stats] of this.usageByRequest.entries()) {
+      out[requestId] = { ...stats };
+    }
+
+    return out;
+  }
+
   reset(): void {
     const now = new Date();
     if (this.budgetPeriod) {
@@ -183,6 +264,9 @@ export class CostTracker {
     this.totalPromptTokens = 0;
     this.totalCompletionTokens = 0;
     this.usageByModel.clear();
+    this.usageBySkill.clear();
+    this.usageByService.clear();
+    this.usageByRequest.clear();
   }
 
   private ensureCurrentPeriod(): void {

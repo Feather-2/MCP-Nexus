@@ -22,7 +22,7 @@ class MockChildProcess extends EventEmitter {
   stdout: PassThrough | null;
   stderr: PassThrough | null;
   killed = false;
-  kill: ReturnType<typeof vi.fn>;
+  kill: (signal?: NodeJS.Signals) => boolean;
 
   constructor(options: {
     pid?: number;
@@ -44,7 +44,7 @@ class MockChildProcess extends EventEmitter {
       exitOnSigkill: options.killBehavior?.exitOnSigkill ?? true
     };
 
-    this.kill = vi.fn((signal: NodeJS.Signals) => {
+    this.kill = vi.fn((signal?: NodeJS.Signals) => {
       if (signal === 'SIGTERM') {
         if (behavior.sigtermSetsKilled) this.killed = true;
         if (behavior.exitOnSigterm) {
