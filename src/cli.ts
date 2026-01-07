@@ -15,6 +15,7 @@ async function main() {
   // Start the gateway
   try {
     await gateway.start();
+    gateway.enableGracefulShutdown(); // Enable signal handling
     console.log('✅ Gateway started successfully');
   } catch (error) {
     console.error('❌ Failed to start gateway:', error);
@@ -87,13 +88,7 @@ async function main() {
 
   rl.on('close', async () => {
     console.log('\nShutting down gateway...');
-    await gateway.stop();
-    process.exit(0);
-  });
-
-  // Handle process termination
-  process.on('SIGINT', async () => {
-    console.log('\n\nReceived SIGINT, shutting down gracefully...');
+    gateway.disableGracefulShutdown();
     await gateway.stop();
     process.exit(0);
   });

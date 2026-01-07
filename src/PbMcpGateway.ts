@@ -94,6 +94,15 @@ export class PbMcpGateway extends EventEmitter {
     }
 
     try {
+      // Disable signal handlers if enabled
+      this.disableGracefulShutdown();
+
+      // Clean up event listeners from components
+      this._serviceRegistry.removeAllListeners();
+      this.authLayer.removeAllListeners();
+      this.router.removeAllListeners();
+      this.configManager.removeAllListeners();
+
       await this.bootstrapper.stop();
 
       this._isStarted = false;
@@ -367,9 +376,22 @@ export class PbMcpGateway extends EventEmitter {
     this.configManager.on('configUpdated', (event) => {
       this.emit('configUpdated', event);
     });
+  }
 
-    // Handle process signals for graceful shutdown
-    process.on('SIGINT', async () => {
+  // Signal handlers stored for cleanup
+  private signalHandlers: {
+    SIGINT?: NodeJS.SignalsListener;
+    SIGTERM?: NodeJS.SignalsListener;
+  } = {};
+
+  /**
+   * Enable graceful shutdown on SIGINT/SIGTERM.
+   * Call this from CLI/entry points, not during library usage.
+   */
+  enableGracefulShutdown(): void {
+    if (this.signalHandlers.SIGINT) return; // Already enabled
+
+    this.signalHandlers.SIGINT = async () => {
       this.logger.info('Received SIGINT, shutting down gracefully...');
       try {
         await this.stop();
@@ -378,9 +400,9 @@ export class PbMcpGateway extends EventEmitter {
         this.logger.error('Error during shutdown:', error);
         process.exit(1);
       }
-    });
+    };
 
-    process.on('SIGTERM', async () => {
+    this.signalHandlers.SIGTERM = async () => {
       this.logger.info('Received SIGTERM, shutting down gracefully...');
       try {
         await this.stop();
@@ -389,7 +411,24 @@ export class PbMcpGateway extends EventEmitter {
         this.logger.error('Error during shutdown:', error);
         process.exit(1);
       }
-    });
+    };
+
+    process.on('SIGINT', this.signalHandlers.SIGINT);
+    process.on('SIGTERM', this.signalHandlers.SIGTERM);
+  }
+
+  /**
+   * Disable graceful shutdown handlers (useful for tests).
+   */
+  disableGracefulShutdown(): void {
+    if (this.signalHandlers.SIGINT) {
+      process.off('SIGINT', this.signalHandlers.SIGINT);
+      delete this.signalHandlers.SIGINT;
+    }
+    if (this.signalHandlers.SIGTERM) {
+      process.off('SIGTERM', this.signalHandlers.SIGTERM);
+      delete this.signalHandlers.SIGTERM;
+    }
   }
 
   private ensureStarted(): void {

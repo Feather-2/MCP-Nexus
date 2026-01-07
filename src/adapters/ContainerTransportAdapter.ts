@@ -175,6 +175,7 @@ export class ContainerTransportAdapter extends EventEmitter implements Transport
 
   async disconnect(): Promise<void> {
     await this.delegate.disconnect();
+    this.removeAllListeners(); // Clean up event listeners
   }
 
   async send(message: McpMessage): Promise<void> {

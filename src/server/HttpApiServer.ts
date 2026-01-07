@@ -736,8 +736,13 @@ export class HttpApiServer {
       return reply.type('text/html').sendFile('index.html', staticRoot);
     });
 
-    // Health check endpoint
-    this.server.get('/health', async (request: FastifyRequest, reply: FastifyReply) => {
+    // Health check endpoint - FAST, no DB queries
+    this.server.get('/health', async (_request: FastifyRequest, reply: FastifyReply) => {
+      reply.send({ status: 'ok', ts: Date.now() });
+    });
+
+    // Detailed health endpoint for monitoring systems
+    this.server.get('/health/detailed', async (_request: FastifyRequest, reply: FastifyReply) => {
       const health = {
         status: 'healthy',
         timestamp: new Date().toISOString(),

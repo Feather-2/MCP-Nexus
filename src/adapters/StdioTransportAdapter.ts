@@ -375,6 +375,7 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
       this.connected = false;
       this.process = null;
       this.stdoutParser.reset();
+      this.removeAllListeners(); // Clean up event listeners
       this.logger.info(`Stdio adapter disconnected for ${this.config.name}`);
     } catch (error) {
       this.logger.error(`Error disconnecting stdio adapter:`, error);
