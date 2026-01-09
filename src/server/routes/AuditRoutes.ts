@@ -88,7 +88,11 @@ export class AuditRoutes {
 
     // GET /api/audit/list - List recent audits
     server.get(`${prefix}/list`, async (request: FastifyRequest, reply: FastifyReply) => {
-      const { limit = 50, offset = 0 } = request.query as { limit?: number; offset?: number };
+      const query = request.query as { limit?: number | string; offset?: number | string };
+      const limitRaw = query?.limit;
+      const offsetRaw = query?.offset;
+      const limit = Number.isFinite(Number(limitRaw)) ? Math.max(0, Number(limitRaw)) : 50;
+      const offset = Number.isFinite(Number(offsetRaw)) ? Math.max(0, Number(offsetRaw)) : 0;
 
       const all = Array.from(this.explanations.entries())
         .map(([id, exp]) => ({

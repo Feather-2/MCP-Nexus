@@ -59,8 +59,8 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
       
       const configData = await readFile(this.configPath, 'utf-8');
       
-      // Handle empty config file
-      if (!configData.trim()) {
+      // Handle empty (or unexpectedly non-string) config file
+      if (typeof configData !== 'string' || !configData.trim()) {
         this.logger.info('Configuration file is empty, creating default config', {
           configPath: this.configPath
         });

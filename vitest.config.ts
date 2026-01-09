@@ -1,12 +1,21 @@
 import { defineConfig } from 'vitest/config';
 import os from 'os';
 import path from 'path';
+import fs from 'fs';
 
 const coverageReportsDirectory =
   process.env.VITEST_COVERAGE_DIR ??
   (process.platform === 'linux' && process.cwd().startsWith('/mnt/')
     ? path.join(os.tmpdir(), 'pb-mcpgateway-coverage')
     : 'coverage');
+
+// Vitest v8 provider writes intermediate JSON files into a `.tmp` dir inside `reportsDirectory`.
+// Ensure the directory exists to avoid ENOENT errors in certain sandboxed environments.
+try {
+  fs.mkdirSync(path.join(coverageReportsDirectory, '.tmp'), { recursive: true });
+} catch {
+  // ignore
+}
 
 export default defineConfig({
   resolve: {

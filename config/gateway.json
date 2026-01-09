@@ -1,6 +1,6 @@
 {
   "host": "127.0.0.1",
-  "port": 19233,
+  "port": 19249,
   "authMode": "local-trusted",
   "routingStrategy": "performance",
   "loadBalancingStrategy": "performance-based",
@@ -25,7 +25,10 @@
   },
   "sandbox": {
     "profile": "default",
-    "container": { "requiredForUntrusted": false, "prefer": false }
+    "container": {
+      "requiredForUntrusted": false,
+      "prefer": false
+    }
   },
   "ai": {
     "provider": "none",
