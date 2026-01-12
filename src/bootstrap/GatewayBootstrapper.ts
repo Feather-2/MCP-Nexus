@@ -10,7 +10,7 @@ import { ConfigManagerImpl } from '../config/ConfigManagerImpl.js';
 import { ProtocolAdaptersImpl } from '../adapters/ProtocolAdaptersImpl.js';
 import { ServiceRegistryImpl } from '../gateway/ServiceRegistryImpl.js';
 import { AuthenticationLayerImpl } from '../auth/AuthenticationLayerImpl.js';
-import { GatewayRouterImpl } from '../router/GatewayRouterImpl.js';
+import { GatewayRouterImpl } from '../routing/GatewayRouterImpl.js';
 import { HttpApiServer } from '../server/HttpApiServer.js';
 import { PinoLogger } from '../utils/PinoLogger.js';
 import { SecurityMiddleware } from '../middleware/SecurityMiddleware.js';

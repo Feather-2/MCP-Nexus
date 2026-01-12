@@ -40,7 +40,10 @@ export class ProtocolAdaptersImpl implements ProtocolAdapters {
             allowedVolumeRoots: sandbox.allowedVolumeRoots,
             envSafePrefixes: sandbox.envSafePrefixes,
             defaultNetwork: sandbox.defaultNetwork,
-            defaultReadonlyRootfs: sandbox.defaultReadonlyRootfs
+            defaultReadonlyRootfs: sandbox.defaultReadonlyRootfs,
+            defaultPidsLimit: sandbox.defaultPidsLimit,
+            defaultNoNewPrivileges: sandbox.defaultNoNewPrivileges,
+            defaultDropCapabilities: sandbox.defaultDropCapabilities
           });
         }
 

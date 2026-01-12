@@ -8,3 +8,5 @@ export {
   type SubAgentResult
 } from './delegate.js';
 export * from './memory/index.js';
+export { GatewayRouterImpl } from './GatewayRouterImpl.js';
+export { RadixTree } from './RadixTree.js';

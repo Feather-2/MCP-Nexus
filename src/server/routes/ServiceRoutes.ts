@@ -2,6 +2,7 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseRouteHandler, RouteContext } from './RouteContext.js';
 import { z } from 'zod';
 import { redactMcpServiceConfig } from '../../security/secrets.js';
+import { sleep } from '../../utils/async.js';
 
 interface _ServiceRequestBody {
   templateName?: string;
@@ -94,7 +95,7 @@ export class ServiceRoutes extends BaseRouteHandler {
           return this.respondError(reply, 500, 'Failed to stop service for restart', { code: 'RESTART_FAILED' });
         }
 
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await sleep(1000);
         const newId = await this.ctx.serviceRegistry.createServiceFromTemplate(templateName, { env: body.env });
 
         this.ctx.logger.info(`Service ${id} updated with new environment variables and restarted as ${newId}`);

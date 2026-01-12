@@ -5,6 +5,12 @@ import { AiConfigSchema, ChannelConfigSchema } from '../../types/index.js';
 import { ChannelManager } from '../../ai/channel.js';
 import { CostTracker } from '../../ai/cost-tracker.js';
 import type { AiClientConfig, ChannelConfig } from '../../ai/types.js';
+import {
+  checkAiEnv,
+  callProvider,
+  streamProvider,
+  type AiMessage
+} from '../../ai/providers.js';
 
 /**
  * AI provider configuration, testing, and chat routes
@@ -41,6 +47,8 @@ export class AiRoutes extends BaseRouteHandler {
   setupRoutes(): void {
     const { server } = this.ctx;
 
+    // ===== Config Routes =====
+
     // Get current AI config (non-secret)
     server.get('/api/ai/config', async (_request: FastifyRequest, reply: FastifyReply) => {
       try {
@@ -55,7 +63,6 @@ export class AiRoutes extends BaseRouteHandler {
     server.put('/api/ai/config', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const body = (request.body as any) || {};
-        // 仅允许 AiConfigSchema 中定义的非敏感字段
         const parsed = AiConfigSchema.partial().parse(body);
         const current = (await this.ctx.configManager.get('ai')) || {};
         const updated = await this.ctx.configManager.updateConfig({ ai: { ...current, ...parsed } as any });
@@ -84,13 +91,11 @@ export class AiRoutes extends BaseRouteHandler {
         const model = String(body.model || baseCfg.model || '');
         const mode = body.mode || 'env-only';
 
-        const envStatus = this.checkAiEnv(provider);
+        const envStatus = checkAiEnv(provider);
 
-        // By default do not attempt outbound network calls; allow explicit opt-in via mode='ping'
         let pingResult: { ok: boolean; note?: string } | undefined;
         if (mode === 'ping') {
           try {
-            // Minimal safe probe: only for local providers (ollama) or when endpoint is localhost
             const isLocal = endpoint.includes('127.0.0.1') || endpoint.includes('localhost') || provider === 'ollama';
             if (!isLocal) {
               pingResult = { ok: false, note: 'Skipping non-local endpoint probe in sandbox' };
@@ -121,7 +126,9 @@ export class AiRoutes extends BaseRouteHandler {
       }
     });
 
-    // Simple chat endpoint (non-streaming). If provider/env not configured, returns a heuristic assistant reply.
+    // ===== Chat Routes =====
+
+    // Simple chat endpoint (non-streaming)
     server.post('/api/ai/chat', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const MsgSchema = z.object({
@@ -131,16 +138,17 @@ export class AiRoutes extends BaseRouteHandler {
           })).min(1)
         });
         const body = MsgSchema.parse((request.body as any) || {});
-        const messages: Array<{ role: string; content: string }> = body.messages;
+        const messages = body.messages as AiMessage[];
         const ai = (await this.ctx.configManager.get<any>('ai')) || {};
         const provider = String(ai.provider || 'none');
 
-        // If provider configured and env is present, attempt real call
-        const envCheck = this.checkAiEnv(provider);
+        const envCheck = checkAiEnv(provider);
         if (provider !== 'none' && envCheck.ok) {
-          const result = await this.nonStreamingAiCall(provider, ai, messages);
-          reply.send({ success: true, message: { role: 'assistant', content: result }, provider });
-          return;
+          const result = await callProvider(provider, ai, messages);
+          if (result) {
+            reply.send({ success: true, message: { role: 'assistant', content: result }, provider });
+            return;
+          }
         }
 
         // Fallback: heuristic plan builder
@@ -163,7 +171,6 @@ export class AiRoutes extends BaseRouteHandler {
         const ai = (await this.ctx.configManager.get<any>('ai')) || {};
         const provider = String(ai.provider || 'none');
 
-        // Prepare SSE response headers with strict CORS reflection (no wildcard)
         this.writeSseHeaders(reply, request);
 
         const send = (obj: any) => {
@@ -171,11 +178,10 @@ export class AiRoutes extends BaseRouteHandler {
         };
         send({ event: 'start' });
 
-        // If provider configured and env ok, attempt real streaming call
-        const envCheck = this.checkAiEnv(provider);
+        const envCheck = checkAiEnv(provider);
         if (provider !== 'none' && envCheck.ok) {
           try {
-            await this.streamingAiCall(provider, ai, user, (delta) => send({ event: 'delta', delta }), () => {
+            await streamProvider(provider, ai, user, (delta) => send({ event: 'delta', delta }), () => {
               send({ event: 'done' });
               try { reply.raw.end(); } catch { /* ignored */ }
             });
@@ -340,7 +346,6 @@ export class AiRoutes extends BaseRouteHandler {
         const aiCfg = (await this.ctx.configManager.get<any>('ai')) || {};
         const channels: ChannelConfig[] = aiCfg.channels || [];
 
-        // Check duplicate id
         if (channels.some((c) => c.id === parsed.id)) {
           return this.respondError(reply, 400, `Channel with id '${parsed.id}' already exists`, { code: 'DUPLICATE_ID' });
         }
@@ -348,7 +353,6 @@ export class AiRoutes extends BaseRouteHandler {
         channels.push(parsed as ChannelConfig);
         await this.ctx.configManager.updateConfig({ ai: { ...aiCfg, channels } });
 
-        // Reinitialize modules
         await this.initAiModules();
 
         reply.send({ success: true, channel: parsed });
@@ -376,7 +380,6 @@ export class AiRoutes extends BaseRouteHandler {
         channels.splice(idx, 1);
         await this.ctx.configManager.updateConfig({ ai: { ...aiCfg, channels } });
 
-        // Reinitialize modules
         await this.initAiModules();
 
         reply.send({ success: true, id });
@@ -384,6 +387,8 @@ export class AiRoutes extends BaseRouteHandler {
         return this.respondError(reply, 500, (error as Error).message, { code: 'AI_CHANNEL_ERROR' });
       }
     });
+
+    // ===== Usage Routes =====
 
     // GET /api/ai/usage - Get cost tracking stats
     server.get('/api/ai/usage', async (_request: FastifyRequest, reply: FastifyReply) => {
@@ -413,18 +418,7 @@ export class AiRoutes extends BaseRouteHandler {
     });
   }
 
-  private writeSseHeaders(reply: FastifyReply, request: FastifyRequest): void {
-    const origin = request.headers['origin'] as string | undefined;
-    const config = (this.ctx.configManager as any).config || {};
-    const allowed = Array.isArray(config.corsOrigins) ? config.corsOrigins : [];
-    const isAllowed = origin && allowed.includes(origin);
-    reply.raw.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-      ...(isAllowed ? { 'Access-Control-Allow-Origin': origin!, 'Vary': 'Origin' } : {})
-    });
-  }
+  // ===== Helper Methods =====
 
   private buildHeuristicPlan(messages: Array<{ role: string; content: string }>): string {
     const last = messages.length ? messages[messages.length - 1] : undefined;
@@ -449,273 +443,5 @@ export class AiRoutes extends BaseRouteHandler {
       `Parameters:`,
       `- q: string (optional)`
     ];
-  }
-
-  private async nonStreamingAiCall(provider: string, aiCfg: any, messages: Array<{ role: string; content: string }>): Promise<string> {
-    switch (provider) {
-      case 'openai':
-        return await this.callOpenAI(aiCfg, messages);
-      case 'anthropic':
-        return await this.callAnthropic(aiCfg, messages);
-      case 'azure-openai':
-        return await this.callAzureOpenAI(aiCfg, messages);
-      case 'ollama':
-        return await this.callOllama(aiCfg, messages);
-      default:
-        return this.buildHeuristicPlan(messages);
-    }
-  }
-
-  private async streamingAiCall(provider: string, aiCfg: any, prompt: string, onDelta: (t: string) => void, onDone: () => void): Promise<void> {
-    switch (provider) {
-      case 'openai':
-        await this.streamOpenAI(aiCfg, prompt, onDelta, onDone);
-        return;
-      case 'azure-openai':
-        await this.streamAzureOpenAI(aiCfg, prompt, onDelta, onDone);
-        return;
-      case 'anthropic':
-        await this.streamAnthropic(aiCfg, prompt, onDelta, onDone);
-        return;
-      case 'ollama':
-        await this.streamOllama(aiCfg, prompt, onDelta, onDone);
-        return;
-      // Anthropic streaming can be added similarly; fallback to non-stream call
-      default: {
-        const text = await this.nonStreamingAiCall(provider, aiCfg, [{ role: 'user', content: prompt }]);
-        onDelta(text);
-        onDone();
-      }
-    }
-  }
-
-  // ===== Provider calls (best-effort; rely on env, network may be restricted) =====
-  private async callOpenAI(aiCfg: any, messages: any[]): Promise<string> {
-    const apiKey = process.env.OPENAI_API_KEY as string;
-    const model = aiCfg.model || 'gpt-4o-mini';
-    const endpoint = aiCfg.endpoint || 'https://api.openai.com/v1/chat/completions';
-    const resp = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({ model, messages, stream: false })
-    });
-    const json = await resp.json();
-    return json?.choices?.[0]?.message?.content || '';
-  }
-
-  private async streamOpenAI(aiCfg: any, prompt: string, onDelta: (t: string) => void, onDone: () => void): Promise<void> {
-    const apiKey = process.env.OPENAI_API_KEY as string;
-    const model = aiCfg.model || 'gpt-4o-mini';
-    const endpoint = aiCfg.endpoint || 'https://api.openai.com/v1/chat/completions';
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-      body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }], stream: true })
-    } as any);
-    const reader = (res as any).body?.getReader?.();
-    if (!reader) { onDone(); return; }
-    const decoder = new TextDecoder();
-    let done = false;
-    while (!done) {
-      const { value, done: d } = await reader.read();
-      done = d;
-      if (value) {
-        const chunk = decoder.decode(value, { stream: true });
-        // OpenAI SSE: lines starting with data:
-        const lines = chunk.split(/\n/).map(s => s.trim()).filter(Boolean);
-        for (const line of lines) {
-          if (!line.startsWith('data:')) continue;
-          const payload = line.slice(5).trim();
-          if (payload === '[DONE]') continue;
-          try {
-            const obj = JSON.parse(payload);
-            const delta = obj?.choices?.[0]?.delta?.content;
-            if (typeof delta === 'string') onDelta(delta);
-          } catch { /* ignored */ }
-        }
-      }
-    }
-    onDone();
-  }
-
-  private async callAnthropic(aiCfg: any, messages: any[]): Promise<string> {
-    const apiKey = process.env.ANTHROPIC_API_KEY as string;
-    const model = aiCfg.model || 'claude-3-haiku-20240307';
-    const endpoint = aiCfg.endpoint || 'https://api.anthropic.com/v1/messages';
-    const resp = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({ model, max_tokens: 1024, messages })
-    } as any);
-    const json = await resp.json();
-    // Extract text content blocks
-    const parts = (json?.content || []).map((b: any) => b?.text).filter(Boolean);
-    return parts.join('');
-  }
-
-  private async callAzureOpenAI(aiCfg: any, messages: any[]): Promise<string> {
-    const apiKey = process.env.AZURE_OPENAI_API_KEY as string;
-    const base = process.env.AZURE_OPENAI_ENDPOINT as string; // like https://res.openai.azure.com
-    const deployment = aiCfg.model || 'gpt-4o-mini';
-    const apiVersion = '2024-08-01-preview';
-    const endpoint = `${base.replace(/\/$/, '')}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`;
-    const resp = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
-      body: JSON.stringify({ messages, stream: false })
-    } as any);
-    const json = await resp.json();
-    return json?.choices?.[0]?.message?.content || '';
-  }
-
-  private async streamAzureOpenAI(aiCfg: any, prompt: string, onDelta: (t: string) => void, onDone: () => void): Promise<void> {
-    const apiKey = process.env.AZURE_OPENAI_API_KEY as string;
-    const base = process.env.AZURE_OPENAI_ENDPOINT as string;
-    const deployment = aiCfg.model || 'gpt-4o-mini';
-    const apiVersion = '2024-08-01-preview';
-    const endpoint = `${base.replace(/\/$/, '')}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`;
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
-      body: JSON.stringify({ stream: true, messages: [{ role: 'user', content: prompt }] })
-    } as any);
-    const reader = (res as any).body?.getReader?.();
-    if (!reader) { onDone(); return; }
-    const decoder = new TextDecoder();
-    let done = false;
-    while (!done) {
-      const { value, done: d } = await reader.read();
-      done = d;
-      if (value) {
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split(/\n/).map(s => s.trim()).filter(Boolean);
-        for (const line of lines) {
-          if (!line.startsWith('data:')) continue;
-          const payload = line.slice(5).trim();
-          if (payload === '[DONE]') continue;
-          try {
-            const obj = JSON.parse(payload);
-            const delta = obj?.choices?.[0]?.delta?.content;
-            if (typeof delta === 'string') onDelta(delta);
-          } catch { /* ignored */ }
-        }
-      }
-    }
-    onDone();
-  }
-
-  private async streamAnthropic(aiCfg: any, prompt: string, onDelta: (t: string) => void, onDone: () => void): Promise<void> {
-    const apiKey = process.env.ANTHROPIC_API_KEY as string;
-    const model = aiCfg.model || 'claude-3-haiku-20240307';
-    const endpoint = aiCfg.endpoint || 'https://api.anthropic.com/v1/messages';
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({ model, max_tokens: 1024, stream: true, messages: [{ role: 'user', content: prompt }] })
-    } as any);
-    const reader = (res as any).body?.getReader?.();
-    if (!reader) { onDone(); return; }
-    const decoder = new TextDecoder();
-    let done = false;
-    while (!done) {
-      const { value, done: d } = await reader.read();
-      done = d;
-      if (value) {
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split(/\n/).map(s => s.trim()).filter(Boolean);
-        for (const line of lines) {
-          if (!line.startsWith('event:') && !line.startsWith('data:')) continue;
-          if (line.startsWith('data:')) {
-            const payload = line.slice(5).trim();
-            try {
-              const obj = JSON.parse(payload);
-              // Anthropic streaming delta
-              if (obj?.type === 'content_block_delta' && obj?.delta?.type === 'text_delta') {
-                const delta = obj.delta?.text;
-                if (typeof delta === 'string') onDelta(delta);
-              }
-            } catch { /* ignored */ }
-          }
-        }
-      }
-    }
-    onDone();
-  }
-
-  private async callOllama(aiCfg: any, messages: any[]): Promise<string> {
-    const model = aiCfg.model || 'llama3.1:8b';
-    const base = aiCfg.endpoint || 'http://127.0.0.1:11434';
-    const endpoint = `${base.replace(/\/$/, '')}/api/chat`;
-    const resp = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, messages, stream: false })
-    } as any);
-    const json = await resp.json();
-    return json?.message?.content || '';
-  }
-
-  private async streamOllama(aiCfg: any, prompt: string, onDelta: (t: string) => void, onDone: () => void): Promise<void> {
-    const model = aiCfg.model || 'llama3.1:8b';
-    const base = aiCfg.endpoint || 'http://127.0.0.1:11434';
-    const endpoint = `${base.replace(/\/$/, '')}/api/chat`;
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }], stream: true })
-    } as any);
-    const reader = (res as any).body?.getReader?.();
-    if (!reader) { onDone(); return; }
-    const decoder = new TextDecoder();
-    let done = false;
-    while (!done) {
-      const { value, done: d } = await reader.read();
-      done = d;
-      if (value) {
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split(/\n/).map(s => s.trim()).filter(Boolean);
-        for (const line of lines) {
-          try {
-            const obj = JSON.parse(line);
-            const delta = obj?.message?.content;
-            if (typeof delta === 'string') onDelta(delta);
-          } catch { /* ignored */ }
-        }
-      }
-    }
-    onDone();
-  }
-
-  private checkAiEnv(provider: string): { ok: boolean; required: string[]; missing: string[] } {
-    const req: string[] = [];
-    switch (provider) {
-      case 'openai':
-        req.push('OPENAI_API_KEY');
-        break;
-      case 'anthropic':
-        req.push('ANTHROPIC_API_KEY');
-        break;
-      case 'azure-openai':
-        req.push('AZURE_OPENAI_API_KEY', 'AZURE_OPENAI_ENDPOINT');
-        break;
-      case 'ollama':
-        // local runtime; no key required
-        break;
-      default:
-        break;
-    }
-    const missing = req.filter(k => !process.env[k]);
-    return { ok: missing.length === 0, required: req, missing };
   }
 }

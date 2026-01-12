@@ -20,7 +20,7 @@ import {
 } from '../types/index.js';
 import { ServiceRegistryImpl } from '../gateway/ServiceRegistryImpl.js';
 import { AuthenticationLayerImpl } from '../auth/AuthenticationLayerImpl.js';
-import { GatewayRouterImpl } from '../router/GatewayRouterImpl.js';
+import { GatewayRouterImpl } from '../routing/GatewayRouterImpl.js';
 import { ProtocolAdaptersImpl } from '../adapters/ProtocolAdaptersImpl.js';
 import type { OrchestratorStatus, OrchestratorManager } from '../orchestrator/OrchestratorManager.js';
 import { OrchestratorEngine } from '../orchestrator/OrchestratorEngine.js';

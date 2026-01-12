@@ -18,6 +18,10 @@ export interface ContainerSandboxRuntimePolicy {
   envSafePrefixes: string[];
   requiredForUntrusted: boolean;
   prefer: boolean;
+  // Security hardening defaults
+  defaultPidsLimit?: number;
+  defaultNoNewPrivileges: boolean;
+  defaultDropCapabilities: string[];
 }
 
 export interface NormalizedSandboxPolicy {
@@ -255,6 +259,13 @@ export function normalizeSandboxPolicy(gatewayConfig?: GatewayConfig): Normalize
     typeof containerCfg.requiredForUntrusted === 'boolean' ? containerCfg.requiredForUntrusted : false;
   const prefer = typeof containerCfg.prefer === 'boolean' ? containerCfg.prefer : false;
 
+  // Security hardening defaults
+  const defaultPidsLimit = typeof containerCfg.defaultPidsLimit === 'number' ? containerCfg.defaultPidsLimit : undefined;
+  const defaultNoNewPrivileges = containerCfg.defaultNoNewPrivileges !== false; // Default: true
+  const defaultDropCapabilities: string[] = Array.isArray(containerCfg.defaultDropCapabilities)
+    ? containerCfg.defaultDropCapabilities.map((c: any) => String(c))
+    : [];
+
   return {
     profile,
     portable: {
@@ -267,7 +278,10 @@ export function normalizeSandboxPolicy(gatewayConfig?: GatewayConfig): Normalize
       allowedVolumeRoots,
       envSafePrefixes,
       requiredForUntrusted,
-      prefer
+      prefer,
+      defaultPidsLimit,
+      defaultNoNewPrivileges,
+      defaultDropCapabilities
     }
   };
 }

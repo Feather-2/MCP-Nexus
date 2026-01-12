@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { BaseRouteHandler, RouteContext } from './RouteContext.js';
 import { McpServiceConfig, McpMessage } from '../../types/index.js';
 import { MiddlewareChain } from '../../middleware/chain.js';
+import { sleepBackoff } from '../../utils/async.js';
 
 // Schema definitions
 const ToolExecuteBodySchema = z.object({
@@ -427,8 +428,7 @@ export class ToolRoutes extends BaseRouteHandler {
       } catch (error) {
         lastError = error as Error;
         if (attempt < maxRetries) {
-          // Exponential backoff
-          await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 100));
+          await sleepBackoff(attempt);
         }
       }
     }

@@ -9,6 +9,10 @@ export interface ContainerAdapterPolicyOptions {
   envSafePrefixes?: string[]; // prefixes or exact keys
   defaultNetwork?: 'none' | 'bridge';
   defaultReadonlyRootfs?: boolean;
+  // Security hardening defaults
+  defaultPidsLimit?: number;
+  defaultNoNewPrivileges?: boolean;
+  defaultDropCapabilities?: string[];
 }
 
 /**
@@ -59,6 +63,18 @@ export class ContainerTransportAdapter extends EventEmitter implements Transport
     const resources = container.resources || {};
     if (resources.cpus != null) runArgs.push('--cpus', String(resources.cpus));
     if (resources.memory) runArgs.push('--memory', String(resources.memory));
+    // PID limit: service config > policy default
+    const pidsLimit = resources.pidsLimit ?? policyOpts?.defaultPidsLimit;
+    if (pidsLimit != null) runArgs.push('--pids-limit', String(pidsLimit));
+
+    // Security hardening (service config overrides policy defaults)
+    const noNewPrivileges = container.noNewPrivileges ?? policyOpts?.defaultNoNewPrivileges ?? true;
+    if (noNewPrivileges) runArgs.push('--security-opt', 'no-new-privileges:true');
+    if (container.seccompProfile) runArgs.push('--security-opt', `seccomp=${container.seccompProfile}`);
+    const dropCaps = container.dropCapabilities ?? policyOpts?.defaultDropCapabilities ?? [];
+    for (const cap of dropCaps) {
+      runArgs.push('--cap-drop', String(cap).toUpperCase());
+    }
 
     // workdir
     if (container.workdir) runArgs.push('-w', String(container.workdir));
@@ -160,9 +176,17 @@ export class ContainerTransportAdapter extends EventEmitter implements Transport
       if (runtime === 'docker') {
         try {
           this.logger.warn('Docker failed to start; retry with podman');
+          // Clean up old delegate listeners before replacing
+          this.delegate.removeAllListeners();
           (this.config as any).container = { ...container, runtime: 'podman' };
           const retry = new ContainerTransportAdapter(this.config, this.logger, this.policy);
           this.delegate = (retry as any).delegate;
+          // Re-wire event listeners to new delegate
+          this.delegate.on('message', (m) => this.emit('message', m));
+          this.delegate.on('sent', (m) => this.emit('sent', m));
+          this.delegate.on('stderr', (l) => this.emit('stderr', l as any));
+          this.delegate.on('disconnect', (e) => this.emit('disconnect', e));
+          this.delegate.on('error', (e) => this.emit('error', e as any));
           await this.delegate.connect();
           return;
         } catch (err) {

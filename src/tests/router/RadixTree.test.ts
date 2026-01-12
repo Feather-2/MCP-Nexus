@@ -1,4 +1,4 @@
-import { RadixTree } from '../../router/RadixTree.js';
+import { RadixTree } from '../../routing/RadixTree.js';
 
 describe('RadixTree', () => {
   it('supports exact matches', () => {

@@ -1,4 +1,4 @@
-import { GatewayRouterImpl } from '../../router/GatewayRouterImpl.js';
+import { GatewayRouterImpl } from '../../routing/GatewayRouterImpl.js';
 import { 
   RouteRequest, 
    

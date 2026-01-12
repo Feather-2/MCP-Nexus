@@ -56,17 +56,4 @@ export class LogRoutes extends BaseRouteHandler {
       }
     });
   }
-
-  private writeSseHeaders(reply: FastifyReply, request: FastifyRequest): void {
-    const origin = request.headers['origin'] as string | undefined;
-    const config = (this.ctx.configManager as any).config || {};
-    const allowed = Array.isArray(config.corsOrigins) ? config.corsOrigins : [];
-    const isAllowed = origin && allowed.includes(origin);
-    reply.raw.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-      ...(isAllowed ? { 'Access-Control-Allow-Origin': origin!, 'Vary': 'Origin' } : {})
-    });
-  }
 }

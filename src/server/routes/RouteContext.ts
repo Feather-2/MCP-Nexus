@@ -1,8 +1,8 @@
-import { FastifyInstance, FastifyReply } from 'fastify';
+import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Logger } from '../../types/index.js';
 import { ServiceRegistryImpl } from '../../gateway/ServiceRegistryImpl.js';
 import { AuthenticationLayerImpl } from '../../auth/AuthenticationLayerImpl.js';
-import { GatewayRouterImpl } from '../../router/GatewayRouterImpl.js';
+import { GatewayRouterImpl } from '../../routing/GatewayRouterImpl.js';
 import { ProtocolAdaptersImpl } from '../../adapters/ProtocolAdaptersImpl.js';
 import { ConfigManagerImpl } from '../../config/ConfigManagerImpl.js';
 import type { OrchestratorManager, OrchestratorStatus } from '../../orchestrator/OrchestratorManager.js';
@@ -55,5 +55,21 @@ export abstract class BaseRouteHandler {
 
   protected respondError(reply: FastifyReply, status: number, message: string, opts?: { code?: string; recoverable?: boolean; meta?: any }) {
     return this.ctx.respondError(reply, status, message, opts);
+  }
+
+  /**
+   * Write SSE headers with proper CORS handling
+   */
+  protected writeSseHeaders(reply: FastifyReply, request: FastifyRequest): void {
+    const origin = request.headers['origin'] as string | undefined;
+    const config = (this.ctx.configManager as any).config || {};
+    const allowed = Array.isArray(config.corsOrigins) ? config.corsOrigins : [];
+    const isAllowed = origin && allowed.includes(origin);
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      ...(isAllowed ? { 'Access-Control-Allow-Origin': origin!, 'Vary': 'Origin' } : {})
+    });
   }
 }
