@@ -353,7 +353,7 @@ export function applyGatewaySandboxPolicy(template: McpServiceConfig, gatewayCon
     if (requireContainerByTrust) reasons.push(`trustLevel=${trustLevel}`);
     if (preferContainer) reasons.push('sandbox.container.prefer');
 
-    let next: McpServiceConfig = {
+    const next: McpServiceConfig = {
       ...template,
       env: { ...(template.env || {}), SANDBOX: 'container' },
       container: { ...((template as any).container || {}) }

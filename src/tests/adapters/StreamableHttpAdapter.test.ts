@@ -76,7 +76,7 @@ class MockEventSource {
     this.dispatchEvent('message', new MessageEvent('message', { data }));
   }
 
-  simulateError(error?: string) {
+  simulateError(_error?: string) {
     const errorEvent = new Event('error');
     if (this.onerror) {
       this.onerror(errorEvent);

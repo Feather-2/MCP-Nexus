@@ -1,4 +1,4 @@
-export type Token<T> = string | symbol;
+export type Token<_T> = string | symbol;
 
 type Factory<T> = (container: Container) => T;
 
@@ -56,4 +56,3 @@ export class Container {
     return provider.factory(this);
   }
 }
-

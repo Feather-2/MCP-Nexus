@@ -1,0 +1,24 @@
+{
+  "project": "MCP-Nexus",
+  "localized": ["gh-pr-review", "gh-issue-implement", "frontend-design"],
+  "skipped": [
+    "browser",
+    "codeagent",
+    "codex",
+    "gemini",
+    "gh-issue-create",
+    "html-forge",
+    "product-requirements",
+    "project-index",
+    "prototype-prompt-generator",
+    "test-cases",
+    "ui-ux-pro-max"
+  ],
+  "excluded": [
+    "js-agents-entropy-scan"
+  ],
+  "excludeReason": {
+    "js-agents-entropy-scan": "项目是 TypeScript，非纯 JS/JSDoc 架构"
+  },
+  "created": "2026-01-12"
+}

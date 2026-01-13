@@ -143,7 +143,7 @@ export class MarkdownParser extends BaseParser {
     let match;
 
     while ((match = paramPattern.exec(content)) !== null) {
-      const [, name, typeStr, requiredStr, description] = match;
+      const [, name, _typeStr, requiredStr, description] = match;
       const required = requiredStr?.toLowerCase() === 'required';
       const type = this.inferType(name, description);
 
@@ -158,7 +158,7 @@ export class MarkdownParser extends BaseParser {
     // Alternative pattern: | param | type | required | description |
     const tablePattern = /\|\s*(\w+)\s*\|\s*([^|]+)\s*\|\s*(yes|no|true|false|required|optional)\s*\|\s*([^|]+)\s*\|/gi;
     while ((match = tablePattern.exec(content)) !== null) {
-      const [, name, typeStr, requiredStr, description] = match;
+      const [, name, _typeStr, requiredStr, description] = match;
       const required = /yes|true|required/i.test(requiredStr);
       const type = this.inferType(name, description);
 

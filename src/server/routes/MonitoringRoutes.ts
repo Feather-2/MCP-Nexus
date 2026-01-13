@@ -49,7 +49,6 @@ export class MonitoringRoutes extends BaseRouteHandler {
 
     // Get comprehensive health status
     server.get('/api/health-status', async (request: FastifyRequest, reply: FastifyReply) => {
-      const stats = await this.ctx.serviceRegistry.getRegistryStats();
       const routerMetrics = this.ctx.router.getMetrics();
       const services = await this.ctx.serviceRegistry.listServices();
 

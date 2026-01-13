@@ -349,7 +349,6 @@ export class SandboxRoutes extends BaseRouteHandler {
     };
 
     const getRuntimeConfig = () => {
-      const platform = process.platform as 'win32'|'linux'|'darwin';
       const archRaw = process.arch;
       const nodeArch = archRaw === 'arm64' ? 'arm64' : 'x64';
       const goArch = archRaw === 'arm64' ? 'arm64' : 'amd64';

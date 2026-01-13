@@ -11,6 +11,21 @@ import { readFile, writeFile, mkdir, access, watch as watchAsync, readdir, stat,
 import { join, dirname } from 'path';
 import { EventEmitter } from 'events';
 import { constants } from 'fs';
+import type { FileChangeInfo } from 'fs/promises';
+
+type ErrnoExceptionLike = { code?: unknown };
+
+function getErrnoCode(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object') return undefined;
+  const code = (error as ErrnoExceptionLike).code;
+  return typeof code === 'string' ? code : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object';
+}
+
+type FsPromiseWatcher = AsyncIterable<FileChangeInfo<string>> & { close?: () => void };
 
 export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
   private configPath: string;
@@ -68,7 +83,7 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
         return this.currentConfig;
       }
       
-      const loadedConfig = JSON.parse(configData) as GatewayConfig;
+      const loadedConfig = JSON.parse(configData) as unknown;
       
       // Validate and merge with defaults
       this.currentConfig = this.validateAndMergeConfig(loadedConfig);
@@ -83,7 +98,7 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
       
       return this.currentConfig;
     } catch (error) {
-      if ((error as any).code === 'ENOENT') {
+      if (getErrnoCode(error) === 'ENOENT') {
         // Config file doesn't exist, use defaults and create it
         this.logger.info('Created default configuration file', {
           configPath: this.configPath
@@ -106,8 +121,8 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
       // Ensure config directory exists
       try {
         await mkdir(dirname(this.configPath), { recursive: true });
-      } catch (e: any) {
-        if (!(e && e.code === 'EEXIST')) {
+      } catch (e) {
+        if (getErrnoCode(e) !== 'EEXIST') {
           throw e;
         }
       }
@@ -148,12 +163,13 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
   async get<T = any>(key: string): Promise<T | null> {
     // Simple key-value access to current config
     const keys = key.split('.');
-    let value: any = this.currentConfig;
+    let value: unknown = this.currentConfig;
     
     for (const k of keys) {
-      if (value && typeof value === 'object' && k in value) {
-        value = value[k];
-      } else {
+      if (!isRecord(value) || !(k in value)) return null;
+
+      value = (value as Record<string, unknown>)[k];
+      if (value === undefined) {
         return null;
       }
     }
@@ -170,16 +186,17 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
       throw new Error('Invalid key path');
     }
     
-    let target: any = this.currentConfig;
+    let target: Record<string, unknown> = this.currentConfig as unknown as Record<string, unknown>;
     
     for (const k of keys) {
-      if (!target[k] || typeof target[k] !== 'object') {
-        target[k] = {};
+      const next = target[k];
+      if (!isRecord(next)) {
+        target[k] = {} as Record<string, unknown>;
       }
-      target = target[k];
+      target = target[k] as Record<string, unknown>;
     }
     
-    target[lastKey] = value;
+    target[lastKey] = value as unknown;
     await this.saveConfig(this.currentConfig);
   }
 
@@ -196,16 +213,17 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
       return false;
     }
     
-    let target: any = this.currentConfig;
+    let target: Record<string, unknown> = this.currentConfig as unknown as Record<string, unknown>;
     
     for (const k of keys) {
-      if (!target[k] || typeof target[k] !== 'object') {
+      const next = target[k];
+      if (!isRecord(next)) {
         return false; // Path doesn't exist
       }
-      target = target[k];
+      target = next;
     }
     
-    if (lastKey in target) {
+    if (Object.prototype.hasOwnProperty.call(target, lastKey)) {
       delete target[lastKey];
       await this.saveConfig(this.currentConfig);
       return true;
@@ -214,11 +232,11 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
     return false;
   }
 
-  async getAll(): Promise<Record<string, any>> {
-    return { ...this.currentConfig };
+  async getAll(): Promise<Record<string, unknown>> {
+    return { ...this.currentConfig } as Record<string, unknown>;
   }
 
-  async setAll(config: Record<string, any>): Promise<void> {
+  async setAll(config: Record<string, unknown>): Promise<void> {
     this.currentConfig = { ...this.currentConfig, ...config } as GatewayConfig;
     await this.saveConfig(this.currentConfig);
   }
@@ -313,8 +331,8 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
       const templatePath = join(this.templatesPath, `${safeName}.json`);
       await unlink(templatePath);
       this.logger.debug(`Template file removed: ${templatePath}`);
-    } catch (e: any) {
-      if (!(e && e.code === 'ENOENT')) {
+    } catch (e) {
+      if (getErrnoCode(e) !== 'ENOENT') {
         this.logger.warn('Failed to remove template file from filesystem', { name, error: e });
       }
     }
@@ -383,18 +401,19 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
     }
   }
 
-  private _watcher: any;
-  private _templatesWatcher: any;
+  private _watcher?: FsPromiseWatcher;
+  private _templatesWatcher?: FsPromiseWatcher;
   // Configuration watching using fs/promises.watch async iterator
   async watchConfig(onChange?: () => void): Promise<void> {
     try {
-      this._watcher = watchAsync(this.configPath, { persistent: false });
+      const watcher = watchAsync(this.configPath, { persistent: false }) as FsPromiseWatcher;
+      this._watcher = watcher;
       this.watchEnabled = true;
       this.logger.debug('Started watching configuration file', { path: this.configPath });
       (async () => {
         try {
-          for await (const event of this._watcher as any) {
-            if (event?.eventType === 'change') {
+          for await (const event of watcher) {
+            if (event.eventType === 'change') {
               try {
                 await this.loadConfig();
                 onChange?.();
@@ -436,21 +455,21 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
       let backupData: string;
       try {
         backupData = await readFile(candidate, 'utf-8');
-      } catch (e: any) {
-        if (e && e.code === 'ENOENT') {
+      } catch (e) {
+        if (getErrnoCode(e) === 'ENOENT') {
           throw new Error('Backup file not found');
         }
         throw e;
       }
 
       // Accept both raw GatewayConfig JSON and wrapped { config, templates }
-      let parsed: any;
-      try { parsed = JSON.parse(backupData); } catch { parsed = null; }
-      if (parsed && parsed.config) {
-        await this.saveConfig(parsed.config);
+      let parsed: unknown;
+      try { parsed = JSON.parse(backupData) as unknown; } catch { parsed = null; }
+      if (isRecord(parsed) && parsed.config) {
+        await this.saveConfig(parsed.config as GatewayConfig);
         if (Array.isArray(parsed.templates)) {
           for (const t of parsed.templates) {
-            await this.saveTemplate(t);
+            await this.saveTemplate(t as ServiceTemplate);
           }
         }
       } else if (parsed) {
@@ -461,7 +480,7 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
       }
       this.logger.info('Configuration restored from backup', { backupPath: candidate });
       this.emit('configRestored', { backupPath: candidate });
-    } catch (error: any) {
+    } catch (error) {
       this.logger.error('Failed to restore from backup:', error);
       if (error instanceof Error && error.message === 'Backup file not found') {
         throw error;
@@ -500,10 +519,8 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
     }
     
     const envLevel = process.env.PBMCP_LOG_LEVEL || process.env.PB_GATEWAY_LOG_LEVEL;
-    if (envLevel) {
-      if (this.isValidLogLevel(envLevel)) {
-        overrides.logLevel = envLevel as any;
-      }
+    if (envLevel && this.isValidLogLevel(envLevel)) {
+      overrides.logLevel = envLevel;
     }
     
     if (Object.keys(overrides).length > 0) {
@@ -529,19 +546,20 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
     try {
       const startTemplatesWatcher = async () => {
         try {
-          this._templatesWatcher = watchAsync(this.templatesPath, { persistent: false });
+          const watcher = watchAsync(this.templatesPath, { persistent: false }) as FsPromiseWatcher;
+          this._templatesWatcher = watcher;
           this.logger.debug('Started watching templates directory', { path: this.templatesPath });
           (async () => {
             try {
-              for await (const event of this._templatesWatcher as any) {
-                const filename = (event as any)?.filename as string | undefined;
-                const eventType = (event as any)?.eventType as string | undefined;
+              for await (const event of watcher) {
+                const filename = typeof event.filename === 'string' ? event.filename : undefined;
+                const eventType = event.eventType;
                 if (!filename || !filename.endsWith('.json')) {
                   continue;
                 }
                 const fullPath = join(this.templatesPath, filename);
                 try {
-                  const st = await stat(fullPath).catch(() => null as any);
+                  const st = await stat(fullPath).catch(() => null);
                   if (st && st.isFile()) {
                     const loaded = await this.loadTemplateFile(fullPath);
                     if (loaded) {
@@ -591,7 +609,7 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
     this.watchEnabled = false;
     try { this._watcher?.close?.(); } catch { /* ignored */ }
     this._watcher = undefined;
-    try { (this._templatesWatcher as any)?.close?.(); } catch { /* ignored */ }
+    try { this._templatesWatcher?.close?.(); } catch { /* ignored */ }
     this._templatesWatcher = undefined;
     this.logger.debug('Stopped watching configuration file');
     this.emit('watchStopped');
@@ -636,9 +654,12 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
     };
   }
 
-  private validateAndMergeConfig(loadedConfig: any): GatewayConfig {
+  private validateAndMergeConfig(loadedConfig: unknown): GatewayConfig {
     // 保持读取文件的配置不被默认值“填充”以匹配单测期望（默认结构在文件不存在时生成）
-    this.validateConfigStrict(loadedConfig);
+    if (!isRecord(loadedConfig)) {
+      throw new Error('Configuration must be an object');
+    }
+    this.validateConfigStrict(loadedConfig as Partial<GatewayConfig>);
     return { ...loadedConfig } as GatewayConfig;
   }
 
@@ -843,7 +864,7 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
     return typeof host === 'string' && host.trim().length > 0;
   }
 
-  isValidLogLevel(level: string): boolean {
+  isValidLogLevel(level: string): level is GatewayConfig['logLevel'] {
     return ['error', 'warn', 'info', 'debug', 'trace'].includes(level);
   }
 

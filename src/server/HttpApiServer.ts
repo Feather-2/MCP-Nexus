@@ -10,13 +10,8 @@ import { existsSync } from 'fs';
 import {
   Logger,
   GatewayConfig,
-  McpServiceConfig,
-  ServiceInstance,
-  RouteRequest,
   ServiceHealth,
-  HealthCheckResult,
-  OrchestratorConfig,
-  SubagentConfig
+  HealthCheckResult
 } from '../types/index.js';
 import { ServiceRegistryImpl } from '../gateway/ServiceRegistryImpl.js';
 import { AuthenticationLayerImpl } from '../auth/AuthenticationLayerImpl.js';
@@ -27,11 +22,6 @@ import { OrchestratorEngine } from '../orchestrator/OrchestratorEngine.js';
 import { SubagentLoader } from '../orchestrator/SubagentLoader.js';
 import { McpGenerator } from '../generator/McpGenerator.js';
 import { createTraceId, enterTrace } from '../observability/trace.js';
-import type {
-  GenerateRequest,
-  ExportRequest,
-  ImportRequest
-} from '../types/index.js';
 import {
   RouteContext,
   ServiceRoutes,
@@ -59,14 +49,6 @@ import {
 } from '../middleware/chain.js';
 import { AuthMiddleware } from '../middleware/AuthMiddleware.js';
 import { RateLimitMiddleware } from '../middleware/RateLimitMiddleware.js';
-
-interface RouteRequestBody {
-  method: string;
-  params?: any;
-  serviceGroup?: string;
-  contentType?: string;
-  contentLength?: number;
-}
 
 export class HttpApiServer {
   private static readonly MAX_LOG_BUFFER_SIZE = 200;

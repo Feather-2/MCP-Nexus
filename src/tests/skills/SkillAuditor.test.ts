@@ -1,4 +1,4 @@
-import { SkillAuditor, type TemplateProvider, type SkillAuditorOptions } from '../../skills/SkillAuditor.js';
+import { SkillAuditor, type TemplateProvider } from '../../skills/SkillAuditor.js';
 import type { Skill } from '../../skills/types.js';
 import type { GatewayConfig, McpServiceConfig } from '../../types/index.js';
 import { DEFAULT_SKILL_CAPABILITIES } from '../../security/CapabilityManifest.js';

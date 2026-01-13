@@ -367,7 +367,7 @@ describe('ServiceHealthChecker', () => {
     let inFlight = 0;
     let maxInFlight = 0;
 
-    const probe = vi.fn(async (serviceId: string) => {
+    const probe = vi.fn(async (_serviceId: string) => {
       inFlight++;
       maxInFlight = Math.max(maxInFlight, inFlight);
       try {

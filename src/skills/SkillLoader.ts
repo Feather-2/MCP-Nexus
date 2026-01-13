@@ -5,7 +5,7 @@ import { access, readdir, readFile, stat } from 'fs/promises';
 import { constants } from 'fs';
 import { parse as parseYaml } from 'yaml';
 import type { Logger } from '../types/index.js';
-import { mergeWithDefaults, validateCapabilities } from '../security/CapabilityManifest.js';
+import { mergeWithDefaults, validateCapabilities, type SkillCapabilities } from '../security/CapabilityManifest.js';
 import type { Skill, SkillMetadata, SkillScope } from './types.js';
 
 export interface SkillLoaderOptions {
@@ -114,7 +114,7 @@ function requireCapabilityKeys(raw: unknown, skillName: string): void {
     }
   }
 
-  const fs = (raw as any).filesystem;
+  const fs = raw['filesystem'];
   if (!isPlainObject(fs)) throw new Error(`Skill "${skillName}" capabilities.filesystem must be an object`);
   for (const key of ['read', 'write']) {
     if (!Object.prototype.hasOwnProperty.call(fs, key)) {
@@ -122,7 +122,7 @@ function requireCapabilityKeys(raw: unknown, skillName: string): void {
     }
   }
 
-  const net = (raw as any).network;
+  const net = raw['network'];
   if (!isPlainObject(net)) throw new Error(`Skill "${skillName}" capabilities.network must be an object`);
   for (const key of ['allowedHosts', 'allowedPorts']) {
     if (!Object.prototype.hasOwnProperty.call(net, key)) {
@@ -130,10 +130,10 @@ function requireCapabilityKeys(raw: unknown, skillName: string): void {
     }
   }
 
-  const env = (raw as any).env;
+  const env = raw['env'];
   if (!Array.isArray(env)) throw new Error(`Skill "${skillName}" capabilities.env must be an array`);
 
-  const sub = (raw as any).subprocess;
+  const sub = raw['subprocess'];
   if (!isPlainObject(sub)) throw new Error(`Skill "${skillName}" capabilities.subprocess must be an object`);
   for (const key of ['allowed', 'allowedCommands']) {
     if (!Object.prototype.hasOwnProperty.call(sub, key)) {
@@ -141,7 +141,7 @@ function requireCapabilityKeys(raw: unknown, skillName: string): void {
     }
   }
 
-  const res = (raw as any).resources;
+  const res = raw['resources'];
   if (!isPlainObject(res)) throw new Error(`Skill "${skillName}" capabilities.resources must be an object`);
   for (const key of ['maxMemoryMB', 'maxCpuPercent', 'timeoutMs']) {
     if (!Object.prototype.hasOwnProperty.call(res, key)) {
@@ -150,7 +150,7 @@ function requireCapabilityKeys(raw: unknown, skillName: string): void {
   }
 }
 
-function extractFrontmatterFields(frontmatter: any): {
+function extractFrontmatterFields(frontmatter: unknown): {
   name?: string;
   description?: string;
   shortDescription?: string;
@@ -160,30 +160,37 @@ function extractFrontmatterFields(frontmatter: any): {
   allowedTools?: string;
   priority?: number;
 } {
-  const top = frontmatter || {};
-  const meta = (top.metadata && typeof top.metadata === 'object' && !Array.isArray(top.metadata))
-    ? top.metadata
-    : {};
+  const top = isPlainObject(frontmatter) ? frontmatter : {};
+  const metaRaw = top['metadata'];
+  const meta = isPlainObject(metaRaw) ? metaRaw : {};
 
-  const name = typeof top.name === 'string' ? top.name : undefined;
-  const description = typeof top.description === 'string' ? top.description : undefined;
+  const nameRaw = top['name'];
+  const name = typeof nameRaw === 'string' ? nameRaw : undefined;
+  const descriptionRaw = top['description'];
+  const description = typeof descriptionRaw === 'string' ? descriptionRaw : undefined;
 
   const shortDescriptionRaw =
     meta['short-description'] ??
-    meta.shortDescription ??
-    meta.short_description ??
-    top.shortDescription ??
-    top.short_description;
+    meta['shortDescription'] ??
+    meta['short_description'] ??
+    top['shortDescription'] ??
+    top['short_description'];
   const shortDescription = typeof shortDescriptionRaw === 'string' ? shortDescriptionRaw : undefined;
 
-  const keywords = parseStringArray(top.keywords ?? meta.keywords);
-  const traits = parseStringArray(top.traits ?? meta.traits);
-  const tags = parseTags(top.tags ?? meta.tags);
+  const keywords = parseStringArray(top['keywords'] ?? meta['keywords']);
+  const traits = parseStringArray(top['traits'] ?? meta['traits']);
+  const tags = parseTags(top['tags'] ?? meta['tags']);
 
-  const allowedToolsRaw = top.allowedTools ?? top.allowed_tools ?? top['allowed-tools'] ?? meta.allowedTools ?? meta.allowed_tools ?? meta['allowed-tools'];
+  const allowedToolsRaw =
+    top['allowedTools'] ??
+    top['allowed_tools'] ??
+    top['allowed-tools'] ??
+    meta['allowedTools'] ??
+    meta['allowed_tools'] ??
+    meta['allowed-tools'];
   const allowedTools = typeof allowedToolsRaw === 'string' ? allowedToolsRaw : undefined;
 
-  const priorityRaw = top.priority ?? meta.priority;
+  const priorityRaw = top['priority'] ?? meta['priority'];
   const priority = typeof priorityRaw === 'number' ? priorityRaw : (typeof priorityRaw === 'string' ? Number(priorityRaw) : undefined);
 
   return { name, description, shortDescription, keywords, tags, traits, allowedTools, priority };
@@ -371,12 +378,12 @@ export class SkillLoader {
         priority: Number.isFinite(extracted.priority) ? Number(extracted.priority) : 0
       };
 
-      const capabilitiesRaw = (frontmatter as any)?.capabilities;
+      const capabilitiesRaw = isPlainObject(frontmatter) ? frontmatter['capabilities'] : undefined;
       if (capabilitiesRaw === undefined) {
         throw new Error(`Skill "${name}" capabilities are required`);
       }
       requireCapabilityKeys(capabilitiesRaw, name);
-      const capabilities = mergeWithDefaults(capabilitiesRaw as any);
+      const capabilities = mergeWithDefaults(capabilitiesRaw as Partial<SkillCapabilities>);
       validateCapabilities(capabilities);
 
       const skill: Skill = { metadata, body, capabilities };
@@ -395,7 +402,7 @@ export class SkillLoader {
     }
   }
 
-  private parseSkillMarkdown(content: string): { frontmatter: any; body: string } {
+  private parseSkillMarkdown(content: string): { frontmatter: unknown; body: string } {
     if (!content.startsWith('---')) {
       return { frontmatter: {}, body: content.trimStart() };
     }
@@ -415,7 +422,7 @@ export class SkillLoader {
 
     const yamlText = lines.slice(1, end).join('\n');
     const rest = lines.slice(end + 1).join('\n');
-    const frontmatter = yamlText.trim().length ? parseYaml(yamlText) : {};
+    const frontmatter = yamlText.trim().length ? (parseYaml(yamlText) as unknown) : {};
     return { frontmatter, body: rest.trimStart() };
   }
 

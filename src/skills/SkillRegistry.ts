@@ -1,5 +1,6 @@
 import path from 'path';
-import { mkdir, rm, writeFile } from 'fs/promises';
+import { mkdir, readdir, rm, stat, watch as watchAsync, writeFile } from 'fs/promises';
+import type { Dirent } from 'fs';
 import { z } from 'zod';
 import { stringify as stringifyYaml } from 'yaml';
 import type { Logger } from '../types/index.js';
@@ -43,6 +44,17 @@ const SkillFrontmatterSchema = z.object({
   capabilities: SkillCapabilitiesSchema.optional()
 }).partial();
 
+const WATCH_DEBOUNCE_MS = 500;
+const DEFAULT_WATCH_MAX_DEPTH = 5;
+const DEFAULT_IGNORED_DIRS = new Set([
+  '.git',
+  'node_modules',
+  'dist',
+  'coverage',
+  'generated',
+  'release'
+]);
+
 export interface RegisterSkillInput {
   name: string;
   description: string;
@@ -85,12 +97,18 @@ function ensureRelativeWithin(root: string, rel: string): string {
   return abs;
 }
 
+type AsyncFsWatcher = AsyncIterable<{ eventType: string; filename?: string | Buffer }> & { close?: () => void };
+type WatcherEntry = { watcher: AsyncFsWatcher; root: string; depth: number };
+
 export class SkillRegistry {
   private readonly logger?: Logger;
   private readonly loader: SkillLoader;
   private readonly skills = new Map<string, Skill>();
   private readonly roots: string[];
   private readonly managedRoot: string;
+  private watchEnabled = false;
+  private readonly watchers = new Map<string, WatcherEntry>();
+  private reloadDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(options?: { logger?: Logger; roots?: string[]; managedRoot?: string; loader?: SkillLoader }) {
     this.logger = options?.logger;
@@ -191,5 +209,192 @@ export class SkillRegistry {
     await rm(dir, { recursive: true, force: true });
     this.skills.delete(name.toLowerCase());
     return true;
+  }
+
+  async startWatch(): Promise<void> {
+    if (this.watchEnabled) {
+      return;
+    }
+
+    this.watchEnabled = true;
+    this.logger?.info('Starting SkillRegistry watch', { roots: this.roots });
+
+    for (const root of this.roots) {
+      await this.watchRoot(root);
+    }
+
+    this.logger?.info('SkillRegistry watch started', {
+      roots: this.roots.length,
+      watchedDirs: this.watchers.size
+    });
+  }
+
+  stopWatch(): void {
+    if (!this.watchEnabled) {
+      return;
+    }
+
+    this.watchEnabled = false;
+    if (this.reloadDebounceTimer) {
+      clearTimeout(this.reloadDebounceTimer);
+      this.reloadDebounceTimer = undefined;
+    }
+
+    for (const entry of this.watchers.values()) {
+      try {
+        entry.watcher?.close?.();
+      } catch {
+        // ignored
+      }
+    }
+    this.watchers.clear();
+
+    this.logger?.info('SkillRegistry watch stopped');
+  }
+
+  private scheduleReload(meta?: { root?: string; dir?: string; filename?: string; eventType?: string }): void {
+    if (!this.watchEnabled) return;
+
+    if (this.reloadDebounceTimer) {
+      clearTimeout(this.reloadDebounceTimer);
+    }
+
+    this.reloadDebounceTimer = setTimeout(() => {
+      this.reloadDebounceTimer = undefined;
+      if (!this.watchEnabled) return;
+
+      this.logger?.info('Reloading skills (watch)', meta);
+      this.reload().catch((error) => {
+        this.logger?.warn('Failed to reload skills (watch)', {
+          ...meta,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      });
+    }, WATCH_DEBOUNCE_MS);
+  }
+
+  private async watchRoot(root: string): Promise<void> {
+    const resolvedRoot = path.resolve(root);
+    try {
+      await this.watchDirectoryTree(resolvedRoot, resolvedRoot, 0);
+    } catch (error) {
+      this.logger?.warn('Failed to start watching skills root', {
+        root: resolvedRoot,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  private async watchDirectoryTree(root: string, dir: string, depth: number): Promise<void> {
+    const queue: Array<{ dir: string; depth: number }> = [{ dir, depth }];
+    const seen = new Set<string>();
+
+    while (queue.length && this.watchEnabled) {
+      const next = queue.shift();
+      if (!next) break;
+
+      const currentDir = path.resolve(next.dir);
+      const currentDepth = next.depth;
+      if (currentDepth > DEFAULT_WATCH_MAX_DEPTH) continue;
+      if (seen.has(currentDir)) continue;
+      seen.add(currentDir);
+
+      await this.addDirectoryWatcher(root, currentDir, currentDepth);
+
+      let entries: Dirent[];
+      try {
+        entries = await readdir(currentDir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        if (DEFAULT_IGNORED_DIRS.has(entry.name)) continue;
+        queue.push({ dir: path.join(currentDir, entry.name), depth: currentDepth + 1 });
+      }
+    }
+  }
+
+  private async addDirectoryWatcher(root: string, dir: string, depth: number): Promise<void> {
+    const resolvedDir = path.resolve(dir);
+    if (this.watchers.has(resolvedDir)) return;
+
+    let watcher: AsyncFsWatcher;
+    try {
+      watcher = watchAsync(resolvedDir, { persistent: false }) as any;
+    } catch (error) {
+      this.logger?.warn('Unable to watch skills directory', {
+        dir: resolvedDir,
+        root,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return;
+    }
+
+    this.watchers.set(resolvedDir, { watcher, root, depth });
+    this.logger?.debug('Watching skills directory', { dir: resolvedDir });
+
+    (async () => {
+      try {
+        for await (const event of watcher as any) {
+          if (!this.watchEnabled) break;
+
+          const filenameRaw = (event as any)?.filename as string | Buffer | undefined;
+          const eventType = (event as any)?.eventType as string | undefined;
+          const filename = typeof filenameRaw === 'string'
+            ? filenameRaw
+            : (filenameRaw ? filenameRaw.toString() : undefined);
+
+          if (!filename) {
+            // Some platforms don't reliably provide filenames; reload to be safe.
+            this.scheduleReload({ root, dir: resolvedDir, eventType });
+            continue;
+          }
+
+          if (path.basename(filename).toLowerCase() === 'skill.md') {
+            this.scheduleReload({ root, dir: resolvedDir, filename, eventType });
+          }
+
+          if (eventType === 'rename') {
+            await this.tryWatchChildDirectory(root, resolvedDir, depth, filename);
+          }
+        }
+      } catch (error) {
+        if (this.watchEnabled) {
+          this.logger?.warn('Skills directory watcher failed', {
+            dir: resolvedDir,
+            root,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      } finally {
+        this.watchers.delete(resolvedDir);
+        try {
+          watcher?.close?.();
+        } catch {
+          // ignored
+        }
+      }
+    })();
+  }
+
+  private async tryWatchChildDirectory(root: string, parentDir: string, parentDepth: number, filename: string): Promise<void> {
+    if (!this.watchEnabled) return;
+    if (parentDepth >= DEFAULT_WATCH_MAX_DEPTH) return;
+
+    const name = path.basename(filename);
+    if (!name || DEFAULT_IGNORED_DIRS.has(name)) return;
+
+    const childPath = path.join(parentDir, filename);
+    let st: Awaited<ReturnType<typeof stat>> | null = null;
+    try {
+      st = await stat(childPath);
+    } catch {
+      st = null;
+    }
+    if (!st || !st.isDirectory()) return;
+
+    await this.watchDirectoryTree(root, childPath, parentDepth + 1);
   }
 }

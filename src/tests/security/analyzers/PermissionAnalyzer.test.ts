@@ -101,8 +101,8 @@ describe('PermissionAnalyzer', () => {
           cat /etc/passwd
           cat /etc/passwd
           writeFileSync('out.txt', 'x')
-          ~\/.ssh
-          ~\/.aws
+          ~/.ssh
+          ~/.aws
         `,
         capabilities: {
           ...DEFAULT_SKILL_CAPABILITIES,

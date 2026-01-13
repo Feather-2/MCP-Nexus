@@ -3,8 +3,7 @@ import type {
   RoutingDecision,
   RoutingTier,
   TaskComplexity,
-  TierRouterConfig,
-  DEFAULT_TIER_CONFIG
+  TierRouterConfig
 } from './types.js';
 
 export interface TierRouterOptions {

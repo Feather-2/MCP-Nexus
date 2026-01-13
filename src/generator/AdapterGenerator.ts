@@ -273,7 +273,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 const transport = new StdioServerTransport();
 await server.connect(transport);
 
-console.error('${name} MCP server running on stdio');
+process.stderr.write('${name} MCP server running on stdio\\n');
 `;
     // Inject SAFE_URL separately to avoid template injection
     return template.replace('${'+'SAFE_URL'+'}', escapeForTemplate(safeUrl));

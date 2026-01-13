@@ -237,7 +237,7 @@ export class ServiceTemplateManager {
         version: '2024-11-26',
         transport: 'stdio',
         command: 'node',
-        args: ['-e', "console.log(JSON.stringify({jsonrpc:'2.0',id:'init',result:{tools:[]}})) && setInterval(()=>{}, 1<<30)"],
+        args: ['-e', "process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:'init',result:{tools:[]}}) + '\\n'); setInterval(()=>{}, 1<<30)"],
         env: { SANDBOX: 'container' },
         // @ts-ignore
         container: { image: 'node:20-alpine', readonlyRootfs: true },

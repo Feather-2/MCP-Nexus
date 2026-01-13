@@ -246,9 +246,8 @@ export class ServiceHealthChecker {
     let idx = 0;
 
     const runners = Array.from({ length: Math.min(max, items.length) }).map(async () => {
-      while (true) {
+      while (idx < items.length) {
         const i = idx++;
-        if (i >= items.length) return;
         await worker(items[i]!);
       }
     });

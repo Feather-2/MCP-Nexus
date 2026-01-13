@@ -4,9 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Logger } from '../../../types/index.js';
 import { SandboxRoutes } from '../../../server/routes/SandboxRoutes.js';
 import * as fs from 'fs/promises';
-import { spawn } from 'child_process';
 import * as https from 'https';
-import * as http from 'http';
 import { createHash } from 'crypto';
 
 const {
@@ -410,9 +408,9 @@ describe('SandboxRoutes', () => {
     const res = await server.inject({ method: 'GET', url: '/api/sandbox/install/stream' });
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toContain('text/event-stream');
-    expect(res.payload).toContain('\"event\":\"start\"');
-    expect(res.payload).toContain('\"event\":\"complete\"');
-    expect(res.payload).toContain('\"event\":\"component_start\"');
+    expect(res.payload).toContain('"event":"start"');
+    expect(res.payload).toContain('"event":"complete"');
+    expect(res.payload).toContain('"event":"component_start"');
 
     delete process.env.PB_RUNTIME_SHA256_NODE;
     delete process.env.PB_RUNTIME_SHA256_PYTHON;

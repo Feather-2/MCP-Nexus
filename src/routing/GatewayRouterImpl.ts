@@ -707,8 +707,8 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
   }
 
   private getRoutingReason(
-    selectedService: ServiceInstance, 
-    availableServices: ServiceInstance[]
+    _selectedService: ServiceInstance,
+    _availableServices: ServiceInstance[]
   ): string {
     switch (this.loadBalancingStrategy) {
       case 'round-robin':

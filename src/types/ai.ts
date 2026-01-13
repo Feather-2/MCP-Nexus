@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ORCHESTRATOR_MODES, SECURITY_PROFILES } from './mcp.js';
+import { ORCHESTRATOR_MODES } from './mcp.js';
 
 // ===== AI Provider Config =====
 export const AI_PROVIDERS = [

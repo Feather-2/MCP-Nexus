@@ -4,6 +4,7 @@
  */
 
 import type { ObservationStoreBackend, StoreEvent, StoreEventHandler } from './ObservationStoreBackend.js';
+import type { Logger } from '../../types/index.js';
 
 export interface RedisBackendOptions {
   /** Redis connection URL. */
@@ -35,7 +36,10 @@ export class RedisBackend implements ObservationStoreBackend {
   private subscriber: any = null;
   private connected = false;
 
-  constructor(private readonly options: RedisBackendOptions) {
+  constructor(
+    private readonly options: RedisBackendOptions,
+    private readonly logger: Logger
+  ) {
     this.keyPrefix = options.keyPrefix ?? 'pbmcp:';
     this.defaultTtlMs = options.defaultTtlMs ?? 86400000;
     this.instanceId = options.instanceId ?? `instance-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -54,35 +58,34 @@ export class RedisBackend implements ObservationStoreBackend {
     // this.subscriber.on('message', (channel, message) => this.handleMessage(channel, message));
 
     this.connected = true;
-    console.log(`[RedisBackend] Connected to ${this.options.url} (mock mode)`);
+    this.logger.info(`[RedisBackend] Connected to ${this.options.url} (mock mode)`);
   }
 
   private prefixKey(key: string): string {
     return `${this.keyPrefix}${key}`;
   }
 
-  async get<T>(key: string): Promise<T | undefined> {
+  async get<T>(_key: string): Promise<T | undefined> {
     if (!this.connected) {
       throw new Error('Redis backend not connected');
     }
 
     // In production:
-    // const value = await this.client.get(this.prefixKey(key));
+    // const value = await this.client.get(this.prefixKey(_key));
     // return value ? JSON.parse(value) : undefined;
 
     // Mock implementation - returns undefined
     return undefined;
   }
 
-  async set<T>(key: string, value: T, ttlMs?: number): Promise<void> {
+  async set<T>(key: string, value: T, _ttlMs?: number): Promise<void> {
     if (!this.connected) {
       throw new Error('Redis backend not connected');
     }
 
-    const prefixedKey = this.prefixKey(key);
-    const ttl = ttlMs ?? this.defaultTtlMs;
-
     // In production:
+    // const prefixedKey = this.prefixKey(key);
+    // const ttl = _ttlMs ?? this.defaultTtlMs;
     // const serialized = JSON.stringify(value);
     // if (ttl > 0) {
     //   await this.client.setex(prefixedKey, Math.ceil(ttl / 1000), serialized);
@@ -118,24 +121,24 @@ export class RedisBackend implements ObservationStoreBackend {
     return existed;
   }
 
-  async has(key: string): Promise<boolean> {
+  async has(_key: string): Promise<boolean> {
     if (!this.connected) {
       throw new Error('Redis backend not connected');
     }
 
     // In production:
-    // return (await this.client.exists(this.prefixKey(key))) === 1;
+    // return (await this.client.exists(this.prefixKey(_key))) === 1;
 
     return false; // Mock
   }
 
-  async keys(pattern?: string): Promise<string[]> {
+  async keys(_pattern?: string): Promise<string[]> {
     if (!this.connected) {
       throw new Error('Redis backend not connected');
     }
 
     // In production:
-    // const redisPattern = this.prefixKey(pattern ?? '*');
+    // const redisPattern = this.prefixKey(_pattern ?? '*');
     // const keys = await this.client.keys(redisPattern);
     // return keys.map(k => k.slice(this.keyPrefix.length));
 
