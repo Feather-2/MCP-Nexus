@@ -1,28 +1,7 @@
 // Simplified PB MCP Nexus Implementation
 import { EventEmitter } from 'events';
-
-// Simple Logger
-class SimpleLogger {
-  constructor(private level: string = 'info') {}
-
-  info(message: string, ...args: any[]) {
-    console.log(`[INFO] ${message}`, ...args);
-  }
-
-  error(message: string, ...args: any[]) {
-    console.error(`[ERROR] ${message}`, ...args);
-  }
-
-  warn(message: string, ...args: any[]) {
-    console.warn(`[WARN] ${message}`, ...args);
-  }
-
-  debug(message: string, ...args: any[]) {
-    if (this.level === 'debug') {
-      console.log(`[DEBUG] ${message}`, ...args);
-    }
-  }
-}
+import { PinoLogger } from './utils/PinoLogger.js';
+import type { Logger } from './types/index.js';
 
 // Gateway Configuration
 interface SimpleGatewayConfig {
@@ -34,7 +13,7 @@ interface SimpleGatewayConfig {
 // Simple MCP Nexus Class
 export class SimplePbMcpGateway extends EventEmitter {
   private config: SimpleGatewayConfig;
-  private logger: SimpleLogger;
+  private logger: Logger;
   private isRunning = false;
   private services: Map<string, any> = new Map();
 
@@ -48,7 +27,7 @@ export class SimplePbMcpGateway extends EventEmitter {
       ...config
     };
 
-    this.logger = new SimpleLogger(this.config.logLevel);
+    this.logger = new PinoLogger({ level: this.config.logLevel as any });
   }
 
   async start(): Promise<void> {
@@ -65,7 +44,7 @@ export class SimplePbMcpGateway extends EventEmitter {
       this.isRunning = true;
 
       this.logger.info(`Gateway started successfully on ${this.config.host}:${this.config.port}`);
-      this.logger.info('Available service templates:', Array.from(this.services.keys()));
+      this.logger.info('Available service templates:', { templates: Array.from(this.services.keys()) });
 
       this.emit('started', {
         host: this.config.host,
@@ -74,7 +53,7 @@ export class SimplePbMcpGateway extends EventEmitter {
       });
 
     } catch (error) {
-      this.logger.error('Failed to start gateway:', error);
+      this.logger.error('Failed to start gateway', { error });
       throw error;
     }
   }
@@ -98,7 +77,7 @@ export class SimplePbMcpGateway extends EventEmitter {
       this.emit('stopped');
 
     } catch (error) {
-      this.logger.error('Error stopping gateway:', error);
+      this.logger.error('Error stopping gateway', { error });
       throw error;
     }
   }

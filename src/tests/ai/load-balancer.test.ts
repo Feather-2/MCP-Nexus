@@ -56,7 +56,7 @@ describe('LoadBalancer', () => {
     vi.useRealTimers();
   });
 
-  it('round-robin 轮询正确', () => {
+  it('round-robin selects correctly', () => {
     const lb = new LoadBalancer({ strategy: 'round-robin' });
     const candidates = [makeState('a'), makeState('b'), makeState('c')];
 
@@ -72,7 +72,7 @@ describe('LoadBalancer', () => {
     expect(lb.select([])).toBeUndefined();
   });
 
-  it('least-latency 选择最低延迟', () => {
+  it('least-latency selects lowest latency', () => {
     const lb = new LoadBalancer({ strategy: 'least-latency' });
     const candidates = [makeState('a'), makeState('b'), makeState('c')];
 
@@ -106,7 +106,7 @@ describe('LoadBalancer', () => {
     expect(lb.select([a, b])).toBe('a');
   });
 
-  it('weighted 按权重分布', () => {
+  it('weighted distributes by weight', () => {
     const lb = new LoadBalancer({ strategy: 'weighted' });
     const a: WeightedState = { ...makeState('a'), weight: 1 };
     const b: WeightedState = { ...makeState('b'), weight: 3 };
@@ -165,7 +165,7 @@ describe('LoadBalancer', () => {
     }
   });
 
-  it('failover 主备切换', () => {
+  it('failover switches to backup', () => {
     const lb = new LoadBalancer({ strategy: 'failover', cooldownMs: 1000 });
     const candidates = [makeState('primary'), makeState('backup')];
 
@@ -177,7 +177,7 @@ describe('LoadBalancer', () => {
     expect(lb.select(candidates)).toBe('primary');
   });
 
-  it('report 更新 metrics', () => {
+  it('report updates metrics', () => {
     const lb = new LoadBalancer({ healthThreshold: 1 });
     lb.report('c1', 100, true);
 
@@ -209,7 +209,7 @@ describe('LoadBalancer', () => {
     expect(lb.getMetrics('c1')?.avgLatencyMs).toBe(0);
   });
 
-  it('EMA 延迟计算正确', () => {
+  it('EMA latency calculation is correct', () => {
     const lb = new LoadBalancer({ latencyWindowSize: 3, healthThreshold: 1 });
     lb.report('c1', 100, true);
     lb.report('c1', 200, true);
@@ -219,7 +219,7 @@ describe('LoadBalancer', () => {
     expect(lb.getMetrics('c1')?.avgLatencyMs).toBe(125);
   });
 
-  it('错误率计算正确', () => {
+  it('error rate calculation is correct', () => {
     const lb = new LoadBalancer({ healthThreshold: 2 });
     lb.report('c1', 1, true);
     lb.report('c1', 1, false);
@@ -233,7 +233,7 @@ describe('LoadBalancer', () => {
     expect(lb.getMetrics('missing')).toBeUndefined();
   });
 
-  it('consecutiveFailures 触发不健康', () => {
+  it('consecutiveFailures triggers unhealthy', () => {
     const lb = new LoadBalancer({ healthThreshold: 1, cooldownMs: 1000 });
     const candidates = [makeState('bad'), makeState('good')];
 
@@ -249,7 +249,7 @@ describe('LoadBalancer', () => {
     expect(lb.select(candidates)).toBe('good');
   });
 
-  it('cooldown 期间不选择', () => {
+  it('cooldown period skips selection', () => {
     const lb = new LoadBalancer({ strategy: 'round-robin', cooldownMs: 1000 });
     const candidates = [makeState('bad'), makeState('good')];
 
@@ -318,7 +318,7 @@ describe('LoadBalancer', () => {
     expect(lb.getMetrics('c1')?.errorRate).toBe(0);
   });
 
-  it('markUnhealthy/markHealthy 工作正常', () => {
+  it('markUnhealthy/markHealthy works correctly', () => {
     const lb = new LoadBalancer({ strategy: 'failover', cooldownMs: 1000 });
     const candidates = [makeState('c1'), makeState('c2')];
 
@@ -341,7 +341,7 @@ describe('LoadBalancer', () => {
     expect(all).toEqual(['a', 'b']);
   });
 
-  it('无健康 channel 时返回 undefined', () => {
+  it('returns undefined when no healthy channel', () => {
     const lb = new LoadBalancer({ strategy: 'least-latency' });
     const candidates = [makeState('a', false), makeState('b', false)];
 
