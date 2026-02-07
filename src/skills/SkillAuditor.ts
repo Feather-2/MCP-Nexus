@@ -1,6 +1,8 @@
 import type { GatewayConfig, Logger, McpServiceConfig } from '../types/index.js';
 import { applyGatewaySandboxPolicy } from '../security/SandboxPolicy.js';
 import { AuditPipeline, type AiAnalyzer, type AuditResult as SecurityAuditResult, type BehaviorAnalyzer } from '../security/AuditPipeline.js';
+import type { AuditDecomposer } from '../security/AuditDecomposer.js';
+import type { AuditSkillRouter } from '../security/AuditSkillRouter.js';
 import { HardRuleEngine } from '../security/HardRuleEngine.js';
 import { RiskScorer } from '../security/RiskScorer.js';
 import { EntropyAnalyzer } from '../security/analyzers/EntropyAnalyzer.js';
@@ -20,6 +22,8 @@ export interface SkillAuditorOptions {
   auditPipeline?: AuditPipeline;
   aiAuditor?: AiAnalyzer;
   behaviorAnalyzer?: BehaviorAnalyzer;
+  decomposer?: AuditDecomposer;
+  auditRouter?: AuditSkillRouter;
 }
 
 function parseAllowedTools(spec?: string): string[] {
@@ -52,7 +56,9 @@ export class SkillAuditor {
         permissionAnalyzer: new PermissionAnalyzer(),
         riskScorer: new RiskScorer(),
         aiAuditor: opts.aiAuditor,
-        behaviorAnalyzer: opts.behaviorAnalyzer
+        behaviorAnalyzer: opts.behaviorAnalyzer,
+        decomposer: opts.decomposer,
+        auditRouter: opts.auditRouter
       });
   }
 

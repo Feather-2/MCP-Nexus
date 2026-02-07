@@ -55,6 +55,29 @@ export {
   type RiskScorer as RiskScorerInterface
 } from './AuditPipeline.js';
 
+// Surgical audit decomposition + routing
+export {
+  AuditDecomposer,
+  type SemanticUnitType,
+  type SemanticUnit,
+  type DecompositionResult
+} from './AuditDecomposer.js';
+export {
+  AuditSkillRouter,
+  type AuditSkillFinding,
+  type AuditSkillResult,
+  type AuditSkillHandler,
+  type AuditSkillRouterOptions
+} from './AuditSkillRouter.js';
+export {
+  IntentAuditHandler,
+  InjectionAuditHandler,
+  DataflowAuditHandler,
+  DependencyAuditHandler,
+  PrivilegeAuditHandler,
+  createDefaultHandlers
+} from './audit-handlers/index.js';
+
 // AI auditor
 export {
   AiAuditor,

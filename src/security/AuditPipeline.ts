@@ -4,6 +4,8 @@ import type { EntropyResult } from './analyzers/EntropyAnalyzer.js';
 import type { PermissionAnalysisResult } from './analyzers/PermissionAnalyzer.js';
 import type { AiAuditResult, AiFindingSeverity } from './AiAuditor.js';
 import type { BehaviorValidationResult, ViolationSeverity } from './BehaviorValidator.js';
+import type { AuditDecomposer } from './AuditDecomposer.js';
+import type { AuditSkillRouter } from './AuditSkillRouter.js';
 import type { RiskDecision, RiskSignal, SyncAuditResult, AsyncAuditHandle } from './types.js';
 import { AuditResultCache } from './AuditResultCache.js';
 import { createHash } from 'crypto';
@@ -55,6 +57,8 @@ export interface AuditPipelineOptions {
   riskScorer: RiskScorer;
   aiAuditor?: AiAnalyzer;
   behaviorAnalyzer?: BehaviorAnalyzer;
+  decomposer?: AuditDecomposer;
+  auditRouter?: AuditSkillRouter;
   /** Cache for async audit results. If not provided, a default cache is created. */
   resultCache?: AuditResultCache;
 }
@@ -75,6 +79,7 @@ const AI_SIGNAL: Record<AiAuditResult['riskLevel'], { weight: number; score: num
   malicious: { weight: 0.5, score: -50 }
 };
 const BEHAVIOR_SIGNAL = { weight: 0.6 };
+const SURGICAL_AUDIT_SIGNAL = { weight: 0.5 };
 
 function collectTextSources(skill: Skill): string {
   const parts: string[] = [];
@@ -124,6 +129,8 @@ export class AuditPipeline {
   private readonly permissionAnalyzer: PermissionAnalyzer;
   private readonly aiAuditor?: AiAnalyzer;
   private readonly behaviorAnalyzer?: BehaviorAnalyzer;
+  private readonly decomposer?: AuditDecomposer;
+  private readonly auditRouter?: AuditSkillRouter;
   private readonly riskScorer: RiskScorer;
   private readonly resultCache: AuditResultCache;
 
@@ -147,6 +154,8 @@ export class AuditPipeline {
     this.permissionAnalyzer = options.permissionAnalyzer;
     this.aiAuditor = options.aiAuditor;
     this.behaviorAnalyzer = options.behaviorAnalyzer;
+    this.decomposer = options.decomposer;
+    this.auditRouter = options.auditRouter;
     this.riskScorer = options.riskScorer;
     this.resultCache = options.resultCache ?? new AuditResultCache();
   }
@@ -164,6 +173,41 @@ export class AuditPipeline {
   private hashSkillContent(skill: Skill): string {
     const content = collectTextSources(skill);
     return createHash('sha256').update(content).digest('hex').slice(0, 16);
+  }
+
+  private applySurgicalAudit(skill: Skill, findings: AuditFinding[], signals: RiskSignal[]): void {
+    if (!this.decomposer || !this.auditRouter) return;
+
+    try {
+      const decomposition = this.decomposer.decompose(skill);
+      const result = this.auditRouter.route(decomposition.units);
+
+      for (const finding of result.findings) {
+        findings.push({
+          source: `audit_skill:${finding.auditSkill}`,
+          severity: finding.severity,
+          message: finding.message,
+          evidence: finding.evidence
+        });
+      }
+
+      if (result.score < 50) {
+        signals.push({
+          source: 'audit_skill',
+          weight: SURGICAL_AUDIT_SIGNAL.weight,
+          score: result.score - 50,
+          confidence: 1,
+          evidence: `${decomposition.summary}; score=${result.score}`
+        });
+      }
+    } catch (error) {
+      findings.push({
+        source: 'audit_skill',
+        severity: 'medium',
+        message: 'Surgical audit failed',
+        evidence: error instanceof Error ? error.message : String(error)
+      });
+    }
   }
 
   /**
@@ -224,6 +268,8 @@ export class AuditPipeline {
         evidence: `score=${permission.score}`
       });
     }
+
+    this.applySurgicalAudit(skill, findings, signals);
 
     // 3. Quick decision based on fast signals
     const scoring = this.riskScorer.score(signals);
@@ -507,6 +553,7 @@ export class AuditPipeline {
       : Promise.resolve();
 
     await Promise.all([aiPromise, behaviorPromise]);
+    this.applySurgicalAudit(skill, findings, signals);
 
     const scoring = this.riskScorer.score(signals);
     return {
@@ -517,4 +564,3 @@ export class AuditPipeline {
     };
   }
 }
-
