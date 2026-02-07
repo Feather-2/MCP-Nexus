@@ -35,6 +35,7 @@ export interface Skill {
   metadata: SkillMetadata;
   body: string;
   capabilities: SkillCapabilities;
+  enabled?: boolean; // 默认 false，由 SkillAuthorization 管理
   /**
    * Optional bundled support files (text only) keyed by relative path.
    * This is loaded on-demand to keep memory footprint small.

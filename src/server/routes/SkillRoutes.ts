@@ -1,9 +1,11 @@
+import path from 'path';
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { BaseRouteHandler, RouteContext } from './RouteContext.js';
-import { SkillAuditor, SkillMatcher, SkillRegistry, SkillLoader } from '../../skills/index.js';
+import { SkillAuditor, SkillMatcher, SkillRegistry, SkillLoader, SkillVersionStore, SkillAuthorization, SkillLocalizer } from '../../skills/index.js';
+import type { Platform } from '../../skills/index.js';
 import type { Skill } from '../../skills/types.js';
-import { mergeWithDefaults, validateCapabilities } from '../../security/CapabilityManifest.js';
+import { mergeWithDefaults, validateCapabilities, type SkillCapabilities } from '../../security/CapabilityManifest.js';
 
 const ListQuerySchema = z.object({
   q: z.string().optional(),
@@ -12,6 +14,10 @@ const ListQuerySchema = z.object({
 
 const GetSkillQuerySchema = z.object({
   includeSupportFiles: z.coerce.boolean().optional()
+}).partial();
+
+const LocalizedSkillQuerySchema = z.object({
+  platform: z.string().optional()
 }).partial();
 
 const RegisterSkillBodySchema = z.object({
@@ -124,11 +130,36 @@ const MatchBodySchema = z.object({
   includeSupportFiles: z.boolean().optional()
 });
 
+const CreateVersionBodySchema = z.object({
+  reason: z.string().optional()
+}).partial();
+
+const AuthorizeBodySchema = z.object({
+  capabilities: SkillCapabilitiesSchema.optional(),
+  userId: z.string().min(1).optional()
+}).partial();
+
+function normalizePlatform(input?: string): Platform {
+  const normalized = input?.trim().toLowerCase();
+  switch (normalized) {
+    case 'claude-code':
+    case 'codex':
+    case 'js-agent':
+    case 'generic':
+      return normalized;
+    default:
+      return 'generic';
+  }
+}
+
 export class SkillRoutes extends BaseRouteHandler {
   private readonly registry: SkillRegistry;
   private readonly matcher = new SkillMatcher();
   private readonly auditor: SkillAuditor;
   private readonly supportLoader: SkillLoader;
+  private readonly versionStore: SkillVersionStore;
+  private readonly authorization: SkillAuthorization;
+  private readonly localizer: SkillLocalizer;
   private readonly initPromise: Promise<void>;
   private registryVersion = 0;
   private matcherIndexVersion = -1;
@@ -159,6 +190,21 @@ export class SkillRoutes extends BaseRouteHandler {
       loadSupportFiles: true
     });
 
+    const storageRoot = typeof cfg?.skills?.versionsRoot === 'string' && cfg.skills.versionsRoot.trim().length
+      ? cfg.skills.versionsRoot
+      : path.resolve(process.cwd(), 'data');
+    this.versionStore = new SkillVersionStore({
+      storageRoot,
+      logger: this.ctx.logger
+    });
+    this.authorization = new SkillAuthorization({
+      storageRoot,
+      logger: this.ctx.logger
+    });
+    this.localizer = new SkillLocalizer({
+      logger: this.ctx.logger
+    });
+
     this.initPromise = this.registry.reload().then(() => {
       this.registryVersion += 1;
     });
@@ -170,6 +216,22 @@ export class SkillRoutes extends BaseRouteHandler {
     this.matcherIndexCache = index;
     this.matcherIndexVersion = this.registryVersion;
     return index;
+  }
+
+  private async collectVersionFiles(skill: Skill): Promise<Record<string, string>> {
+    const loaded = await this.supportLoader.loadSkillFromSkillMd(skill.metadata.path);
+    const files: Record<string, string> = {
+      'SKILL.md': loaded?.body ?? skill.body
+    };
+
+    const supportFiles = loaded?.supportFiles ?? skill.supportFiles;
+    if (supportFiles) {
+      for (const [filePath, content] of supportFiles.entries()) {
+        files[filePath] = content;
+      }
+    }
+
+    return files;
   }
 
   setupRoutes(): void {
@@ -355,6 +417,215 @@ export class SkillRoutes extends BaseRouteHandler {
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to match skills';
         return this.respondError(reply, 500, message, { code: 'SKILL_MATCH_FAILED' });
+      }
+    });
+
+    server.get('/api/skills/:name/versions', async (request: FastifyRequest, reply: FastifyReply) => {
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as any);
+
+      try {
+        await this.initPromise;
+        const versions = await this.versionStore.list(params.name);
+        reply.send({ success: true, versions });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to list skill versions';
+        return this.respondError(reply, 500, message, { code: 'SKILL_VERSIONS_LIST_FAILED' });
+      }
+    });
+
+    server.post('/api/skills/:name/versions', async (request: FastifyRequest, reply: FastifyReply) => {
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as any);
+
+      let body: z.infer<typeof CreateVersionBodySchema>;
+      try {
+        body = CreateVersionBodySchema.parse((request.body as any) || {});
+      } catch (error) {
+        const err = error as z.ZodError;
+        return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
+      }
+
+      try {
+        await this.initPromise;
+        const skill = this.registry.get(params.name);
+        if (!skill) {
+          return this.respondError(reply, 404, `Skill not found: ${params.name}`, { code: 'SKILL_NOT_FOUND', recoverable: true });
+        }
+
+        const files = await this.collectVersionFiles(skill);
+        const snapshot = await this.versionStore.save(params.name, files, body.reason);
+        reply.send({ success: true, snapshot });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to create skill version';
+        return this.respondError(reply, 500, message, { code: 'SKILL_VERSION_SAVE_FAILED' });
+      }
+    });
+
+    server.post('/api/skills/:name/rollback/:versionId', async (request: FastifyRequest, reply: FastifyReply) => {
+      const params = z.object({
+        name: z.string().min(1),
+        versionId: z.string().min(1)
+      }).parse(request.params as any);
+
+      try {
+        await this.initPromise;
+        const skill = this.registry.get(params.name);
+        if (!skill) {
+          return this.respondError(reply, 404, `Skill not found: ${params.name}`, { code: 'SKILL_NOT_FOUND', recoverable: true });
+        }
+
+        const snapshot = await this.versionStore.rollback(params.name, params.versionId);
+        if (!snapshot) {
+          return this.respondError(reply, 404, `Skill version not found: ${params.versionId}`, {
+            code: 'SKILL_VERSION_NOT_FOUND',
+            recoverable: true
+          });
+        }
+
+        await this.registry.reload();
+        this.registryVersion += 1;
+        this.matcherIndexCache = undefined;
+
+        reply.send({ success: true, snapshot });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to rollback skill version';
+        return this.respondError(reply, 500, message, { code: 'SKILL_ROLLBACK_FAILED' });
+      }
+    });
+
+    server.get('/api/skills/:name/permissions', async (request: FastifyRequest, reply: FastifyReply) => {
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as any);
+
+      try {
+        await this.initPromise;
+        const skill = this.registry.get(params.name);
+        if (!skill) {
+          return this.respondError(reply, 404, `Skill not found: ${params.name}`, { code: 'SKILL_NOT_FOUND', recoverable: true });
+        }
+
+        const authorization = await this.authorization.getState(params.name);
+        reply.send({
+          success: true,
+          permissions: skill.capabilities,
+          authorization
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to get skill permissions';
+        return this.respondError(reply, 500, message, { code: 'SKILL_PERMISSIONS_GET_FAILED' });
+      }
+    });
+
+    server.get('/api/skills/:name/audit-summary', async (request: FastifyRequest, reply: FastifyReply) => {
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as any);
+
+      try {
+        await this.initPromise;
+        const skill = this.registry.get(params.name);
+        if (!skill) {
+          return this.respondError(reply, 404, `Skill not found: ${params.name}`, { code: 'SKILL_NOT_FOUND', recoverable: true });
+        }
+
+        const securityResult = await this.auditor.auditSecurity(skill);
+        const errors = securityResult.findings
+          .filter((finding) => finding.severity === 'high' || finding.severity === 'critical')
+          .map((finding) => finding.message);
+        const warnings = securityResult.findings
+          .filter((finding) => finding.severity !== 'high' && finding.severity !== 'critical')
+          .map((finding) => finding.message);
+        const issueCount = errors.length + warnings.length;
+        const riskLevel = issueCount === 0 ? 'low' : issueCount <= 2 ? 'medium' : 'high';
+
+        reply.send({
+          success: true,
+          summary: {
+            passed: securityResult.decision !== 'reject' && errors.length === 0,
+            riskLevel,
+            errors,
+            warnings,
+            capabilities: skill.capabilities
+          }
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to build skill audit summary';
+        return this.respondError(reply, 500, message, { code: 'SKILL_AUDIT_SUMMARY_FAILED' });
+      }
+    });
+
+    server.post('/api/skills/:name/authorize', async (request: FastifyRequest, reply: FastifyReply) => {
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as any);
+
+      let body: z.infer<typeof AuthorizeBodySchema>;
+      try {
+        body = AuthorizeBodySchema.parse((request.body as any) || {});
+      } catch (error) {
+        const err = error as z.ZodError;
+        return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
+      }
+
+      try {
+        await this.initPromise;
+        const skill = this.registry.get(params.name);
+        if (!skill) {
+          return this.respondError(reply, 404, `Skill not found: ${params.name}`, { code: 'SKILL_NOT_FOUND', recoverable: true });
+        }
+
+        const authorization = await this.authorization.authorize(params.name, {
+          capabilities: body.capabilities as Partial<SkillCapabilities> | undefined,
+          userId: body.userId
+        });
+
+        reply.send({ success: true, authorization });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to authorize skill';
+        return this.respondError(reply, 500, message, { code: 'SKILL_AUTHORIZE_FAILED' });
+      }
+    });
+
+    server.post('/api/skills/:name/revoke', async (request: FastifyRequest, reply: FastifyReply) => {
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as any);
+
+      try {
+        await this.initPromise;
+        const skill = this.registry.get(params.name);
+        if (!skill) {
+          return this.respondError(reply, 404, `Skill not found: ${params.name}`, { code: 'SKILL_NOT_FOUND', recoverable: true });
+        }
+
+        const authorization = await this.authorization.revoke(params.name);
+        reply.send({ success: true, authorization });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to revoke skill authorization';
+        return this.respondError(reply, 500, message, { code: 'SKILL_REVOKE_FAILED' });
+      }
+    });
+
+    server.get('/api/skills/:name/localized', async (request: FastifyRequest, reply: FastifyReply) => {
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as any);
+      const query = LocalizedSkillQuerySchema.parse((request.query as any) || {});
+
+      try {
+        await this.initPromise;
+        const skill = this.registry.get(params.name);
+        if (!skill) {
+          return this.respondError(reply, 404, `Skill not found: ${params.name}`, { code: 'SKILL_NOT_FOUND', recoverable: true });
+        }
+
+        const platform = normalizePlatform(query.platform);
+        const localized = this.localizer.localize(skill, platform);
+
+        reply.send({ success: true, localized });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to localize skill';
+        return this.respondError(reply, 500, message, { code: 'SKILL_LOCALIZE_FAILED' });
+      }
+    });
+
+    server.get('/api/skills/platforms', async (_request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const platforms = this.localizer.getSupportedPlatforms();
+        reply.send({ success: true, platforms });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to get supported skill platforms';
+        return this.respondError(reply, 500, message, { code: 'SKILL_PLATFORMS_LIST_FAILED' });
       }
     });
   }

@@ -126,6 +126,29 @@ describe('SkillRoutes', () => {
     expect(getBody.skill.metadata.name).toBe('demo-skill');
     expect(getBody.skill.body).toContain('Do the thing.');
 
+    const platformsRes = await (server as any).server.inject({ method: 'GET', url: '/api/skills/platforms' });
+    expect(platformsRes.statusCode).toBe(200);
+    const platformsBody = platformsRes.json();
+    expect(platformsBody.success).toBe(true);
+    expect(platformsBody.platforms).toEqual(expect.arrayContaining(['claude-code', 'codex', 'js-agent', 'generic']));
+
+    const localizedRes = await (server as any).server.inject({
+      method: 'GET',
+      url: '/api/skills/demo-skill/localized?platform=codex'
+    });
+    expect(localizedRes.statusCode).toBe(200);
+    const localizedBody = localizedRes.json();
+    expect(localizedBody.success).toBe(true);
+    expect(localizedBody.localized.platform).toBe('codex');
+    expect(localizedBody.localized.content).toContain('Skill: demo-skill');
+
+    const localizedFallbackRes = await (server as any).server.inject({
+      method: 'GET',
+      url: '/api/skills/demo-skill/localized?platform=unknown-runtime'
+    });
+    expect(localizedFallbackRes.statusCode).toBe(200);
+    expect(localizedFallbackRes.json().localized.platform).toBe('generic');
+
     const matchRes = await (server as any).server.inject({
       method: 'POST',
       url: '/api/skills/match',
@@ -142,4 +165,3 @@ describe('SkillRoutes', () => {
     expect(delRes.json().deleted).toBe(true);
   });
 });
-

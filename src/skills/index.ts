@@ -3,4 +3,8 @@ export { SkillLoader } from './SkillLoader.js';
 export { SkillMatcher } from './SkillMatcher.js';
 export { SkillRegistry } from './SkillRegistry.js';
 export { SkillAuditor } from './SkillAuditor.js';
-
+export { SkillVersionStore } from './SkillVersionStore.js';
+export { SkillAuthorization } from './SkillAuthorization.js';
+export type { AuthorizationState } from './SkillAuthorization.js';
+export { SkillLocalizer } from './SkillLocalizer.js';
+export type { Platform, LocalizedSkill, PlatformAdapter } from './SkillLocalizer.js';
