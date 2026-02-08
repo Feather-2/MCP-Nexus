@@ -714,9 +714,11 @@ export class HttpApiServer {
     });
 
     // Health check endpoint - FAST, no DB queries
-    this.server.get('/health', async (_request: FastifyRequest, reply: FastifyReply) => {
+    const healthHandler = async (_request: FastifyRequest, reply: FastifyReply) => {
       reply.send({ status: 'ok', ts: Date.now() });
-    });
+    };
+    this.server.get('/health', healthHandler);
+    this.server.get('/api/health', healthHandler);
 
     // Detailed health endpoint for monitoring systems
     this.server.get('/health/detailed', async (_request: FastifyRequest, reply: FastifyReply) => {

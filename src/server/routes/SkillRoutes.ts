@@ -314,6 +314,30 @@ export class SkillRoutes extends BaseRouteHandler {
       }
     });
 
+    // Compatibility alias for paper-burner NexusSkillProvider
+    server.get('/api/skills/:name/content', async (request: FastifyRequest, reply: FastifyReply) => {
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as any);
+
+      try {
+        await this.initPromise;
+        const skill = this.registry.get(params.name);
+        if (!skill) {
+          return this.respondError(reply, 404, t('errors.skill_not_found', { name: params.name }), { code: 'SKILL_NOT_FOUND', recoverable: true });
+        }
+
+        const loaded = await this.supportLoader.loadSkillFromSkillMd(skill.metadata.path);
+        const supportFiles = loaded?.supportFiles ? Object.fromEntries(loaded.supportFiles.entries()) : {};
+        reply.send({
+          body: loaded?.body ?? skill.body,
+          supportFiles,
+          metadata: skill.metadata
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : t('errors.skill_get_failed');
+        return this.respondError(reply, 500, message, { code: 'SKILL_GET_FAILED' });
+      }
+    });
+
     server.post('/api/skills/register', async (request: FastifyRequest, reply: FastifyReply) => {
       let body: z.infer<typeof RegisterSkillBodySchema>;
       try {
