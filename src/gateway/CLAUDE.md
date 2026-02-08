@@ -23,7 +23,6 @@
 - `templateManager` - 模板 CRUD
 - `healthChecker` - 健康状态监控
 - `loadBalancer` - 负载均衡策略
-- `store` - ServiceObservationStore
 
 主要方法：
 - `registerTemplate(config)` - 注册服务模板
@@ -41,7 +40,6 @@
 ## Dependencies
 
 - `../types/index.js` - 类型定义
-- `./service-state.js` - ServiceObservationStore
 
 ## Common Tasks
 

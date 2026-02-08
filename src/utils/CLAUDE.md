@@ -7,8 +7,6 @@
 | File | Description |
 |------|-------------|
 | `PinoLogger.ts` | Pino 日志实现 (生产) |
-| `ConsoleLogger.ts` | Console 日志 (开发) |
-| `SimpleLogger.ts` | 简易日志 |
 | `ErrorHandler.ts` | 统一错误处理 |
 | `async.ts` | 异步工具函数 |
 

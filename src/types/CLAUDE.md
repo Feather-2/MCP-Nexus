@@ -10,8 +10,6 @@ TypeScript 类型定义。
 | `gateway.ts` | 网关相关类型 |
 | `service.ts` | 服务相关类型 |
 | `mcp.ts` | MCP 协议类型 |
-| `ai.ts` | AI 相关类型 |
-| `ioredis-shim.d.ts` | ioredis 类型补丁 |
 
 ## Key Types
 

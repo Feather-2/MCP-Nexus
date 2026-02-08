@@ -14,12 +14,10 @@ server/
 │   ├── index.ts
 │   ├── ServiceRoutes.ts
 │   ├── AuthRoutes.ts
-│   ├── AuditRoutes.ts
 │   ├── ConfigRoutes.ts
 │   ├── TemplateRoutes.ts
 │   ├── MonitoringRoutes.ts
 │   ├── OrchestratorRoutes.ts
-│   ├── AiRoutes.ts
 │   ├── ToolRoutes.ts
 │   ├── SkillRoutes.ts
 │   └── ...
@@ -56,12 +54,10 @@ Fastify 服务器，集成：
 |--------------|--------|-------------|
 | ServiceRoutes | `/api/services` | 服务实例管理 |
 | AuthRoutes | `/api/auth` | 认证 API |
-| AuditRoutes | `/api/audit` | 审计结果查询与解释 |
 | ConfigRoutes | `/api/config` | 配置管理 |
 | TemplateRoutes | `/api/templates` | 模板 CRUD |
 | MonitoringRoutes | `/api/monitoring` | 监控指标 |
 | OrchestratorRoutes | `/api/orchestrator` | 编排器 API |
-| AiRoutes | `/api/ai` | AI 模型调用与流式输出（委托 `src/ai/providers.ts`） |
 | ToolRoutes | `/api/tools` | 工具执行 |
 
 ### SseManager
