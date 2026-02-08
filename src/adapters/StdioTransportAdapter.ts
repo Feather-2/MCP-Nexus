@@ -4,6 +4,7 @@ import path from 'path';
 import { TransportAdapter, McpServiceConfig, McpMessage, Logger, McpVersion } from '../types/index.js';
 import { EventEmitter } from 'events';
 import { JsonRpcStreamParser } from '../core/JsonRpcStreamParser.js';
+import { CommandValidator } from '../security/command-validator.js';
 
 function stripNpmVersion(spec: string): string {
   const trimmed = spec.trim();
@@ -81,6 +82,8 @@ function isWithinPath(targetPath: string, rootPath: string): boolean {
 }
 
 export class StdioTransportAdapter extends EventEmitter implements TransportAdapter {
+  private static readonly commandValidator = new CommandValidator({ allowShellMeta: false });
+
   readonly type = 'stdio' as const;
   readonly version: McpVersion;
 
@@ -227,6 +230,13 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
             }
           }
         }
+      }
+
+      // Validate base command against security blocklist
+      try {
+        StdioTransportAdapter.commandValidator.validate(normalizedCommand);
+      } catch (e: any) {
+        throw new Error(`Command blocked by security policy: ${e?.message || String(e)}`);
       }
 
       this.process = spawn(normalizedCommand, args, opts);

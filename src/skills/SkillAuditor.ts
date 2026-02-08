@@ -1,8 +1,11 @@
+import os from 'os';
+import path from 'path';
 import type { GatewayConfig, Logger, McpServiceConfig } from '../types/index.js';
 import { applyGatewaySandboxPolicy } from '../security/SandboxPolicy.js';
 import { AuditPipeline, type AiAnalyzer, type AuditResult as SecurityAuditResult, type BehaviorAnalyzer } from '../security/AuditPipeline.js';
 import type { AuditDecomposer } from '../security/AuditDecomposer.js';
 import type { AuditSkillRouter } from '../security/AuditSkillRouter.js';
+import { setupCanaries, checkCanaryAccess } from '../security/CanarySystem.js';
 import { HardRuleEngine } from '../security/HardRuleEngine.js';
 import { RiskScorer } from '../security/RiskScorer.js';
 import { EntropyAnalyzer } from '../security/analyzers/EntropyAnalyzer.js';
@@ -122,6 +125,15 @@ export class SkillAuditor {
     }
 
     const timeoutMs = options?.timeoutMsPerTool ?? 12_000;
+    // Set up canary files in a temporary sandbox directory
+    const canarySandboxRoot = path.join(os.tmpdir(), `pb-canary-${Date.now()}`);
+    let canarySetup: Awaited<ReturnType<typeof setupCanaries>> | undefined;
+    try {
+      canarySetup = await setupCanaries(canarySandboxRoot);
+    } catch (e: any) {
+      result.warnings.push(`Canary setup failed: ${e?.message || String(e)}`);
+    }
+
     const dryRunResults: AuditResult['dryRunResults'] = [];
 
     for (const toolId of tools) {
@@ -152,6 +164,20 @@ export class SkillAuditor {
           latency: Date.now() - start,
           error: e?.message || String(e)
         });
+      }
+    }
+
+    // Check canary files for unauthorized access
+    if (canarySetup) {
+      try {
+        const canaryResult = await checkCanaryAccess(canarySandboxRoot);
+        if (canaryResult.triggered) {
+          result.warnings.push(
+            `Canary files accessed during dry-run: ${canaryResult.accessedFiles.join(', ')}`
+          );
+        }
+      } catch (e: any) {
+        result.warnings.push(`Canary check failed: ${e?.message || String(e)}`);
       }
     }
 

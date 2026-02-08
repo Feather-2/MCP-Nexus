@@ -15,6 +15,9 @@ import { ProcessStateManager } from './ProcessStateManager.js';
 import { McpProtocolHandshaker } from './McpProtocolHandshaker.js';
 import { UnifiedErrorHandler } from '../utils/ErrorHandler.js';
 import { JsonRpcStreamParser } from './JsonRpcStreamParser.js';
+import { CommandValidator } from '../security/command-validator.js';
+
+const commandValidator = new CommandValidator({ allowShellMeta: false });
 
 export class McpProtocolStackImpl implements McpProtocolStack {
   private instances = new Map<string, ServiceInstance>();
@@ -290,6 +293,13 @@ export class McpProtocolStackImpl implements McpProtocolStack {
 
     // Prefer installed offline packages directory when SANDBOX is enabled and using npm exec
     const effectiveCwd = this.inferPortableCwd(workingDirectory, args, env);
+
+    // Validate command against security blocklist
+    try {
+      commandValidator.validate(command);
+    } catch (e: any) {
+      throw new Error(`Command blocked by security policy: ${e?.message || String(e)}`);
+    }
 
     const childProcess = spawn(command, args, {
       stdio: ['pipe', 'pipe', 'pipe'],
