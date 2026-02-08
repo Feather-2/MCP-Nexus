@@ -22,6 +22,7 @@ import { OrchestratorEngine } from '../orchestrator/OrchestratorEngine.js';
 import { SubagentLoader } from '../orchestrator/SubagentLoader.js';
 import { McpGenerator } from '../generator/McpGenerator.js';
 import { createTraceId, enterTrace } from '../observability/trace.js';
+import { parseAcceptLanguage, setLocale } from '../i18n/index.js';
 import {
   RouteContext,
   ServiceRoutes,
@@ -266,6 +267,12 @@ export class HttpApiServer {
 
   private setupObservability(): void {
     // Trace id + API version headers
+    this.server.addHook('onRequest', (request, _reply, done) => {
+      const lang = request.headers['accept-language'];
+      setLocale(parseAcceptLanguage(typeof lang === 'string' ? lang : undefined));
+      done();
+    });
+
     this.server.addHook('onRequest', (request, reply, done) => {
       const incoming = (request.headers['x-trace-id'] || request.headers['x-request-id']) as any;
       const clientTraceId = typeof incoming === 'string' && incoming.trim() ? incoming.trim() : undefined;

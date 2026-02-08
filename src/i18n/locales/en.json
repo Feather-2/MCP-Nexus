@@ -25,5 +25,11 @@
   "auth.api_key_not_found": "API key not found",
   "auth.userid_permissions_required": "userId and permissions are required",
   "auth.token_required": "Token is required",
-  "auth.token_not_found": "Token not found"
+  "auth.token_not_found": "Token not found",
+  "errors.skill_permissions_get_failed": "Failed to get skill permissions",
+  "errors.skill_audit_summary_failed": "Failed to build skill audit summary",
+  "errors.skill_authorize_failed": "Failed to authorize skill",
+  "errors.skill_revoke_failed": "Failed to revoke skill authorization",
+  "errors.skill_localize_failed": "Failed to localize skill",
+  "errors.skill_platforms_list_failed": "Failed to get supported skill platforms"
 }

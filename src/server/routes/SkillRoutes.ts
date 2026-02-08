@@ -6,6 +6,7 @@ import { SkillAuditor, SkillMatcher, SkillRegistry, SkillLoader, SkillVersionSto
 import type { Platform } from '../../skills/index.js';
 import type { Skill } from '../../skills/types.js';
 import { mergeWithDefaults, validateCapabilities, type SkillCapabilities } from '../../security/CapabilityManifest.js';
+import { t } from '../../i18n/index.js';
 
 const ListQuerySchema = z.object({
   q: z.string().optional(),
@@ -257,7 +258,7 @@ export class SkillRoutes extends BaseRouteHandler {
 
         reply.send({ success: true, skills });
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to list skills';
+        const message = error instanceof Error ? error.message : t('errors.skills_list_failed');
         return this.respondError(reply, 500, message, { code: 'SKILLS_LIST_FAILED' });
       }
     });
@@ -270,7 +271,7 @@ export class SkillRoutes extends BaseRouteHandler {
         await this.initPromise;
         const skill = this.registry.get(params.name);
         if (!skill) {
-          return this.respondError(reply, 404, `Skill not found: ${params.name}`, { code: 'SKILL_NOT_FOUND', recoverable: true });
+          return this.respondError(reply, 404, t('errors.skill_not_found', { name: params.name }), { code: 'SKILL_NOT_FOUND', recoverable: true });
         }
 
         if (!query.includeSupportFiles) {
@@ -289,7 +290,7 @@ export class SkillRoutes extends BaseRouteHandler {
           }
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to get skill';
+        const message = error instanceof Error ? error.message : t('errors.skill_get_failed');
         return this.respondError(reply, 500, message, { code: 'SKILL_GET_FAILED' });
       }
     });
@@ -300,7 +301,7 @@ export class SkillRoutes extends BaseRouteHandler {
         body = RegisterSkillBodySchema.parse((request.body as any) || {});
       } catch (e) {
         const err = e as z.ZodError;
-        return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
+        return this.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
       }
 
       try {
@@ -310,7 +311,7 @@ export class SkillRoutes extends BaseRouteHandler {
         this.matcherIndexCache = undefined;
         reply.send({ success: true, skill: { metadata: skill.metadata } });
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to register skill';
+        const message = error instanceof Error ? error.message : t('errors.skill_register_failed');
         return this.respondError(reply, 500, message, { code: 'SKILL_REGISTER_FAILED' });
       }
     });
@@ -327,7 +328,7 @@ export class SkillRoutes extends BaseRouteHandler {
         }
         reply.send({ success: true, deleted });
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to delete skill';
+        const message = error instanceof Error ? error.message : t('errors.skill_delete_failed');
         return this.respondError(reply, 500, message, { code: 'SKILL_DELETE_FAILED' });
       }
     });
@@ -349,7 +350,7 @@ export class SkillRoutes extends BaseRouteHandler {
           try {
             skill = buildSkillFromDefinition(def);
           } catch (e: any) {
-            return this.respondError(reply, 400, e?.message || 'Invalid skill definition', {
+            return this.respondError(reply, 400, e?.message || t('errors.invalid_skill_definition'), {
               code: 'BAD_REQUEST',
               recoverable: true
             });
@@ -363,16 +364,16 @@ export class SkillRoutes extends BaseRouteHandler {
         await this.initPromise;
         const skill = this.registry.get(body.name);
         if (!skill) {
-          return this.respondError(reply, 404, `Skill not found: ${body.name}`, { code: 'SKILL_NOT_FOUND', recoverable: true });
+          return this.respondError(reply, 404, t('errors.skill_not_found', { name: body.name }), { code: 'SKILL_NOT_FOUND', recoverable: true });
         }
 
         const result = await this.auditor.auditSkill(skill, { dryRun: body.dryRun, timeoutMsPerTool: body.timeoutMsPerTool });
         reply.send({ success: true, result });
       } catch (error) {
         if (error instanceof z.ZodError) {
-          return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: error.errors });
+          return this.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: error.errors });
         }
-        const message = error instanceof Error ? error.message : 'Failed to audit skill';
+        const message = error instanceof Error ? error.message : t('errors.skill_audit_failed');
         return this.respondError(reply, 500, message, { code: 'SKILL_AUDIT_FAILED' });
       }
     });
@@ -383,7 +384,7 @@ export class SkillRoutes extends BaseRouteHandler {
         body = MatchBodySchema.parse((request.body as any) || {});
       } catch (e) {
         const err = e as z.ZodError;
-        return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
+        return this.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
       }
 
       try {
@@ -415,7 +416,7 @@ export class SkillRoutes extends BaseRouteHandler {
         const injection = includeBodies ? this.matcher.formatInjection(matches.map((m) => m.skill)) : undefined;
         reply.send({ success: true, matches: payload, injection });
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to match skills';
+        const message = error instanceof Error ? error.message : t('errors.skill_match_failed');
         return this.respondError(reply, 500, message, { code: 'SKILL_MATCH_FAILED' });
       }
     });
@@ -428,7 +429,7 @@ export class SkillRoutes extends BaseRouteHandler {
         const versions = await this.versionStore.list(params.name);
         reply.send({ success: true, versions });
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to list skill versions';
+        const message = error instanceof Error ? error.message : t('errors.skill_versions_list_failed');
         return this.respondError(reply, 500, message, { code: 'SKILL_VERSIONS_LIST_FAILED' });
       }
     });
@@ -441,21 +442,21 @@ export class SkillRoutes extends BaseRouteHandler {
         body = CreateVersionBodySchema.parse((request.body as any) || {});
       } catch (error) {
         const err = error as z.ZodError;
-        return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
+        return this.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
       }
 
       try {
         await this.initPromise;
         const skill = this.registry.get(params.name);
         if (!skill) {
-          return this.respondError(reply, 404, `Skill not found: ${params.name}`, { code: 'SKILL_NOT_FOUND', recoverable: true });
+          return this.respondError(reply, 404, t('errors.skill_not_found', { name: params.name }), { code: 'SKILL_NOT_FOUND', recoverable: true });
         }
 
         const files = await this.collectVersionFiles(skill);
         const snapshot = await this.versionStore.save(params.name, files, body.reason);
         reply.send({ success: true, snapshot });
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to create skill version';
+        const message = error instanceof Error ? error.message : t('errors.skill_version_save_failed');
         return this.respondError(reply, 500, message, { code: 'SKILL_VERSION_SAVE_FAILED' });
       }
     });
@@ -470,12 +471,12 @@ export class SkillRoutes extends BaseRouteHandler {
         await this.initPromise;
         const skill = this.registry.get(params.name);
         if (!skill) {
-          return this.respondError(reply, 404, `Skill not found: ${params.name}`, { code: 'SKILL_NOT_FOUND', recoverable: true });
+          return this.respondError(reply, 404, t('errors.skill_not_found', { name: params.name }), { code: 'SKILL_NOT_FOUND', recoverable: true });
         }
 
         const snapshot = await this.versionStore.rollback(params.name, params.versionId);
         if (!snapshot) {
-          return this.respondError(reply, 404, `Skill version not found: ${params.versionId}`, {
+          return this.respondError(reply, 404, t('errors.skill_version_not_found', { versionId: params.versionId }), {
             code: 'SKILL_VERSION_NOT_FOUND',
             recoverable: true
           });
@@ -487,7 +488,7 @@ export class SkillRoutes extends BaseRouteHandler {
 
         reply.send({ success: true, snapshot });
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to rollback skill version';
+        const message = error instanceof Error ? error.message : t('errors.skill_rollback_failed');
         return this.respondError(reply, 500, message, { code: 'SKILL_ROLLBACK_FAILED' });
       }
     });
@@ -499,7 +500,7 @@ export class SkillRoutes extends BaseRouteHandler {
         await this.initPromise;
         const skill = this.registry.get(params.name);
         if (!skill) {
-          return this.respondError(reply, 404, `Skill not found: ${params.name}`, { code: 'SKILL_NOT_FOUND', recoverable: true });
+          return this.respondError(reply, 404, t('errors.skill_not_found', { name: params.name }), { code: 'SKILL_NOT_FOUND', recoverable: true });
         }
 
         const authorization = await this.authorization.getState(params.name);
@@ -509,7 +510,7 @@ export class SkillRoutes extends BaseRouteHandler {
           authorization
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to get skill permissions';
+        const message = error instanceof Error ? error.message : t('errors.skill_permissions_get_failed');
         return this.respondError(reply, 500, message, { code: 'SKILL_PERMISSIONS_GET_FAILED' });
       }
     });
@@ -521,7 +522,7 @@ export class SkillRoutes extends BaseRouteHandler {
         await this.initPromise;
         const skill = this.registry.get(params.name);
         if (!skill) {
-          return this.respondError(reply, 404, `Skill not found: ${params.name}`, { code: 'SKILL_NOT_FOUND', recoverable: true });
+          return this.respondError(reply, 404, t('errors.skill_not_found', { name: params.name }), { code: 'SKILL_NOT_FOUND', recoverable: true });
         }
 
         const securityResult = await this.auditor.auditSecurity(skill);
@@ -545,7 +546,7 @@ export class SkillRoutes extends BaseRouteHandler {
           }
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to build skill audit summary';
+        const message = error instanceof Error ? error.message : t('errors.skill_audit_summary_failed');
         return this.respondError(reply, 500, message, { code: 'SKILL_AUDIT_SUMMARY_FAILED' });
       }
     });
@@ -558,14 +559,14 @@ export class SkillRoutes extends BaseRouteHandler {
         body = AuthorizeBodySchema.parse((request.body as any) || {});
       } catch (error) {
         const err = error as z.ZodError;
-        return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
+        return this.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
       }
 
       try {
         await this.initPromise;
         const skill = this.registry.get(params.name);
         if (!skill) {
-          return this.respondError(reply, 404, `Skill not found: ${params.name}`, { code: 'SKILL_NOT_FOUND', recoverable: true });
+          return this.respondError(reply, 404, t('errors.skill_not_found', { name: params.name }), { code: 'SKILL_NOT_FOUND', recoverable: true });
         }
 
         const authorization = await this.authorization.authorize(params.name, {
@@ -575,7 +576,7 @@ export class SkillRoutes extends BaseRouteHandler {
 
         reply.send({ success: true, authorization });
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to authorize skill';
+        const message = error instanceof Error ? error.message : t('errors.skill_authorize_failed');
         return this.respondError(reply, 500, message, { code: 'SKILL_AUTHORIZE_FAILED' });
       }
     });
@@ -587,13 +588,13 @@ export class SkillRoutes extends BaseRouteHandler {
         await this.initPromise;
         const skill = this.registry.get(params.name);
         if (!skill) {
-          return this.respondError(reply, 404, `Skill not found: ${params.name}`, { code: 'SKILL_NOT_FOUND', recoverable: true });
+          return this.respondError(reply, 404, t('errors.skill_not_found', { name: params.name }), { code: 'SKILL_NOT_FOUND', recoverable: true });
         }
 
         const authorization = await this.authorization.revoke(params.name);
         reply.send({ success: true, authorization });
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to revoke skill authorization';
+        const message = error instanceof Error ? error.message : t('errors.skill_revoke_failed');
         return this.respondError(reply, 500, message, { code: 'SKILL_REVOKE_FAILED' });
       }
     });
@@ -606,7 +607,7 @@ export class SkillRoutes extends BaseRouteHandler {
         await this.initPromise;
         const skill = this.registry.get(params.name);
         if (!skill) {
-          return this.respondError(reply, 404, `Skill not found: ${params.name}`, { code: 'SKILL_NOT_FOUND', recoverable: true });
+          return this.respondError(reply, 404, t('errors.skill_not_found', { name: params.name }), { code: 'SKILL_NOT_FOUND', recoverable: true });
         }
 
         const platform = normalizePlatform(query.platform);
@@ -614,7 +615,7 @@ export class SkillRoutes extends BaseRouteHandler {
 
         reply.send({ success: true, localized });
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to localize skill';
+        const message = error instanceof Error ? error.message : t('errors.skill_localize_failed');
         return this.respondError(reply, 500, message, { code: 'SKILL_LOCALIZE_FAILED' });
       }
     });
@@ -624,7 +625,7 @@ export class SkillRoutes extends BaseRouteHandler {
         const platforms = this.localizer.getSupportedPlatforms();
         reply.send({ success: true, platforms });
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to get supported skill platforms';
+        const message = error instanceof Error ? error.message : t('errors.skill_platforms_list_failed');
         return this.respondError(reply, 500, message, { code: 'SKILL_PLATFORMS_LIST_FAILED' });
       }
     });

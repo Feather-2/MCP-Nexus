@@ -25,5 +25,11 @@
   "auth.api_key_not_found": "未找到 API Key",
   "auth.userid_permissions_required": "userId 和 permissions 为必填项",
   "auth.token_required": "Token 为必填项",
-  "auth.token_not_found": "未找到 Token"
+  "auth.token_not_found": "未找到 Token",
+  "errors.skill_permissions_get_failed": "获取技能权限失败",
+  "errors.skill_audit_summary_failed": "构建技能审计摘要失败",
+  "errors.skill_authorize_failed": "授权技能失败",
+  "errors.skill_revoke_failed": "撤销技能授权失败",
+  "errors.skill_localize_failed": "本地化技能失败",
+  "errors.skill_platforms_list_failed": "获取支持的技能平台列表失败"
 }

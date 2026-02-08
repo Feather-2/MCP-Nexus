@@ -1,5 +1,6 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseRouteHandler, RouteContext } from './RouteContext.js';
+import { t } from '../../i18n/index.js';
 
 /**
  * Authentication and authorization routes
@@ -16,9 +17,17 @@ export class AuthRoutes extends BaseRouteHandler {
     server.get('/api/auth/apikeys', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const apiKeys = this.ctx.authLayer.listApiKeys();
-        reply.send(apiKeys);
+        const masked = Array.isArray(apiKeys)
+          ? apiKeys.map((k: any) => ({
+            ...k,
+            key: typeof k.key === 'string' && k.key.length > 8
+              ? `${k.key.slice(0, 4)}****${k.key.slice(-4)}`
+              : '****'
+          }))
+          : apiKeys;
+        reply.send(masked);
       } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || 'Failed to list API keys', { code: 'AUTH_LIST_FAILED' });
+        return this.respondError(reply, 500, (error as Error).message || t('errors.auth_list_failed'), { code: 'AUTH_LIST_FAILED' });
       }
     });
 
@@ -27,12 +36,12 @@ export class AuthRoutes extends BaseRouteHandler {
       try {
         const { name, permissions } = request.body as { name?: string, permissions?: string[] };
         if (!name || !Array.isArray(permissions)) {
-          return this.respondError(reply, 400, 'name and permissions are required', { code: 'BAD_REQUEST', recoverable: true });
+          return this.respondError(reply, 400, t('auth.name_permissions_required'), { code: 'BAD_REQUEST', recoverable: true });
         }
         const result = await this.ctx.authLayer.createApiKey(name, permissions);
         reply.code(201).send({ success: true, apiKey: result, message: 'API key created successfully' });
       } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || 'Failed to create API key', { code: 'AUTH_CREATE_FAILED' });
+        return this.respondError(reply, 500, (error as Error).message || t('errors.auth_create_failed'), { code: 'AUTH_CREATE_FAILED' });
       }
     });
 
@@ -40,12 +49,12 @@ export class AuthRoutes extends BaseRouteHandler {
     server.delete('/api/auth/apikey/:key', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const { key } = request.params as { key?: string };
-        if (!key) return this.respondError(reply, 400, 'API key is required', { code: 'BAD_REQUEST', recoverable: true });
+        if (!key) return this.respondError(reply, 400, t('auth.api_key_required'), { code: 'BAD_REQUEST', recoverable: true });
         const success = await this.ctx.authLayer.deleteApiKey(key);
-        if (!success) return this.respondError(reply, 404, 'API key not found', { code: 'NOT_FOUND', recoverable: true });
+        if (!success) return this.respondError(reply, 404, t('auth.api_key_not_found'), { code: 'NOT_FOUND', recoverable: true });
         reply.send({ success: true, message: 'API key deleted successfully' });
       } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || 'Failed to delete API key', { code: 'AUTH_DELETE_FAILED' });
+        return this.respondError(reply, 500, (error as Error).message || t('errors.auth_delete_failed'), { code: 'AUTH_DELETE_FAILED' });
       }
     });
 
@@ -55,7 +64,7 @@ export class AuthRoutes extends BaseRouteHandler {
         const tokens = this.ctx.authLayer.listTokens();
         reply.send(tokens);
       } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || 'Failed to list tokens', { code: 'AUTH_LIST_FAILED' });
+        return this.respondError(reply, 500, (error as Error).message || t('errors.auth_list_failed'), { code: 'AUTH_LIST_FAILED' });
       }
     });
 
@@ -64,12 +73,12 @@ export class AuthRoutes extends BaseRouteHandler {
       try {
         const { userId, permissions, expiresInHours = 24 } = request.body as { userId?: string; permissions?: string[]; expiresInHours?: number };
         if (!userId || !Array.isArray(permissions)) {
-          return this.respondError(reply, 400, 'userId and permissions are required', { code: 'BAD_REQUEST', recoverable: true });
+          return this.respondError(reply, 400, t('auth.userid_permissions_required'), { code: 'BAD_REQUEST', recoverable: true });
         }
         const result = await this.ctx.authLayer.generateToken(userId, permissions, expiresInHours);
         reply.code(201).send({ success: true, token: result, message: 'Token generated successfully' });
       } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || 'Failed to generate token', { code: 'AUTH_TOKEN_FAILED' });
+        return this.respondError(reply, 500, (error as Error).message || t('errors.auth_token_failed'), { code: 'AUTH_TOKEN_FAILED' });
       }
     });
 
@@ -77,12 +86,12 @@ export class AuthRoutes extends BaseRouteHandler {
     server.delete('/api/auth/token/:token', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const { token } = request.params as { token?: string };
-        if (!token) return this.respondError(reply, 400, 'Token is required', { code: 'BAD_REQUEST', recoverable: true });
+        if (!token) return this.respondError(reply, 400, t('auth.token_required'), { code: 'BAD_REQUEST', recoverable: true });
         const success = await this.ctx.authLayer.revokeToken(token);
-        if (!success) return this.respondError(reply, 404, 'Token not found', { code: 'NOT_FOUND', recoverable: true });
+        if (!success) return this.respondError(reply, 404, t('auth.token_not_found'), { code: 'NOT_FOUND', recoverable: true });
         reply.send({ success: true, message: 'Token revoked successfully' });
       } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || 'Failed to revoke token', { code: 'AUTH_REVOKE_FAILED' });
+        return this.respondError(reply, 500, (error as Error).message || t('errors.auth_revoke_failed'), { code: 'AUTH_REVOKE_FAILED' });
       }
     });
   }

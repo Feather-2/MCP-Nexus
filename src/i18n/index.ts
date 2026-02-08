@@ -39,6 +39,13 @@ export function getLocale(): Locale {
   return currentLocale;
 }
 
+export function parseAcceptLanguage(header?: string): Locale {
+  if (!header) return currentLocale;
+  const normalized = header.trim().toLowerCase();
+  if (normalized.startsWith('zh')) return 'zh';
+  return 'en';
+}
+
 export function t(key: string, params?: Record<string, string | number>): string {
   const template = dictionary[key];
   if (!template) {

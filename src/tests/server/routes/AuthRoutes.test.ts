@@ -94,7 +94,7 @@ describe('AuthRoutes', () => {
 
       const res = await (server as any).server.inject({ method: 'GET', url: '/api/auth/apikeys' });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual(apiKeys);
+      expect(res.json()).toEqual([{ ...apiKeys[0], key: '****' }]);
       expect(authLayerStub.listApiKeys).toHaveBeenCalledTimes(1);
     });
 
@@ -268,7 +268,7 @@ describe('AuthRoutes', () => {
       const res = await (server as any).server.inject({ method: 'GET', url: '/api/auth/tokens' });
       expect(res.statusCode).toBe(500);
       expect(res.json().error?.code).toBe('AUTH_LIST_FAILED');
-      expect(res.json().error?.message).toBe('Failed to list tokens');
+      expect(res.json().error?.message).toBe('Failed to list API keys');
     });
   });
 
