@@ -193,6 +193,60 @@ export class RoutingRoutes extends BaseRouteHandler {
         return this.respondError(reply, 500, error instanceof Error ? error.message : 'Proxy request failed', { code: 'PROXY_ERROR' });
       }
     });
+
+    // Generic MCP JSON-RPC endpoint for paper-burner transport discovery
+    // Accepts any JSON-RPC method and forwards to an available service
+    server.post('/mcp', async (request: FastifyRequest, reply: FastifyReply) => {
+      const McpMessageSchema = z.object({
+        jsonrpc: z.literal('2.0').optional().default('2.0'),
+        method: z.string().min(1),
+        params: z.any().optional(),
+        id: z.union([z.string(), z.number()]).optional()
+      });
+
+      let mcpMessage: z.infer<typeof McpMessageSchema>;
+      try {
+        mcpMessage = McpMessageSchema.parse((request.body as any) || {});
+      } catch (e) {
+        const err = e as z.ZodError;
+        return this.respondError(reply, 400, 'Invalid MCP message format', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
+      }
+
+      try {
+        const services = await this.ctx.serviceRegistry.listServices();
+        const running = services.filter(s => s.state === 'running');
+        if (!running.length) {
+          return this.respondError(reply, 503, 'No running MCP services', { code: 'NO_SERVICE', recoverable: true });
+        }
+
+        const service = running[0];
+        const adapter = await this.ctx.protocolAdapters.createAdapter(service.config);
+        await adapter.connect();
+
+        try {
+          const response = await ((adapter as any).sendAndReceive?.(mcpMessage) ?? adapter.send(mcpMessage));
+          reply.send(response);
+        } finally {
+          await adapter.disconnect();
+        }
+      } catch (error) {
+        return this.respondError(reply, 500, error instanceof Error ? error.message : 'MCP request failed', { code: 'MCP_ERROR' });
+      }
+    });
+
+    // SSE notification endpoints for paper-burner discovery (/events, /sse)
+    const sseHandler = async (request: FastifyRequest, reply: FastifyReply) => {
+      this.writeSseHeaders(reply, request);
+      reply.raw.write(`data: ${JSON.stringify({ type: 'connected', ts: Date.now() })}\n\n`);
+
+      this.ctx.logStreamClients.add(reply);
+      const cleanup = () => this.ctx.logStreamClients.delete(reply);
+      request.socket.on('close', cleanup);
+      request.socket.on('end', cleanup);
+      request.socket.on('error', cleanup);
+    };
+    server.get('/events', sseHandler);
+    server.get('/sse', sseHandler);
   }
 
   private convertHealthResult(health: HealthCheckResult): ServiceHealth {
