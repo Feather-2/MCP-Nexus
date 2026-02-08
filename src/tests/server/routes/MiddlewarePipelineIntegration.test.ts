@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { MiddlewareChain } from '../../../middleware/chain.js';
 import { HealthCheckMiddleware } from '../../../gateway/health-check.middleware.js';
 import { LoadBalancerMiddleware } from '../../../gateway/load-balancer.middleware.js';
-import { ServiceStateManager } from '../../../gateway/service-state.js';
+import { ServiceObservationStore } from '../../../gateway/service-state.js';
 import { RoutingRoutes } from '../../../server/routes/RoutingRoutes.js';
 import { ToolRoutes } from '../../../server/routes/ToolRoutes.js';
 import type { McpServiceConfig, ServiceInstance } from '../../../types/index.js';
@@ -49,7 +49,7 @@ describe('Routes middleware pipeline integration', () => {
     const server = Fastify({ logger: false });
     try {
 
-      const stateManager = new ServiceStateManager();
+      const stateManager = new ServiceObservationStore();
       const middlewareChain = new MiddlewareChain([
         new HealthCheckMiddleware(stateManager, { ttl: 0 }),
         new LoadBalancerMiddleware(stateManager, { strategy: 'round-robin' })
@@ -102,7 +102,7 @@ describe('Routes middleware pipeline integration', () => {
     const server = Fastify({ logger: false });
     try {
 
-      const stateManager = new ServiceStateManager();
+      const stateManager = new ServiceObservationStore();
       const middlewareChain = new MiddlewareChain([
         new LoadBalancerMiddleware(stateManager, { strategy: 'round-robin' })
       ]);
@@ -161,7 +161,7 @@ describe('Routes middleware pipeline integration', () => {
     const server = Fastify({ logger: false });
     try {
 
-      const stateManager = new ServiceStateManager();
+      const stateManager = new ServiceObservationStore();
       const middlewareChain = new MiddlewareChain([
         new LoadBalancerMiddleware(stateManager, { strategy: 'round-robin' })
       ]);

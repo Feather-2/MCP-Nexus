@@ -7,7 +7,7 @@ import {
   TOOL_SUCCESS_STATE_KEY
 } from '../../gateway/load-balancer.middleware.js';
 import { HealthCheckMiddleware, HEALTH_PROBE_CTX_KEY } from '../../gateway/health-check.middleware.js';
-import { ServiceStateManager } from '../../gateway/service-state.js';
+import { ServiceObservationStore } from '../../gateway/service-state.js';
 import type { Context, State } from '../../middleware/types.js';
 import type { McpServiceConfig, ServiceInstance } from '../../types/index.js';
 
@@ -45,7 +45,7 @@ function makeState(): State {
 
 describe('LoadBalancerMiddleware', () => {
   it('no-ops when no candidates exist', async () => {
-    const mgr = new ServiceStateManager();
+    const mgr = new ServiceObservationStore();
     const mw = new LoadBalancerMiddleware(mgr);
     const state = makeState();
 
@@ -54,7 +54,7 @@ describe('LoadBalancerMiddleware', () => {
   });
 
   it('selects instances round-robin (health aware)', async () => {
-    const mgr = new ServiceStateManager();
+    const mgr = new ServiceObservationStore();
     const a = makeInstance('a', 'svc-a');
     const b = makeInstance('b', 'svc-a');
     mgr.setInstance(a);
@@ -79,7 +79,7 @@ describe('LoadBalancerMiddleware', () => {
   });
 
   it('falls back to candidates when all unhealthy', async () => {
-    const mgr = new ServiceStateManager();
+    const mgr = new ServiceObservationStore();
     mgr.setInstance(makeInstance('a', 'svc-a'));
     mgr.setInstance(makeInstance('b', 'svc-a'));
     mgr.updateHealth('a', { healthy: false, timestamp: new Date() });
@@ -94,7 +94,7 @@ describe('LoadBalancerMiddleware', () => {
   });
 
   it('selects least-conn based on stored metrics', async () => {
-    const mgr = new ServiceStateManager();
+    const mgr = new ServiceObservationStore();
     mgr.setInstance(makeInstance('a', 'svc-a'));
     mgr.setInstance(makeInstance('b', 'svc-a'));
     mgr.updateHealth('a', { healthy: true, timestamp: new Date() });
@@ -125,7 +125,7 @@ describe('LoadBalancerMiddleware', () => {
   });
 
   it('supports weighted selection', async () => {
-    const mgr = new ServiceStateManager();
+    const mgr = new ServiceObservationStore();
     mgr.setInstance(makeInstance('a', 'svc-a', 1));
     mgr.setInstance(makeInstance('b', 'svc-a', 3));
     mgr.updateHealth('a', { healthy: true, timestamp: new Date() });
@@ -143,7 +143,7 @@ describe('LoadBalancerMiddleware', () => {
   });
 
   it('records latency/error metrics in afterTool', async () => {
-    const mgr = new ServiceStateManager();
+    const mgr = new ServiceObservationStore();
     mgr.setInstance(makeInstance('a', 'svc-a'));
     mgr.updateHealth('a', { healthy: true, timestamp: new Date() });
 
@@ -161,7 +161,7 @@ describe('LoadBalancerMiddleware', () => {
   });
 
   it('afterTool no-ops when no selected instance is present', async () => {
-    const mgr = new ServiceStateManager();
+    const mgr = new ServiceObservationStore();
     const mw = new LoadBalancerMiddleware(mgr);
     const state = makeState();
 
@@ -170,7 +170,7 @@ describe('LoadBalancerMiddleware', () => {
   });
 
   it('afterTool defaults to success=true when no error is present', async () => {
-    const mgr = new ServiceStateManager();
+    const mgr = new ServiceObservationStore();
     const mw = new LoadBalancerMiddleware(mgr);
     const state = makeState();
     state.values.set(SELECTED_INSTANCE_ID_STATE_KEY, 'a');
@@ -180,7 +180,7 @@ describe('LoadBalancerMiddleware', () => {
   });
 
   it('afterTool treats toolError Error and state.error as failures', async () => {
-    const mgr = new ServiceStateManager();
+    const mgr = new ServiceObservationStore();
     const mw = new LoadBalancerMiddleware(mgr);
 
     const s1 = makeState();
@@ -197,7 +197,7 @@ describe('LoadBalancerMiddleware', () => {
   });
 
   it('keeps avgResponseTime when latency is missing/invalid', async () => {
-    const mgr = new ServiceStateManager();
+    const mgr = new ServiceObservationStore();
     const mw = new LoadBalancerMiddleware(mgr);
 
     mgr.updateMetrics('a', {
@@ -219,7 +219,7 @@ describe('LoadBalancerMiddleware', () => {
   });
 
   it('computes latency from start/end and resolves instanceId from selected instance object', async () => {
-    const mgr = new ServiceStateManager();
+    const mgr = new ServiceObservationStore();
     mgr.setInstance(makeInstance('a', 'svc-a'));
 
     const mw = new LoadBalancerMiddleware(mgr);
@@ -237,7 +237,7 @@ describe('LoadBalancerMiddleware', () => {
   });
 
   it('reads candidates from state.values when provided', async () => {
-    const mgr = new ServiceStateManager();
+    const mgr = new ServiceObservationStore();
     const a = makeInstance('a', 'svc-a');
     const b = makeInstance('b', 'svc-a');
     mgr.updateHealth('a', { healthy: true, timestamp: new Date() });
@@ -252,7 +252,7 @@ describe('LoadBalancerMiddleware', () => {
   });
 
   it('uses health view from state to filter candidates', async () => {
-    const mgr = new ServiceStateManager();
+    const mgr = new ServiceObservationStore();
     const a = makeInstance('a', 'svc-a');
     const b = makeInstance('b', 'svc-a');
     mgr.setInstance(a);
@@ -268,7 +268,7 @@ describe('LoadBalancerMiddleware', () => {
   });
 
   it('breaks least-conn ties by id', async () => {
-    const mgr = new ServiceStateManager();
+    const mgr = new ServiceObservationStore();
     mgr.setInstance(makeInstance('a', 'svc-a'));
     mgr.setInstance(makeInstance('b', 'svc-a'));
     mgr.updateHealth('a', { healthy: true, timestamp: new Date() });
@@ -301,7 +301,7 @@ describe('LoadBalancerMiddleware', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2020-01-01T00:00:00.000Z'));
 
-    const mgr = new ServiceStateManager();
+    const mgr = new ServiceObservationStore();
     mgr.setInstance(makeInstance('a', 'svc-a'));
     mgr.setInstance(makeInstance('b', 'svc-a'));
 

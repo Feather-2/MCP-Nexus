@@ -1,4 +1,4 @@
-import { ServiceStateManager } from '../../gateway/service-state.js';
+import { ServiceObservationStore } from '../../gateway/service-state.js';
 import type { HealthCheckResult, LoadBalancerMetrics, McpServiceConfig, ServiceInstance } from '../../types/index.js';
 
 function makeTemplate(name: string, overrides: Partial<McpServiceConfig> = {}): McpServiceConfig {
@@ -25,9 +25,9 @@ function makeInstance(id: string, templateName: string): ServiceInstance {
   };
 }
 
-describe('ServiceStateManager', () => {
+describe('ServiceObservationStore', () => {
   it('stores and reads templates', () => {
-    const mgr = new ServiceStateManager();
+    const mgr = new ServiceObservationStore();
     const template = makeTemplate('svc-a');
 
     mgr.setTemplate(template);
@@ -54,7 +54,7 @@ describe('ServiceStateManager', () => {
       ]
     ]);
 
-    const mgr = new ServiceStateManager({ templates, instances, healthCache, metrics });
+    const mgr = new ServiceObservationStore({ templates, instances, healthCache, metrics });
 
     expect(mgr.getTemplate('svc-a')?.name).toBe('svc-a');
     expect(mgr.getInstance('a-1')?.config.name).toBe('svc-a');
@@ -63,7 +63,7 @@ describe('ServiceStateManager', () => {
   });
 
   it('stores and reads instances (optionally filtered by template)', () => {
-    const mgr = new ServiceStateManager();
+    const mgr = new ServiceObservationStore();
     const a1 = makeInstance('a-1', 'svc-a');
     const a2 = makeInstance('a-2', 'svc-a');
     const b1 = makeInstance('b-1', 'svc-b');
@@ -78,7 +78,7 @@ describe('ServiceStateManager', () => {
   });
 
   it('updates and reads health and metrics', () => {
-    const mgr = new ServiceStateManager();
+    const mgr = new ServiceObservationStore();
     const instance = makeInstance('a-1', 'svc-a');
     mgr.setInstance(instance);
 
@@ -99,7 +99,7 @@ describe('ServiceStateManager', () => {
   });
 
   it('removes instances and clears derived state', () => {
-    const mgr = new ServiceStateManager();
+    const mgr = new ServiceObservationStore();
     const instance = makeInstance('a-1', 'svc-a');
     mgr.setInstance(instance);
     mgr.updateHealth(instance.id, { healthy: false, timestamp: new Date() });
@@ -120,7 +120,7 @@ describe('ServiceStateManager', () => {
   });
 
   it('removes templates', () => {
-    const mgr = new ServiceStateManager();
+    const mgr = new ServiceObservationStore();
     const template = makeTemplate('svc-a');
     mgr.setTemplate(template);
 

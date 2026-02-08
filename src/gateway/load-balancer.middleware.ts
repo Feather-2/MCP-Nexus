@@ -1,6 +1,6 @@
 import type { Context, Middleware, State } from '../middleware/types.js';
 import type { ServiceInstance } from '../types/index.js';
-import type { ServiceMetrics, ServiceStateManager } from './service-state.js';
+import type { ServiceMetrics, ServiceObservationStore } from './service-state.js';
 import { HEALTH_VIEW_STATE_KEY } from './health-check.middleware.js';
 
 export const SELECTED_INSTANCE_STATE_KEY = 'selectedInstance';
@@ -124,7 +124,7 @@ export class LoadBalancerMiddleware implements Middleware {
   private rrCursorByKey = new Map<string, number>();
 
   constructor(
-    private stateManager: ServiceStateManager,
+    private stateManager: ServiceObservationStore,
     private options?: { strategy?: 'round-robin' | 'least-conn' | 'weighted' }
   ) {}
 

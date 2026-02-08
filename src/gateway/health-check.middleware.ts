@@ -1,5 +1,5 @@
 import type { Context, Middleware, State } from '../middleware/types.js';
-import type { HealthStatus, ServiceStateManager } from './service-state.js';
+import type { HealthStatus, ServiceObservationStore } from './service-state.js';
 
 export const HEALTH_PROBE_CTX_KEY = 'healthProbe';
 export const HEALTH_VIEW_STATE_KEY = 'healthView';
@@ -74,7 +74,7 @@ export class HealthCheckMiddleware implements Middleware {
   name = 'health-check';
 
   constructor(
-    private stateManager: ServiceStateManager,
+    private stateManager: ServiceObservationStore,
     private options?: { ttl?: number; concurrency?: number }
   ) {}
 

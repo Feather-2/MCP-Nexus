@@ -1,5 +1,5 @@
 import { HealthCheckMiddleware, HEALTH_PROBE_CTX_KEY, HEALTH_PROBE_RESULT_STATE_KEY, HEALTH_VIEW_STATE_KEY } from '../../gateway/health-check.middleware.js';
-import { ServiceStateManager } from '../../gateway/service-state.js';
+import { ServiceObservationStore } from '../../gateway/service-state.js';
 import type { Context, State } from '../../middleware/types.js';
 import type { McpServiceConfig, ServiceInstance } from '../../types/index.js';
 
@@ -41,7 +41,7 @@ describe('HealthCheckMiddleware', () => {
   });
 
   it('builds a health view from cache when probe is absent', async () => {
-    const mgr = new ServiceStateManager();
+    const mgr = new ServiceObservationStore();
     mgr.setInstance(makeInstance('a-1', 'svc-a'));
     mgr.updateHealth('a-1', { healthy: true, timestamp: new Date() });
 
@@ -59,7 +59,7 @@ describe('HealthCheckMiddleware', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2020-01-01T00:00:00.000Z'));
 
-    const mgr = new ServiceStateManager();
+    const mgr = new ServiceObservationStore();
     mgr.setInstance(makeInstance('a-1', 'svc-a'));
     mgr.setInstance(makeInstance('a-2', 'svc-a'));
 
@@ -92,7 +92,7 @@ describe('HealthCheckMiddleware', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2020-01-01T00:00:00.000Z'));
 
-    const mgr = new ServiceStateManager();
+    const mgr = new ServiceObservationStore();
     mgr.setInstance(makeInstance('a-1', 'svc-a'));
 
     const probe = vi.fn(async (_instanceId: string) => ({ healthy: true, timestamp: new Date() }));
@@ -109,7 +109,7 @@ describe('HealthCheckMiddleware', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2020-01-01T00:00:00.000Z'));
 
-    const mgr = new ServiceStateManager();
+    const mgr = new ServiceObservationStore();
     const probe = vi.fn(async (instanceId: string) => ({ healthy: true, timestamp: new Date(), latency: instanceId.length }));
     const mw = new HealthCheckMiddleware(mgr, { ttl: 0, concurrency: 2 });
 
@@ -126,7 +126,7 @@ describe('HealthCheckMiddleware', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2020-01-01T00:00:00.000Z'));
 
-    const mgr = new ServiceStateManager();
+    const mgr = new ServiceObservationStore();
     mgr.setInstance(makeInstance('a-1', 'svc-a'));
 
     const probe = vi.fn(async (_instanceId: string) => ({ healthy: true, timestamp: new Date() }));
@@ -145,7 +145,7 @@ describe('HealthCheckMiddleware', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2020-01-01T00:00:00.000Z'));
 
-    const mgr = new ServiceStateManager();
+    const mgr = new ServiceObservationStore();
     for (let i = 0; i < 3; i++) {
       mgr.setInstance(makeInstance(`a-${i}`, 'svc-a'));
     }
@@ -174,7 +174,7 @@ describe('HealthCheckMiddleware', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2020-01-01T00:00:00.000Z'));
 
-    const mgr = new ServiceStateManager();
+    const mgr = new ServiceObservationStore();
     for (let i = 0; i < 5; i++) {
       mgr.setInstance(makeInstance(`a-${i}`, 'svc-a'));
     }
@@ -201,7 +201,7 @@ describe('HealthCheckMiddleware', () => {
   });
 
   it('records probe results in afterTool', async () => {
-    const mgr = new ServiceStateManager();
+    const mgr = new ServiceObservationStore();
     mgr.setInstance(makeInstance('a-1', 'svc-a'));
 
     const mw = new HealthCheckMiddleware(mgr);
@@ -214,7 +214,7 @@ describe('HealthCheckMiddleware', () => {
   });
 
   it('ignores invalid probe results in afterTool', async () => {
-    const mgr = new ServiceStateManager();
+    const mgr = new ServiceObservationStore();
     mgr.setInstance(makeInstance('a-1', 'svc-a'));
     mgr.updateHealth('a-1', { healthy: true, timestamp: new Date() });
 

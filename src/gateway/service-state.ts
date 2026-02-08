@@ -319,8 +319,3 @@ export class ServiceObservationStore {
     }
   }
 }
-
-/**
- * Backward compatible name. Prefer `ServiceObservationStore`.
- */
-export class ServiceStateManager extends ServiceObservationStore {}
