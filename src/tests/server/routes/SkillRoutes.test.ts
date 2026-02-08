@@ -164,4 +164,28 @@ describe('SkillRoutes', () => {
     expect(delRes.statusCode).toBe(200);
     expect(delRes.json().deleted).toBe(true);
   });
+
+  it('GET /api/skills/:name/content returns flat response', async () => {
+    await (server as any).server.inject({
+      method: 'POST',
+      url: '/api/skills/register',
+      payload: { name: 'content-test', description: 'Content test', body: 'Content body.', overwrite: true }
+    });
+
+    const res = await (server as any).server.inject({ method: 'GET', url: '/api/skills/content-test/content' });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    // Flat response: body, supportFiles, metadata at top level (no wrapper)
+    expect(body.body).toContain('Content body.');
+    expect(body.metadata).toBeDefined();
+    expect(body.metadata.name).toBe('content-test');
+    expect(body.supportFiles).toBeDefined();
+    // Should NOT have success wrapper
+    expect(body.success).toBeUndefined();
+  });
+
+  it('GET /api/skills/:name/content returns 404 for missing skill', async () => {
+    const res = await (server as any).server.inject({ method: 'GET', url: '/api/skills/nonexistent/content' });
+    expect(res.statusCode).toBe(404);
+  });
 });

@@ -195,7 +195,8 @@ export class RoutingRoutes extends BaseRouteHandler {
     });
 
     // Generic MCP JSON-RPC endpoint for paper-burner transport discovery
-    // Accepts any JSON-RPC method and forwards to an available service
+    // Only allows standard MCP protocol methods to prevent internal method exposure
+    const MCP_ALLOWED_PREFIXES = ['tools/', 'resources/', 'prompts/', 'completion/', 'logging/', 'initialize', 'ping'];
     server.post('/mcp', async (request: FastifyRequest, reply: FastifyReply) => {
       const McpMessageSchema = z.object({
         jsonrpc: z.literal('2.0').optional().default('2.0'),
@@ -210,6 +211,10 @@ export class RoutingRoutes extends BaseRouteHandler {
       } catch (e) {
         const err = e as z.ZodError;
         return this.respondError(reply, 400, 'Invalid MCP message format', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
+      }
+
+      if (!MCP_ALLOWED_PREFIXES.some(p => mcpMessage.method.startsWith(p))) {
+        return this.respondError(reply, 403, 'MCP method not allowed: ' + mcpMessage.method, { code: 'METHOD_NOT_ALLOWED', recoverable: true });
       }
 
       try {
@@ -240,7 +245,17 @@ export class RoutingRoutes extends BaseRouteHandler {
       reply.raw.write(`data: ${JSON.stringify({ type: 'connected', ts: Date.now() })}\n\n`);
 
       this.ctx.logStreamClients.add(reply);
-      const cleanup = () => this.ctx.logStreamClients.delete(reply);
+
+      // Keepalive heartbeat to prevent proxy timeout
+      const heartbeat = setInterval(() => {
+        try { reply.raw.write(': heartbeat\n\n'); } catch { clearInterval(heartbeat); }
+      }, 30_000);
+      (heartbeat as any).unref?.();
+
+      const cleanup = () => {
+        clearInterval(heartbeat);
+        this.ctx.logStreamClients.delete(reply);
+      };
       request.socket.on('close', cleanup);
       request.socket.on('end', cleanup);
       request.socket.on('error', cleanup);

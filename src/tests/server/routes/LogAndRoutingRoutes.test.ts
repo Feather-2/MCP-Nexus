@@ -84,5 +84,40 @@ describe('LogRoutes & RoutingRoutes - validation', () => {
     });
     expect(missing.statusCode).toBe(404);
   });
+
+  it('POST /mcp rejects disallowed methods', async () => {
+    const res = await (server as any).server.inject({
+      method: 'POST',
+      url: '/mcp',
+      payload: { jsonrpc: '2.0', method: 'internal/secret', params: {} }
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe('METHOD_NOT_ALLOWED');
+  });
+
+  it('POST /mcp returns 503 when no running services', async () => {
+    const res = await (server as any).server.inject({
+      method: 'POST',
+      url: '/mcp',
+      payload: { jsonrpc: '2.0', method: 'tools/list', params: {} }
+    });
+    expect(res.statusCode).toBe(503);
+    expect(res.json().error.code).toBe('NO_SERVICE');
+  });
+
+  it('POST /mcp validates body', async () => {
+    const res = await (server as any).server.inject({
+      method: 'POST',
+      url: '/mcp',
+      payload: {}
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('GET /api/health returns ok', async () => {
+    const res = await (server as any).server.inject({ method: 'GET', url: '/api/health' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().status).toBe('ok');
+  });
 });
 
