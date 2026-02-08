@@ -1,22 +1,30 @@
 import type { AuditSkillHandler } from '../AuditSkillRouter.js';
-import { IntentAuditHandler } from './IntentAuditHandler.js';
-import { InjectionAuditHandler } from './InjectionAuditHandler.js';
-import { DataflowAuditHandler } from './DataflowAuditHandler.js';
-import { DependencyAuditHandler } from './DependencyAuditHandler.js';
-import { PrivilegeAuditHandler } from './PrivilegeAuditHandler.js';
+import { IntentAuditHandler, type IntentAuditHandlerOptions } from './IntentAuditHandler.js';
+import { InjectionAuditHandler, type InjectionAuditHandlerOptions } from './InjectionAuditHandler.js';
+import { DataflowAuditHandler, type DataflowAuditHandlerOptions } from './DataflowAuditHandler.js';
+import { DependencyAuditHandler, type DependencyAuditHandlerOptions } from './DependencyAuditHandler.js';
+import { PrivilegeAuditHandler, type PrivilegeAuditHandlerOptions } from './PrivilegeAuditHandler.js';
 
-export { IntentAuditHandler } from './IntentAuditHandler.js';
-export { InjectionAuditHandler } from './InjectionAuditHandler.js';
-export { DataflowAuditHandler } from './DataflowAuditHandler.js';
-export { DependencyAuditHandler } from './DependencyAuditHandler.js';
-export { PrivilegeAuditHandler } from './PrivilegeAuditHandler.js';
+export { IntentAuditHandler, type IntentAuditHandlerOptions } from './IntentAuditHandler.js';
+export { InjectionAuditHandler, type InjectionAuditHandlerOptions } from './InjectionAuditHandler.js';
+export { DataflowAuditHandler, type DataflowAuditHandlerOptions } from './DataflowAuditHandler.js';
+export { DependencyAuditHandler, type DependencyAuditHandlerOptions } from './DependencyAuditHandler.js';
+export { PrivilegeAuditHandler, type PrivilegeAuditHandlerOptions } from './PrivilegeAuditHandler.js';
 
-export function createDefaultHandlers(): AuditSkillHandler[] {
+export interface AuditHandlerConfig {
+  intent?: IntentAuditHandlerOptions;
+  injection?: InjectionAuditHandlerOptions;
+  dataflow?: DataflowAuditHandlerOptions;
+  dependency?: DependencyAuditHandlerOptions;
+  privilege?: PrivilegeAuditHandlerOptions;
+}
+
+export function createDefaultHandlers(config: AuditHandlerConfig = {}): AuditSkillHandler[] {
   return [
-    new IntentAuditHandler(),
-    new InjectionAuditHandler(),
-    new DataflowAuditHandler(),
-    new DependencyAuditHandler(),
-    new PrivilegeAuditHandler()
+    new IntentAuditHandler(config.intent),
+    new InjectionAuditHandler(config.injection),
+    new DataflowAuditHandler(config.dataflow),
+    new DependencyAuditHandler(config.dependency),
+    new PrivilegeAuditHandler(config.privilege)
   ];
 }

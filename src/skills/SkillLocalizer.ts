@@ -1,3 +1,6 @@
+import { mkdir, writeFile, unlink } from 'fs/promises';
+import os from 'os';
+import path from 'path';
 import type { Skill } from './types.js';
 import type { Logger } from '../types/index.js';
 
@@ -18,13 +21,26 @@ export interface PlatformAdapter {
   localize(skill: Skill): LocalizedSkill;
 }
 
+export interface PlatformDirectoryConfig {
+  platform: Platform;
+  directory: string;
+  fileExtension?: string;
+}
+
 export interface SkillLocalizerOptions {
   logger?: Logger;
   adapters?: PlatformAdapter[];
+  platformDirs?: PlatformDirectoryConfig[];
 }
 
 const DEFAULT_CLAUDE_TOOL_HINTS = ['Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob'];
 const DEFAULT_CODEX_TOOL_HINTS = ['shell', 'file read', 'file write'];
+const DEFAULT_PLATFORM_FILE_EXTENSIONS: Record<Platform, string> = {
+  'claude-code': '.md',
+  codex: '.md',
+  'js-agent': '.json',
+  generic: '.md'
+};
 
 const CLAUDE_TOOL_MAP: Record<string, string[]> = {
   bash: ['Bash'],
@@ -248,6 +264,7 @@ class GenericAdapter implements PlatformAdapter {
 export class SkillLocalizer {
   private readonly logger?: Logger;
   private readonly adapters = new Map<Platform, PlatformAdapter>();
+  private readonly platformDirs: Map<Platform, { directory: string; fileExtension: string }>;
 
   constructor(options?: SkillLocalizerOptions) {
     this.logger = options?.logger;
@@ -266,6 +283,18 @@ export class SkillLocalizer {
     if (options?.adapters) {
       for (const adapter of options.adapters) {
         this.registerAdapter(adapter);
+      }
+    }
+
+    this.platformDirs = this.buildDefaultPlatformDirs();
+    if (options?.platformDirs) {
+      for (const config of options.platformDirs) {
+        this.platformDirs.set(config.platform, {
+          directory: config.directory,
+          fileExtension: this.normalizeExtension(
+            config.fileExtension ?? DEFAULT_PLATFORM_FILE_EXTENSIONS[config.platform]
+          )
+        });
       }
     }
   }
@@ -294,8 +323,101 @@ export class SkillLocalizer {
     return Array.from(this.adapters.keys());
   }
 
+  async distribute(skill: Skill, platforms?: Platform[]): Promise<{ platform: Platform; path: string }[]> {
+    const targetPlatforms = this.resolveTargetPlatforms(platforms);
+    const distributed: { platform: Platform; path: string }[] = [];
+
+    for (const platform of targetPlatforms) {
+      const localized = this.localize(skill, platform);
+      const directoryConfig = this.getPlatformDirectory(platform);
+      const targetPath = path.join(directoryConfig.directory, `${skill.metadata.name}${directoryConfig.fileExtension}`);
+
+      await mkdir(directoryConfig.directory, { recursive: true });
+      await writeFile(targetPath, localized.content, 'utf8');
+
+      distributed.push({ platform, path: targetPath });
+    }
+
+    return distributed;
+  }
+
+  async undistribute(skillName: string, platforms?: Platform[]): Promise<void> {
+    const targetPlatforms = this.resolveTargetPlatforms(platforms);
+
+    for (const platform of targetPlatforms) {
+      const directoryConfig = this.getPlatformDirectory(platform);
+      const targetPath = path.join(directoryConfig.directory, `${skillName}${directoryConfig.fileExtension}`);
+
+      try {
+        await unlink(targetPath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          continue;
+        }
+
+        throw new Error(`Failed to undistribute skill for platform: ${platform}`, { cause: error });
+      }
+    }
+  }
+
   registerAdapter(adapter: PlatformAdapter): void {
     this.adapters.set(adapter.platform, adapter);
     this.logger?.debug('Registered skill localization adapter', { platform: adapter.platform });
+  }
+
+  private resolveTargetPlatforms(platforms?: Platform[]): Platform[] {
+    if (!platforms?.length) {
+      return this.getSupportedPlatforms();
+    }
+
+    return Array.from(new Set(platforms));
+  }
+
+  private getPlatformDirectory(platform: Platform): { directory: string; fileExtension: string } {
+    return this.platformDirs.get(platform) ?? {
+      directory: path.resolve('skills'),
+      fileExtension: DEFAULT_PLATFORM_FILE_EXTENSIONS[platform]
+    };
+  }
+
+  private normalizeExtension(fileExtension: string): string {
+    if (!fileExtension.trim().length) {
+      return '.md';
+    }
+
+    return fileExtension.startsWith('.') ? fileExtension : `.${fileExtension}`;
+  }
+
+  private buildDefaultPlatformDirs(): Map<Platform, { directory: string; fileExtension: string }> {
+    return new Map<Platform, { directory: string; fileExtension: string }>([
+      [
+        'claude-code',
+        {
+          directory: path.join(os.homedir(), '.claude', 'commands'),
+          fileExtension: DEFAULT_PLATFORM_FILE_EXTENSIONS['claude-code']
+        }
+      ],
+      [
+        'codex',
+        {
+          directory: path.join(os.homedir(), '.codex'),
+          fileExtension: DEFAULT_PLATFORM_FILE_EXTENSIONS.codex
+        }
+      ],
+      [
+        'js-agent',
+        {
+          directory: path.resolve('skills'),
+          fileExtension: DEFAULT_PLATFORM_FILE_EXTENSIONS['js-agent']
+        }
+      ],
+      [
+        'generic',
+        {
+          directory: path.resolve('skills'),
+          fileExtension: DEFAULT_PLATFORM_FILE_EXTENSIONS.generic
+        }
+      ]
+    ]);
   }
 }

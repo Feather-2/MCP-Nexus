@@ -148,6 +148,124 @@ describe('AuditPipeline', () => {
     );
   });
 
+  it('rejects when findings include critical severity even with an approve score', async () => {
+    const hardRuleEngine = { evaluate: vi.fn().mockReturnValue({ rejected: false }) };
+    const entropyAnalyzer = {
+      analyzeContent: vi.fn().mockReturnValue({
+        highEntropyBlocks: [],
+        averageEntropy: 1.2,
+        suspicious: false
+      })
+    };
+    const permissionAnalyzer = {
+      analyzePermissions: vi.fn().mockReturnValue({
+        excessive: false,
+        sensitiveAccess: [],
+        score: 0
+      })
+    };
+    const aiAuditor = {
+      auditSkill: vi.fn().mockResolvedValue({
+        riskLevel: 'safe',
+        confidence: 1,
+        findings: [
+          {
+            category: 'credential_access',
+            severity: 'critical',
+            evidence: 'References direct access to production credential files',
+            reasoning: 'The behavior indicates unsafe credential handling'
+          }
+        ],
+        recommendation: 'approve',
+        explanation: 'No additional scoring signals'
+      })
+    };
+    const riskScorer = {
+      score: vi.fn().mockReturnValue({
+        decision: 'approve',
+        score: 96,
+        reviewRequired: false,
+        reason: 'score 96 >= 70'
+      })
+    };
+
+    const pipeline = new AuditPipeline({
+      hardRuleEngine: hardRuleEngine as any,
+      entropyAnalyzer: entropyAnalyzer as any,
+      permissionAnalyzer: permissionAnalyzer as any,
+      aiAuditor: aiAuditor as any,
+      riskScorer: riskScorer as any
+    });
+
+    const result = await pipeline.audit(makeSkill('benign'));
+
+    expect(result.decision).toBe('reject');
+    expect(result.score).toBe(0);
+    expect(result.reviewRequired).toBe(false);
+    expect(result.findings).toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: 'ai', severity: 'critical' })])
+    );
+  });
+
+  it('forces review when findings include high severity and score approves', async () => {
+    const hardRuleEngine = { evaluate: vi.fn().mockReturnValue({ rejected: false }) };
+    const entropyAnalyzer = {
+      analyzeContent: vi.fn().mockReturnValue({
+        highEntropyBlocks: [],
+        averageEntropy: 1.2,
+        suspicious: false
+      })
+    };
+    const permissionAnalyzer = {
+      analyzePermissions: vi.fn().mockReturnValue({
+        excessive: false,
+        sensitiveAccess: [],
+        score: 0
+      })
+    };
+    const aiAuditor = {
+      auditSkill: vi.fn().mockResolvedValue({
+        riskLevel: 'safe',
+        confidence: 1,
+        findings: [
+          {
+            category: 'data_exfiltration',
+            severity: 'high',
+            evidence: 'References upload of local file contents to remote endpoint',
+            reasoning: 'Potentially dangerous data transfer pattern'
+          }
+        ],
+        recommendation: 'approve',
+        explanation: 'No additional scoring signals'
+      })
+    };
+    const riskScorer = {
+      score: vi.fn().mockReturnValue({
+        decision: 'approve',
+        score: 92,
+        reviewRequired: false,
+        reason: 'score 92 >= 70'
+      })
+    };
+
+    const pipeline = new AuditPipeline({
+      hardRuleEngine: hardRuleEngine as any,
+      entropyAnalyzer: entropyAnalyzer as any,
+      permissionAnalyzer: permissionAnalyzer as any,
+      aiAuditor: aiAuditor as any,
+      riskScorer: riskScorer as any
+    });
+
+    const result = await pipeline.audit(makeSkill('benign'));
+
+    expect(result.decision).toBe('review');
+    expect(result.score).toBe(92);
+    expect(result.reviewRequired).toBe(true);
+    expect(result.findings).toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: 'ai', severity: 'high' })])
+    );
+  });
+
   it('supports configured analyzers that produce no signals', async () => {
     const hardRuleEngine = { evaluate: vi.fn().mockReturnValue({ rejected: false }) };
     const entropyAnalyzer = {
@@ -268,4 +386,3 @@ describe('AuditPipeline', () => {
     ]);
   });
 });
-

@@ -210,6 +210,31 @@ export class AuditPipeline {
     }
   }
 
+  private applyFindingsOverride(
+    decision: RiskDecision,
+    score: number,
+    reviewRequired: boolean,
+    findings: AuditFinding[]
+  ): { decision: RiskDecision; score: number; reviewRequired: boolean } {
+    if (findings.some((finding) => finding.severity === 'critical')) {
+      return {
+        decision: 'reject',
+        score: 0,
+        reviewRequired: false
+      };
+    }
+
+    if (decision === 'approve' && findings.some((finding) => finding.severity === 'high')) {
+      return {
+        decision: 'review',
+        score,
+        reviewRequired: true
+      };
+    }
+
+    return { decision, score, reviewRequired };
+  }
+
   /**
    * Synchronous fast-path audit. Does NOT call AI auditor.
    * Returns immediately with decision based on hard rules + entropy + permission.
@@ -285,10 +310,12 @@ export class AuditPipeline {
       decision = 'provisional_approve';
     }
 
+    const overridden = this.applyFindingsOverride(decision, score, scoring.reviewRequired, findings);
+
     return {
-      decision,
-      score,
-      reviewRequired: scoring.reviewRequired,
+      decision: overridden.decision,
+      score: overridden.score,
+      reviewRequired: overridden.reviewRequired,
       findings
     };
   }
@@ -556,10 +583,12 @@ export class AuditPipeline {
     this.applySurgicalAudit(skill, findings, signals);
 
     const scoring = this.riskScorer.score(signals);
+    const overridden = this.applyFindingsOverride(scoring.decision, scoring.score, scoring.reviewRequired, findings);
+
     return {
-      decision: scoring.decision,
-      score: scoring.score,
-      reviewRequired: scoring.reviewRequired,
+      decision: overridden.decision,
+      score: overridden.score,
+      reviewRequired: overridden.reviewRequired,
       findings
     };
   }

@@ -31,5 +31,7 @@
   "errors.skill_authorize_failed": "授权技能失败",
   "errors.skill_revoke_failed": "撤销技能授权失败",
   "errors.skill_localize_failed": "本地化技能失败",
-  "errors.skill_platforms_list_failed": "获取支持的技能平台列表失败"
+  "errors.skill_platforms_list_failed": "获取支持的技能平台列表失败",
+  "errors.skill_distribute_failed": "分发技能失败",
+  "errors.skill_undistribute_failed": "取消分发技能失败"
 }

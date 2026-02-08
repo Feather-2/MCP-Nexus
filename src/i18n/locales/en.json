@@ -31,5 +31,7 @@
   "errors.skill_authorize_failed": "Failed to authorize skill",
   "errors.skill_revoke_failed": "Failed to revoke skill authorization",
   "errors.skill_localize_failed": "Failed to localize skill",
-  "errors.skill_platforms_list_failed": "Failed to get supported skill platforms"
+  "errors.skill_platforms_list_failed": "Failed to get supported skill platforms",
+  "errors.skill_distribute_failed": "Failed to distribute skill",
+  "errors.skill_undistribute_failed": "Failed to undistribute skill"
 }

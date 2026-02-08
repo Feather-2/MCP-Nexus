@@ -1,5 +1,8 @@
+import os from 'os';
+import path from 'path';
+import { access, mkdtemp, readFile, rm } from 'fs/promises';
 import type { Skill } from './types.js';
-import type { Platform, PlatformAdapter } from './SkillLocalizer.js';
+import type { Platform, PlatformAdapter, PlatformDirectoryConfig } from './SkillLocalizer.js';
 import { SkillLocalizer } from './SkillLocalizer.js';
 
 function makeSkill(body?: string): Skill {
@@ -48,6 +51,39 @@ function makeSkill(body?: string): Skill {
 }
 
 describe('SkillLocalizer', () => {
+  let tmpRoot: string;
+
+  beforeEach(async () => {
+    tmpRoot = await mkdtemp(path.join(os.tmpdir(), 'nexus-skill-localizer-'));
+  });
+
+  afterEach(async () => {
+    if (tmpRoot) {
+      await rm(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  function makePlatformDirs(root: string): PlatformDirectoryConfig[] {
+    return [
+      {
+        platform: 'claude-code',
+        directory: path.join(root, 'claude')
+      },
+      {
+        platform: 'codex',
+        directory: path.join(root, 'codex')
+      },
+      {
+        platform: 'js-agent',
+        directory: path.join(root, 'js-agent')
+      },
+      {
+        platform: 'generic',
+        directory: path.join(root, 'generic')
+      }
+    ];
+  }
+
   it('localizes the same skill differently for each built-in platform', () => {
     const skill = makeSkill();
     const localizer = new SkillLocalizer();
@@ -168,5 +204,42 @@ describe('SkillLocalizer', () => {
 
     expect(localized.platform).toBe('generic');
     expect(localized.content).toBe(skill.body);
+  });
+
+  it('distribute writes localized skill files to platform directories', async () => {
+    const skill = makeSkill();
+    const localizer = new SkillLocalizer({
+      platformDirs: makePlatformDirs(tmpRoot)
+    });
+
+    const distributed = await localizer.distribute(skill);
+    const distributedByPlatform = new Map(distributed.map((entry) => [entry.platform, entry.path]));
+
+    expect(distributedByPlatform.get('claude-code')).toBe(path.join(tmpRoot, 'claude', `${skill.metadata.name}.md`));
+    expect(distributedByPlatform.get('codex')).toBe(path.join(tmpRoot, 'codex', `${skill.metadata.name}.md`));
+    expect(distributedByPlatform.get('js-agent')).toBe(path.join(tmpRoot, 'js-agent', `${skill.metadata.name}.json`));
+    expect(distributedByPlatform.get('generic')).toBe(path.join(tmpRoot, 'generic', `${skill.metadata.name}.md`));
+
+    for (const platform of localizer.getSupportedPlatforms()) {
+      const filePath = distributedByPlatform.get(platform);
+      expect(typeof filePath).toBe('string');
+      const content = await readFile(filePath as string, 'utf8');
+      expect(content).toBe(localizer.localize(skill, platform).content);
+    }
+  });
+
+  it('undistribute removes files and ignores missing files', async () => {
+    const skill = makeSkill();
+    const localizer = new SkillLocalizer({
+      platformDirs: makePlatformDirs(tmpRoot)
+    });
+
+    const [codexResult] = await localizer.distribute(skill, ['codex']);
+    expect(codexResult?.path).toBe(path.join(tmpRoot, 'codex', `${skill.metadata.name}.md`));
+
+    await localizer.undistribute(skill.metadata.name, ['codex', 'generic']);
+    await localizer.undistribute(skill.metadata.name, ['codex', 'generic']);
+
+    await expect(access(path.join(tmpRoot, 'codex', `${skill.metadata.name}.md`))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });

@@ -21,6 +21,10 @@ const LocalizedSkillQuerySchema = z.object({
   platform: z.string().optional()
 }).partial();
 
+const DistributeBodySchema = z.object({
+  platforms: z.array(z.string()).optional()
+}).partial();
+
 const RegisterSkillBodySchema = z.object({
   name: z.string().min(1),
   description: z.string().min(1),
@@ -153,6 +157,14 @@ function normalizePlatform(input?: string): Platform {
   }
 }
 
+function normalizePlatforms(input?: string[]): Platform[] | undefined {
+  if (!input?.length) {
+    return undefined;
+  }
+
+  return Array.from(new Set(input.map((value) => normalizePlatform(value))));
+}
+
 export class SkillRoutes extends BaseRouteHandler {
   private readonly registry: SkillRegistry;
   private readonly matcher = new SkillMatcher();
@@ -256,7 +268,14 @@ export class SkillRoutes extends BaseRouteHandler {
           });
         }
 
-        reply.send({ success: true, skills });
+        const filteredSkills = [];
+        for (const s of skills) {
+          const state = await this.authorization.getState(s.name);
+          const isExplicitlyDisabled = state.authorizedAt !== undefined && !state.enabled;
+          if (!isExplicitlyDisabled) filteredSkills.push(s);
+        }
+
+        reply.send({ success: true, skills: filteredSkills });
       } catch (error) {
         const message = error instanceof Error ? error.message : t('errors.skills_list_failed');
         return this.respondError(reply, 500, message, { code: 'SKILLS_LIST_FAILED' });
@@ -394,10 +413,17 @@ export class SkillRoutes extends BaseRouteHandler {
           minScore: body.minScore
         });
 
+        const enabledMatches = [];
+        for (const m of matches) {
+          const state = await this.authorization.getState(m.skill.metadata.name);
+          const isExplicitlyDisabled = state.authorizedAt !== undefined && !state.enabled;
+          if (!isExplicitlyDisabled) enabledMatches.push(m);
+        }
+
         const includeBodies = Boolean(body.includeBodies);
         const includeSupportFiles = Boolean(body.includeSupportFiles);
 
-        const payload = await Promise.all(matches.map(async (m) => {
+        const payload = await Promise.all(enabledMatches.map(async (m) => {
           if (!includeBodies && !includeSupportFiles) {
             return { metadata: m.skill.metadata, ...m.result };
           }
@@ -413,7 +439,7 @@ export class SkillRoutes extends BaseRouteHandler {
           };
         }));
 
-        const injection = includeBodies ? this.matcher.formatInjection(matches.map((m) => m.skill)) : undefined;
+        const injection = includeBodies ? this.matcher.formatInjection(enabledMatches.map((m) => m.skill)) : undefined;
         reply.send({ success: true, matches: payload, injection });
       } catch (error) {
         const message = error instanceof Error ? error.message : t('errors.skill_match_failed');
@@ -617,6 +643,58 @@ export class SkillRoutes extends BaseRouteHandler {
       } catch (error) {
         const message = error instanceof Error ? error.message : t('errors.skill_localize_failed');
         return this.respondError(reply, 500, message, { code: 'SKILL_LOCALIZE_FAILED' });
+      }
+    });
+
+    server.post('/api/skills/:name/distribute', async (request: FastifyRequest, reply: FastifyReply) => {
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as any);
+
+      let body: z.infer<typeof DistributeBodySchema>;
+      try {
+        body = DistributeBodySchema.parse((request.body as any) || {});
+      } catch (error) {
+        const err = error as z.ZodError;
+        return this.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
+      }
+
+      try {
+        await this.initPromise;
+        const skill = this.registry.get(params.name);
+        if (!skill) {
+          return this.respondError(reply, 404, t('errors.skill_not_found', { name: params.name }), { code: 'SKILL_NOT_FOUND', recoverable: true });
+        }
+
+        const distributed = await this.localizer.distribute(skill, normalizePlatforms(body.platforms));
+        reply.send({ success: true, distributed });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : t('errors.skill_distribute_failed');
+        return this.respondError(reply, 500, message, { code: 'SKILL_DISTRIBUTE_FAILED' });
+      }
+    });
+
+    server.delete('/api/skills/:name/distribute', async (request: FastifyRequest, reply: FastifyReply) => {
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as any);
+
+      let body: z.infer<typeof DistributeBodySchema>;
+      try {
+        body = DistributeBodySchema.parse((request.body as any) || {});
+      } catch (error) {
+        const err = error as z.ZodError;
+        return this.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
+      }
+
+      try {
+        await this.initPromise;
+        const skill = this.registry.get(params.name);
+        if (!skill) {
+          return this.respondError(reply, 404, t('errors.skill_not_found', { name: params.name }), { code: 'SKILL_NOT_FOUND', recoverable: true });
+        }
+
+        await this.localizer.undistribute(params.name, normalizePlatforms(body.platforms));
+        reply.send({ success: true });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : t('errors.skill_undistribute_failed');
+        return this.respondError(reply, 500, message, { code: 'SKILL_UNDISTRIBUTE_FAILED' });
       }
     });
 
