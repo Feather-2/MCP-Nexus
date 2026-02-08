@@ -33,7 +33,7 @@ Fastify 服务器，集成：
 - `@fastify/helmet` - 安全头
 - `@fastify/static` - 静态文件 (GUI)
 - OpenTelemetry tracing
-- 健康检查：`/health`（快速）与 `/health/detailed`（详细）
+- 健康检查：`/health`、`/api/health`（快速）与 `/health/detailed`（详细）
 
 注入依赖：
 - `ServiceRegistryImpl`
@@ -59,6 +59,12 @@ Fastify 服务器，集成：
 | MonitoringRoutes | `/api/monitoring` | 监控指标 |
 | OrchestratorRoutes | `/api/orchestrator` | 编排器 API |
 | ToolRoutes | `/api/tools` | 工具执行 |
+| SkillRoutes | `/api/skills` | Skill 加载/匹配/审核/授权/分发 |
+| RoutingRoutes | `/api/route`, `/mcp`, `/events` | 路由、MCP JSON-RPC 转发、SSE 通知 |
+| LocalMcpProxyRoutes | `/call`, `/tools` | 本地 MCP 代理（handshake 认证） |
+| LogRoutes | `/api/logs` | 日志查询与 SSE 实时推送 |
+| SandboxRoutes | `/api/sandbox` | 沙盒检查与安装 |
+| ExternalImportRoutes | `/api/import` | 外部 MCP 配置导入 |
 
 ### SseManager
 
