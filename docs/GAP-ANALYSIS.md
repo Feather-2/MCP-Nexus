@@ -297,9 +297,9 @@ Skill 安装 → 默认 DISABLED
 3. ~~**短期**: 实现 L3 人工决策层~~ ✅ 已完成
 4. ~~**中期**: 实现 Localization 平台适配~~ ✅ 已完成
 5. ~~**后续**: 手术刀式审计 Skills~~ ✅ 已完成
-6. **待做**: 路由文案迁移到 i18n（从 AuthRoutes/SkillRoutes 开始）
-7. **待做**: API 支持 `Accept-Language` header
-8. **待做**: `listApiKeys()` 生产环境脱敏
+6. ~~**收尾**: 路由文案迁移到 i18n（从 AuthRoutes/SkillRoutes 开始）~~ ✅ 已完成
+7. ~~**收尾**: API 支持 `Accept-Language` header~~ ✅ 已完成
+8. ~~**收尾**: `listApiKeys()` 生产环境脱敏~~ ✅ 已完成
 
 ---
 

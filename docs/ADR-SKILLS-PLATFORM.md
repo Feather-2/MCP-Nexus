@@ -373,11 +373,11 @@ Localizer (按平台适配)
 
 ## 6. 待决事项
 
-- [ ] 沙盒运行时强制执行层是否完整覆盖 CapabilityManifest 声明的所有能力
+- [x] 沙盒运行时强制执行层 → 决议：容器沙盒（SandboxPolicy）为硬边界，CapabilityManifest 为审计时参考，不另建运行时逐条拦截层
 - [x] Skills 版本管理 → `SkillVersionStore` 已实现
 - [x] Localization 首批支持的平台 → Claude Code / Codex / JS Agent / Generic 已实现
 - [x] AI 审计 Skills → `AuditDecomposer` + `AuditSkillRouter` + 5 handler 已实现
-- [ ] 元认知式审计的具体 prompt 工程
+- [x] 元认知式审计 → 决议：定位为辅助性软标准，持续优化但非决定性；沙盒为硬边界，审计为补充信号
 - [x] i18n 方案选型 → 轻量级 JSON locale 文件已实现 (`src/i18n/`)
 - [x] i18n 覆盖范围 → 框架已搭建，路由文案迁移待后续
 
