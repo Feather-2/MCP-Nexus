@@ -4,5 +4,4 @@
 export * from './mcp.js';
 export * from './ai.js';
 export * from './gateway.js';
-export * from './generator.js';
 export * from './service.js';

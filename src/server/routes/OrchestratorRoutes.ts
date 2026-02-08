@@ -1,6 +1,6 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseRouteHandler, RouteContext } from './RouteContext.js';
-import { OrchestratorConfig, SubagentConfig, OrchestratorConfigSchema, SubagentConfigSchema, GenerateRequestSchema } from '../../types/index.js';
+import { OrchestratorConfig, SubagentConfig, OrchestratorConfigSchema, SubagentConfigSchema } from '../../types/index.js';
 import { z } from 'zod';
 import { SubagentLoader } from '../../orchestrator/SubagentLoader.js';
 import { ExecuteRequestSchema } from '../../orchestrator/types.js';
@@ -145,64 +145,6 @@ export class OrchestratorRoutes extends BaseRouteHandler {
           return this.respondError(reply, 400, 'Invalid execution request', { code: 'BAD_REQUEST', recoverable: true, meta: error.errors });
         }
         return this.respondError(reply, 500, (error as Error).message || 'Execute failed', { code: 'EXECUTE_FAILED' });
-      }
-    });
-
-    // Quick group - Generate template and create subagent in one step
-    server.post('/api/orchestrator/quick-group', async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const status = this.ctx.orchestratorManager?.getStatus();
-        if (!status?.enabled || !this.ctx.orchestratorManager) {
-          return this.respondError(reply, 503, 'Orchestrator disabled', { code: 'DISABLED', recoverable: true });
-        }
-        if (!this.ctx.mcpGenerator) {
-          return this.respondError(reply, 503, 'MCP Generator not initialized', { code: 'NOT_READY' });
-        }
-        const Body = z.object({
-          groupName: z.string().optional(),
-          source: GenerateRequestSchema.shape.source,
-          options: z.record(z.any()).optional(),
-          auth: z.record(z.any()).optional()
-        });
-        const body = Body.parse((request.body || {}) as any);
-        // Generate & auto-register template
-        const genRes = await this.ctx.mcpGenerator.generate({
-          source: body.source,
-          options: { ...(body.options || {}), autoRegister: true, testMode: false }
-        } as any);
-        if (!genRes.success || !genRes.template) {
-          return this.respondError(reply, 400, genRes.error || 'Generation failed', { code: 'BAD_REQUEST', recoverable: true });
-        }
-        const templateName = genRes.template.name;
-        const actions = Array.isArray(genRes.template.tools) && genRes.template.tools.length
-          ? genRes.template.tools.map((t: any) => t.name).filter(Boolean)
-          : [];
-
-        const subDir = status.subagentsDir;
-        const fs = await import('fs/promises');
-        const path = await import('path');
-        await fs.mkdir(subDir, { recursive: true });
-        const subagentName = body.groupName || templateName;
-        const subagentCfg: SubagentConfig = {
-          name: subagentName,
-          tools: [templateName],
-          actions,
-          maxConcurrency: 2,
-          weights: { cost: 0.5, performance: 0.5 },
-          policy: { domains: ['generated'] }
-        } as any;
-        await fs.writeFile(path.join(subDir, `${subagentName}.json`), JSON.stringify(subagentCfg, null, 2), 'utf-8');
-
-        if (!this.subagentLoader) this.subagentLoader = new SubagentLoader(subDir, this.ctx.logger);
-        await this.subagentLoader.loadAll();
-
-        reply.code(201).send({ success: true, name: subagentName, template: templateName });
-      } catch (error) {
-        this.ctx.logger.error('Quick group creation failed', error);
-        if (error instanceof z.ZodError) {
-          return this.respondError(reply, 400, 'Invalid quick-group request', { code: 'BAD_REQUEST', recoverable: true, meta: error.errors });
-        }
-        return this.respondError(reply, 500, (error as Error).message || 'Quick group failed', { code: 'QUICK_GROUP_FAILED' });
       }
     });
 

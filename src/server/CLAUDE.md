@@ -19,7 +19,6 @@ server/
 │   ├── TemplateRoutes.ts
 │   ├── MonitoringRoutes.ts
 │   ├── OrchestratorRoutes.ts
-│   ├── GeneratorRoutes.ts
 │   ├── AiRoutes.ts
 │   ├── ToolRoutes.ts
 │   ├── SkillRoutes.ts
@@ -44,7 +43,6 @@ Fastify 服务器，集成：
 - `GatewayRouterImpl`
 - `ProtocolAdaptersImpl`
 - `OrchestratorManager`
-- `McpGenerator`
 
 ### RouteContext / BaseRouteHandler
 

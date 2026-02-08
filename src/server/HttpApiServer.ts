@@ -20,7 +20,6 @@ import { ProtocolAdaptersImpl } from '../adapters/ProtocolAdaptersImpl.js';
 import type { OrchestratorStatus, OrchestratorManager } from '../orchestrator/OrchestratorManager.js';
 import { OrchestratorEngine } from '../orchestrator/OrchestratorEngine.js';
 import { SubagentLoader } from '../orchestrator/SubagentLoader.js';
-import { McpGenerator } from '../generator/McpGenerator.js';
 import { createTraceId, enterTrace } from '../observability/trace.js';
 import { parseAcceptLanguage, setLocale } from '../i18n/index.js';
 import {
@@ -33,7 +32,6 @@ import {
   MonitoringRoutes,
   RoutingRoutes,
   ExternalImportRoutes,
-  GeneratorRoutes,
   OrchestratorRoutes,
   LocalMcpProxyRoutes,
   AiRoutes,
@@ -69,7 +67,6 @@ export class HttpApiServer {
   private orchestratorManager?: OrchestratorManager;
   private orchestratorEngine?: OrchestratorEngine;
   private subagentLoader?: SubagentLoader;
-  private mcpGenerator?: McpGenerator;
   private sandboxStreamClients: Set<FastifyReply> = new Set();
   private middlewares: Middleware[] = [];
   private readonly middlewareChain: MiddlewareChain;
@@ -411,13 +408,6 @@ export class HttpApiServer {
 
   async start(): Promise<void> {
     try {
-      // Initialize MCP Generator
-      this.mcpGenerator = new McpGenerator({
-        logger: this.logger,
-        templateManager: this.serviceRegistry.getTemplateManager(),
-        registry: this.serviceRegistry
-      });
-
       const host = this.config.host || '127.0.0.1';
       const port = this.config.port || 19233;
 
@@ -459,7 +449,6 @@ export class HttpApiServer {
       get orchestratorManager() { return self.orchestratorManager; },
       get orchestratorEngine() { return self.orchestratorEngine; },
       get subagentLoader() { return self.subagentLoader; },
-      get mcpGenerator() { return self.mcpGenerator; },
       getOrchestratorStatus: () => self.orchestratorStatus,
       getOrchestratorEngine: () => self.orchestratorEngine,
       getSubagentLoader: () => self.subagentLoader,
@@ -775,9 +764,6 @@ export class HttpApiServer {
 
     // External MCP config import endpoints (modularized)
     new ExternalImportRoutes(routeContext).setupRoutes();
-
-    // MCP Generator endpoints (modularized)
-    new GeneratorRoutes(routeContext).setupRoutes();
 
     // AI provider configuration & test endpoints (modularized)
     new AiRoutes(routeContext).setupRoutes();

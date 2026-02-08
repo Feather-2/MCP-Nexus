@@ -8,7 +8,6 @@ import { ConfigManagerImpl } from '../../config/ConfigManagerImpl.js';
 import type { OrchestratorManager, OrchestratorStatus } from '../../orchestrator/OrchestratorManager.js';
 import type { OrchestratorEngine } from '../../orchestrator/OrchestratorEngine.js';
 import type { SubagentLoader } from '../../orchestrator/SubagentLoader.js';
-import type { McpGenerator } from '../../generator/McpGenerator.js';
 import type { Middleware } from '../../middleware/types.js';
 import { MiddlewareChain } from '../../middleware/chain.js';
 
@@ -26,7 +25,6 @@ export interface RouteContext {
   orchestratorManager?: OrchestratorManager;
   orchestratorEngine?: OrchestratorEngine;
   subagentLoader?: SubagentLoader;
-  mcpGenerator?: McpGenerator;
   getOrchestratorStatus?: () => OrchestratorStatus | null;
   getOrchestratorEngine?: () => OrchestratorEngine | undefined;
   getSubagentLoader?: () => SubagentLoader | undefined;

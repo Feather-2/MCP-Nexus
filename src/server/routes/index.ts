@@ -10,7 +10,6 @@ export { TemplateRoutes } from './TemplateRoutes.js';
 export { MonitoringRoutes } from './MonitoringRoutes.js';
 export { RoutingRoutes } from './RoutingRoutes.js';
 export { ExternalImportRoutes } from './ExternalImportRoutes.js';
-export { GeneratorRoutes } from './GeneratorRoutes.js';
 export { OrchestratorRoutes } from './OrchestratorRoutes.js';
 export { LocalMcpProxyRoutes } from './LocalMcpProxyRoutes.js';
 export { AiRoutes } from './AiRoutes.js';

@@ -42,7 +42,6 @@ export default defineConfig({
         'src/cli.ts',
         'src/cli-simple.ts',
         'src/SimplePbMcpGateway.ts',
-        'src/generator/**',
         'src/config/ExternalMcpConfigImporter.ts'
       ],
       all: true,
