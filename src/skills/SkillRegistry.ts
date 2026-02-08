@@ -1,5 +1,5 @@
 import path from 'path';
-import { mkdir, readdir, rm, stat, watch as watchAsync, writeFile } from 'fs/promises';
+import { access, mkdir, readdir, rm, stat, watch as watchAsync, writeFile } from 'fs/promises';
 import type { Dirent } from 'fs';
 import { z } from 'zod';
 import { stringify as stringifyYaml } from 'yaml';
@@ -124,8 +124,34 @@ export class SkillRegistry {
     return this.managedRoot;
   }
 
+  private async validateRoots(): Promise<string[]> {
+    const resolvedManagedRoot = path.resolve(this.managedRoot);
+    try {
+      await mkdir(resolvedManagedRoot, { recursive: true });
+    } catch (error) {
+      this.logger?.warn('Failed to ensure managed skills root exists', {
+        root: resolvedManagedRoot,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+
+    const availableRoots: string[] = [];
+    for (const root of this.roots) {
+      const resolvedRoot = path.resolve(root);
+      try {
+        await access(resolvedRoot);
+        availableRoots.push(resolvedRoot);
+      } catch {
+        this.logger?.warn('Skills root not accessible; skipping', { root: resolvedRoot });
+      }
+    }
+
+    return availableRoots;
+  }
+
   async reload(): Promise<void> {
-    const loaded = await this.loader.loadAllSkills(this.roots);
+    const roots = await this.validateRoots();
+    const loaded = await this.loader.loadAllSkills(roots);
     this.skills.clear();
     for (const skill of loaded) {
       this.skills.set(skill.metadata.name.toLowerCase(), skill);

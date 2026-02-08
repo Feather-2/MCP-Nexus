@@ -88,6 +88,9 @@ function parseState(value: unknown): AuthorizationState | null {
 export class SkillAuthorization {
   private readonly logger?: Logger;
   private readonly storagePath: string;
+  private cache: AuthorizationStore | null = null;
+  private cacheLoadedAt = 0;
+  private readonly cacheTtlMs = 5000;
 
   constructor(options: SkillAuthorizationOptions) {
     this.logger = options.logger;
@@ -96,7 +99,7 @@ export class SkillAuthorization {
 
   async getState(skillName: string): Promise<AuthorizationState> {
     const normalizedName = normalizeSkillName(skillName);
-    const store = await this.readStore();
+    const store = await this.getCachedStore();
     const state = store[normalizedName];
     return state ? cloneState(state) : buildDefaultState();
   }
@@ -123,6 +126,8 @@ export class SkillAuthorization {
 
     store[normalizedName] = nextState;
     await this.writeStore(store);
+    this.cache = store;
+    this.cacheLoadedAt = Date.now();
 
     this.logger?.info('Skill authorized', {
       skillName: normalizedName,
@@ -140,6 +145,8 @@ export class SkillAuthorization {
     const nextState = buildDefaultState();
     store[normalizedName] = nextState;
     await this.writeStore(store);
+    this.cache = store;
+    this.cacheLoadedAt = Date.now();
 
     this.logger?.info('Skill authorization revoked', { skillName: normalizedName });
 
@@ -152,7 +159,7 @@ export class SkillAuthorization {
   }
 
   async listAll(): Promise<Record<string, AuthorizationState>> {
-    const store = await this.readStore();
+    const store = await this.getCachedStore();
     const snapshot: Record<string, AuthorizationState> = {};
 
     for (const [skillName, state] of Object.entries(store)) {
@@ -160,6 +167,15 @@ export class SkillAuthorization {
     }
 
     return snapshot;
+  }
+
+  private async getCachedStore(): Promise<AuthorizationStore> {
+    const now = Date.now();
+    if (this.cache && (now - this.cacheLoadedAt) < this.cacheTtlMs) return this.cache;
+    const store = await this.readStore();
+    this.cache = store;
+    this.cacheLoadedAt = now;
+    return store;
   }
 
   private async readStore(): Promise<AuthorizationStore> {

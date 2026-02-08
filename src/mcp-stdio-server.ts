@@ -1,8 +1,12 @@
 #!/usr/bin/env node
 import { z } from 'zod';
+import path from 'path';
 import { MCP_VERSIONS } from './types/index.js';
 import type { Logger, McpVersion } from './types/index.js';
 import { TierRouter } from './routing/tier-router.js';
+import { SkillRegistry } from './skills/SkillRegistry.js';
+import { SkillMatcher } from './skills/SkillMatcher.js';
+import { SkillVersionStore } from './skills/SkillVersionStore.js';
 
 type JsonRpcId = string | number | null;
 
@@ -44,6 +48,24 @@ const ToolsCallParamsSchema = z.object({
 
 const RouteTaskArgsSchema = z.object({
   task: z.string().min(1)
+});
+
+const ListSkillsArgsSchema = z.object({
+  query: z.string().optional(),
+  scope: z.enum(['repo', 'user', 'system', 'remote']).optional()
+});
+
+const MatchSkillArgsSchema = z.object({
+  input: z.string().min(1),
+  maxResults: z.number().int().positive().max(20).optional()
+});
+
+const AuditSkillArgsSchema = z.object({
+  name: z.string().min(1)
+});
+
+const GetVersionsArgsSchema = z.object({
+  name: z.string().min(1)
 });
 
 function writeJsonLine(value: unknown): void {
@@ -110,10 +132,25 @@ function safeJson(value: unknown): string {
 class McpStdioServer {
   private readonly logger: Logger;
   private readonly tierRouter = new TierRouter();
+  private readonly registry: SkillRegistry;
+  private readonly matcher: SkillMatcher;
+  private readonly versionStore: SkillVersionStore;
+  private readonly initPromise: Promise<void>;
   private readonly tools: StdioToolDefinition[];
 
   constructor(logger: Logger) {
     this.logger = logger;
+    this.registry = new SkillRegistry({ logger: this.logger });
+    this.matcher = new SkillMatcher();
+    this.versionStore = new SkillVersionStore({
+      storageRoot: path.resolve(process.cwd(), 'data'),
+      logger: this.logger
+    });
+    this.initPromise = this.registry.reload().catch((e) => {
+      this.logger.warn('Skills registry reload failed', {
+        error: e instanceof Error ? e.message : String(e)
+      });
+    });
 
     this.tools = [
       {
@@ -125,6 +162,55 @@ class McpStdioServer {
             task: { type: 'string', description: 'Task description to analyze' }
           },
           required: ['task']
+        }
+      },
+      {
+        name: 'list_skills',
+        description: 'List all registered skills with metadata',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Optional search query' },
+            scope: {
+              type: 'string',
+              enum: ['repo', 'user', 'system', 'remote'],
+              description: 'Filter by scope'
+            }
+          }
+        }
+      },
+      {
+        name: 'match_skill',
+        description: 'Find best matching skill for input',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            input: { type: 'string', description: 'Input text to match' },
+            maxResults: { type: 'number', description: 'Max results (default 5)' }
+          },
+          required: ['input']
+        }
+      },
+      {
+        name: 'audit_skill',
+        description: 'Run security audit on a registered skill',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Skill name' }
+          },
+          required: ['name']
+        }
+      },
+      {
+        name: 'get_versions',
+        description: 'List version snapshots for a skill',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Skill name' }
+          },
+          required: ['name']
         }
       }
     ];
@@ -243,6 +329,94 @@ class McpStdioServer {
 
       const { decision, complexity } = this.tierRouter.routeWithComplexity(argsParsed.data.task);
       return toTextResult({ decision, complexity });
+    }
+
+    if (toolName === 'list_skills') {
+      const argsParsed = ListSkillsArgsSchema.safeParse(args);
+      if (!argsParsed.success) {
+        throw new JsonRpcDispatchError(-32602, 'Invalid params', argsParsed.error.flatten());
+      }
+
+      await this.initPromise;
+      const query = argsParsed.data.query?.trim().toLowerCase();
+      const scope = argsParsed.data.scope;
+
+      let skills = this.registry.list();
+      if (scope) {
+        skills = skills.filter((skill) => skill.scope === scope);
+      }
+      if (query) {
+        const tokens = query.split(/\s+/).filter(Boolean);
+        skills = skills.filter((skill) => {
+          const haystack = `${skill.name} ${skill.description} ${skill.shortDescription || ''}`.toLowerCase();
+          if (haystack.includes(query)) return true;
+          return tokens.some((token) => skill.keywordsAll.some((keyword) => keyword.toLowerCase().includes(token)));
+        });
+      }
+
+      return toTextResult({ skills });
+    }
+
+    if (toolName === 'match_skill') {
+      const argsParsed = MatchSkillArgsSchema.safeParse(args);
+      if (!argsParsed.success) {
+        throw new JsonRpcDispatchError(-32602, 'Invalid params', argsParsed.error.flatten());
+      }
+
+      await this.initPromise;
+      const index = this.matcher.buildIndex(this.registry.all());
+      const matches = this.matcher.match(argsParsed.data.input, index, {
+        maxResults: argsParsed.data.maxResults
+      });
+
+      return toTextResult({
+        matches: matches.map((match) => ({
+          metadata: match.skill.metadata,
+          ...match.result
+        }))
+      });
+    }
+
+    if (toolName === 'audit_skill') {
+      const argsParsed = AuditSkillArgsSchema.safeParse(args);
+      if (!argsParsed.success) {
+        throw new JsonRpcDispatchError(-32602, 'Invalid params', argsParsed.error.flatten());
+      }
+
+      await this.initPromise;
+      const skill = this.registry.get(argsParsed.data.name);
+      if (!skill) {
+        throw new JsonRpcDispatchError(-32602, `Skill not found: ${argsParsed.data.name}`);
+      }
+
+      const [{ AuditPipeline }, { HardRuleEngine }, { RiskScorer }, { EntropyAnalyzer }, { PermissionAnalyzer }] =
+        await Promise.all([
+          import('./security/AuditPipeline.js'),
+          import('./security/HardRuleEngine.js'),
+          import('./security/RiskScorer.js'),
+          import('./security/analyzers/EntropyAnalyzer.js'),
+          import('./security/analyzers/PermissionAnalyzer.js')
+        ]);
+
+      const pipeline = new AuditPipeline({
+        hardRuleEngine: new HardRuleEngine(),
+        entropyAnalyzer: new EntropyAnalyzer(),
+        permissionAnalyzer: new PermissionAnalyzer(),
+        riskScorer: new RiskScorer()
+      });
+
+      const result = pipeline.auditSync(skill);
+      return toTextResult({ result });
+    }
+
+    if (toolName === 'get_versions') {
+      const argsParsed = GetVersionsArgsSchema.safeParse(args);
+      if (!argsParsed.success) {
+        throw new JsonRpcDispatchError(-32602, 'Invalid params', argsParsed.error.flatten());
+      }
+
+      const versions = await this.versionStore.list(argsParsed.data.name);
+      return toTextResult({ versions });
     }
 
     throw new JsonRpcDispatchError(-32601, `Unknown tool: ${toolName}`);

@@ -329,6 +329,12 @@ export class SkillRoutes extends BaseRouteHandler {
         this.registryVersion += 1;
         this.matcherIndexCache = undefined;
         reply.send({ success: true, skill: { metadata: skill.metadata } });
+        this.localizer.distribute(skill).catch((e: any) => {
+          this.ctx.logger?.warn?.('Auto-distribute failed after register', {
+            skill: skill.metadata.name,
+            error: e?.message || String(e)
+          });
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : t('errors.skill_register_failed');
         return this.respondError(reply, 500, message, { code: 'SKILL_REGISTER_FAILED' });
@@ -513,6 +519,15 @@ export class SkillRoutes extends BaseRouteHandler {
         this.matcherIndexCache = undefined;
 
         reply.send({ success: true, snapshot });
+        const rolledBackSkill = this.registry.get(params.name);
+        if (rolledBackSkill) {
+          this.localizer.distribute(rolledBackSkill).catch((e: any) => {
+            this.ctx.logger?.warn?.('Auto-distribute failed after rollback', {
+              skill: params.name,
+              error: e?.message || String(e)
+            });
+          });
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : t('errors.skill_rollback_failed');
         return this.respondError(reply, 500, message, { code: 'SKILL_ROLLBACK_FAILED' });
