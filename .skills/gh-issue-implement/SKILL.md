@@ -59,6 +59,21 @@ git push -u origin feature/issue-[NUMBER]-[DESC]
 gh pr create --title "feat: [description]" --body "Closes #[NUMBER]"
 ```
 
+**Push 认证配置（WSL 环境）**:
+
+```bash
+# 方案 1: 使用 GitHub CLI（推荐）
+gh auth login
+gh auth setup-git
+
+# 方案 2: 切换到 SSH
+git remote set-url origin git@github.com:Feather-2/MCP-Nexus.git
+# 需要配置 SSH key: ssh-keygen -t ed25519 -C "email@example.com"
+
+# 方案 3: Windows 端推送
+powershell.exe -c "cd F:\pb\pb-mcpgateway; git push origin main"
+```
+
 ### 5. 清理工作区
 
 ```bash
