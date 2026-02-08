@@ -4,9 +4,9 @@ import {
   TRANSPORT_TYPES,
   ROUTING_STRATEGIES,
   LOAD_BALANCING_STRATEGIES,
-  SECURITY_PROFILES
+  SECURITY_PROFILES,
+  ORCHESTRATOR_MODES
 } from './mcp.js';
-import { AiConfigSchema } from './ai.js';
 
 // Authentication Modes
 export const AUTH_MODES = ['local-trusted', 'external-secure', 'dual'] as const;
@@ -135,10 +135,77 @@ export const GatewayConfigSchema = z.object({
   }),
   logLevel: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('info'),
   sandbox: SandboxConfigSchema.optional(),
-  ai: AiConfigSchema.optional(),
   skills: SkillsConfigSchema.optional()
+});
+
+// Orchestrator internal schemas
+const PlannerConfigSchema = z.object({
+  provider: z.enum(['local', 'remote']).default('local'),
+  model: z.string().default('local-planner'),
+  maxSteps: z.number().default(8),
+  fallbackRemote: z.boolean().default(false)
+});
+
+const VectorStoreConfigSchema = z.object({
+  provider: z.string().default('pgvector'),
+  conn: z.string().optional(),
+  table: z.string().optional(),
+  embeddingModel: z.string().optional(),
+  dim: z.number().optional()
+}).partial();
+
+const RerankerConfigSchema = z.object({
+  provider: z.string().default('bge-reranker'),
+  model: z.string().optional()
+}).partial();
+
+const ConcurrencyConfigSchema = z.object({
+  global: z.number().default(8),
+  perSubagent: z.number().default(2)
+});
+
+const BudgetConfigSchema = z.object({
+  maxTokens: z.number().default(200_000),
+  maxTimeMs: z.number().default(300_000),
+  maxCostUsd: z.number().default(1.5),
+  concurrency: ConcurrencyConfigSchema.default({})
+}).partial();
+
+const SwitchThresholdSchema = z.object({
+  planDepth: z.number().default(6),
+  failRate: z.number().default(0.3)
+});
+
+const RoutingConfigSchema = z.object({
+  preferLocal: z.boolean().default(true),
+  switchThreshold: SwitchThresholdSchema.default({})
+}).partial();
+
+export const SubagentConfigSchema = z.object({
+  name: z.string().min(1),
+  tools: z.array(z.string()).default([]),
+  actions: z.array(z.string()).default([]),
+  maxConcurrency: z.number().default(1),
+  weights: z.object({
+    cost: z.number().default(0.5),
+    performance: z.number().default(0.5)
+  }).partial().default({}),
+  policy: z.record(z.any()).optional()
+});
+
+export const OrchestratorConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  mode: z.enum(ORCHESTRATOR_MODES).default('manager-only'),
+  planner: PlannerConfigSchema.default({}),
+  vectorStore: VectorStoreConfigSchema.optional(),
+  reranker: RerankerConfigSchema.optional(),
+  budget: BudgetConfigSchema.optional(),
+  routing: RoutingConfigSchema.optional(),
+  subagentsDir: z.string().default('./config/subagents')
 });
 
 // Core Types
 export type McpServiceConfig = z.infer<typeof McpServiceConfigSchema>;
 export type GatewayConfig = z.infer<typeof GatewayConfigSchema>;
+export type OrchestratorConfig = z.infer<typeof OrchestratorConfigSchema>;
+export type SubagentConfig = z.infer<typeof SubagentConfigSchema>;

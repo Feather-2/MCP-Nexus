@@ -2,6 +2,5 @@
 // This maintains backward compatibility - all existing imports continue to work
 
 export * from './mcp.js';
-export * from './ai.js';
 export * from './gateway.js';
 export * from './service.js';

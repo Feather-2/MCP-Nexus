@@ -1,6 +1,16 @@
 import { z } from 'zod';
 
-import type { AiRequest, AiResult } from '../ai/types.js';
+export interface AiRequest {
+  messages: Array<{ role: string; content: string }>;
+  model?: string;
+  temperature?: number;
+  maxTokens?: number;
+}
+
+export interface AiResult {
+  text: string;
+}
+
 import type { Skill } from '../skills/types.js';
 import { buildAuditPrompt } from './prompts/audit-prompt.js';
 

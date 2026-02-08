@@ -34,7 +34,6 @@ import {
   ExternalImportRoutes,
   OrchestratorRoutes,
   LocalMcpProxyRoutes,
-  AiRoutes,
   SandboxRoutes,
   ToolRoutes,
   SkillRoutes
@@ -764,9 +763,6 @@ export class HttpApiServer {
 
     // External MCP config import endpoints (modularized)
     new ExternalImportRoutes(routeContext).setupRoutes();
-
-    // AI provider configuration & test endpoints (modularized)
-    new AiRoutes(routeContext).setupRoutes();
 
     // Sandbox inspection & install endpoints (modularized)
     new SandboxRoutes(routeContext).setupRoutes();

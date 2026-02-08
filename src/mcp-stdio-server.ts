@@ -1,15 +1,8 @@
 #!/usr/bin/env node
 import { z } from 'zod';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { MCP_VERSIONS } from './types/index.js';
 import type { Logger, McpVersion } from './types/index.js';
 import { TierRouter } from './routing/tier-router.js';
-import { DelegateTool } from './routing/delegate.js';
-import type { SubAgentExecutor, SubAgentResult } from './routing/delegate.js';
-import { UnifiedAiClient } from './ai/client.js';
-import { ChannelManager } from './ai/channel.js';
-import type { AiClientConfig } from './ai/types.js';
 
 type JsonRpcId = string | number | null;
 
@@ -51,13 +44,6 @@ const ToolsCallParamsSchema = z.object({
 
 const RouteTaskArgsSchema = z.object({
   task: z.string().min(1)
-});
-
-const DelegateArgsSchema = z.object({
-  department: z.enum(['research', 'coding', 'review', 'testing', 'docs']),
-  task: z.string().min(1),
-  context: z.record(z.unknown()).optional(),
-  returnMode: z.enum(['simple', 'step', 'overview', 'details']).optional()
 });
 
 function writeJsonLine(value: unknown): void {
@@ -121,163 +107,13 @@ function safeJson(value: unknown): string {
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function asFiniteNumber(value: unknown): number | undefined {
-  if (typeof value !== 'number') return undefined;
-  if (!Number.isFinite(value)) return undefined;
-  return value;
-}
-
-type GatewayAiRuntimeConfig = {
-  channels?: unknown[];
-  retryAttempts?: number;
-  retryDelayMs?: number;
-};
-
-function loadGatewayAiConfig(logger: Logger): GatewayAiRuntimeConfig {
-  const configPath = join(process.cwd(), 'config', 'gateway.json');
-  let parsed: unknown = undefined;
-
-  try {
-    const raw = readFileSync(configPath, 'utf8');
-    if (raw.trim().length > 0) {
-      parsed = JSON.parse(raw) as unknown;
-    }
-  } catch (error) {
-    const code = (error as { code?: unknown } | null)?.code;
-    if (code !== 'ENOENT') {
-      logger.warn('Failed to load gateway config', {
-        message: error instanceof Error ? error.message : String(error),
-        configPath
-      });
-    }
-  }
-
-  if (!isRecord(parsed)) return {};
-  const ai = parsed['ai'];
-  if (!isRecord(ai)) return {};
-
-  const channels = Array.isArray(ai['channels']) ? (ai['channels'] as unknown[]) : undefined;
-  const retryAttempts = asFiniteNumber(ai['retryAttempts']);
-  const retryDelayMs = asFiniteNumber(ai['retryDelayMs']);
-
-  return { channels, retryAttempts, retryDelayMs };
-}
-
-function normalizeAiChannels(channels: readonly unknown[]): AiClientConfig['channels'] {
-  return channels
-    .filter((channel) => {
-      if (!isRecord(channel)) return false;
-      const provider = channel['provider'];
-      return provider !== 'none';
-    })
-    .map((channel) => {
-      if (!isRecord(channel)) return channel;
-      const provider = channel['provider'];
-      if (provider === 'azure-openai') {
-        return { ...channel, provider: 'azure' };
-      }
-      return channel;
-    }) as unknown as AiClientConfig['channels'];
-}
-
-class AiSubAgentExecutor implements SubAgentExecutor {
-  constructor(private readonly aiClient: UnifiedAiClient) {}
-
-  async execute(department: string, task: string, context?: Record<string, unknown>): Promise<SubAgentResult> {
-    const systemPrompt = this.buildSystemPrompt(department);
-    const userMessage = this.buildUserMessage(task, context);
-
-    try {
-      const result = await this.aiClient.generate({
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userMessage }
-        ],
-        maxTokens: 4096
-      });
-
-      return {
-        success: true,
-        output: result.text,
-        artifacts: this.extractArtifacts(result.text)
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return {
-        success: false,
-        output: `AI delegation failed: ${message}`,
-        error: message
-      };
-    }
-  }
-
-  private buildSystemPrompt(department: string): string {
-    const prompts: Record<string, string> = {
-      research:
-        'You are a research specialist. Analyze information thoroughly and provide comprehensive findings.',
-      coding: 'You are an expert developer. Write clean, efficient, well-documented code.',
-      review: 'You are a code reviewer. Identify issues, suggest improvements, and ensure quality.',
-      testing: 'You are a QA specialist. Design and implement comprehensive test cases.',
-      docs: 'You are a technical writer. Create clear, accurate documentation.'
-    };
-    return prompts[department] || 'You are a helpful assistant.';
-  }
-
-  private buildUserMessage(task: string, context?: Record<string, unknown>): string {
-    let message = task;
-    if (context && Object.keys(context).length > 0) {
-      message += '\n\nContext:\n' + JSON.stringify(context, null, 2);
-    }
-    return message;
-  }
-
-  private extractArtifacts(text: string): string[] {
-    const artifacts: string[] = [];
-    const codeBlockRegex = /```(?:\w+)?\s*\n[\s\S]*?```/g;
-    const matches = text.match(codeBlockRegex);
-    if (matches) {
-      artifacts.push(`${matches.length} code blocks`);
-    }
-    return artifacts;
-  }
-}
-
 class McpStdioServer {
   private readonly logger: Logger;
   private readonly tierRouter = new TierRouter();
-  private readonly delegateTool: DelegateTool;
   private readonly tools: StdioToolDefinition[];
 
   constructor(logger: Logger) {
     this.logger = logger;
-
-    const aiConfig = loadGatewayAiConfig(this.logger);
-    const configuredChannels = aiConfig.channels;
-
-    const executor: SubAgentExecutor =
-      configuredChannels && configuredChannels.length > 0
-        ? new AiSubAgentExecutor(
-            new UnifiedAiClient(
-              new ChannelManager({ channels: normalizeAiChannels(configuredChannels) }),
-              {
-                retryAttempts: aiConfig.retryAttempts,
-                retryDelayMs: aiConfig.retryDelayMs
-              }
-            )
-          )
-        : {
-            execute: async () => {
-              const message =
-                'No AI channels configured. Set `ai.channels` in `config/gateway.json` and provide API keys via the configured `keySource`.';
-              return { success: false, output: message, error: message };
-            }
-          };
-
-    this.delegateTool = new DelegateTool({ executor });
 
     this.tools = [
       {
@@ -289,29 +125,6 @@ class McpStdioServer {
             task: { type: 'string', description: 'Task description to analyze' }
           },
           required: ['task']
-        }
-      },
-      {
-        name: 'delegate',
-        description: 'Delegate complex task to specialized SubAgent for isolated execution. Returns summary by default; use returnMode to control detail level.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            department: {
-              type: 'string',
-              enum: ['research', 'coding', 'review', 'testing', 'docs'],
-              description: 'Specialized department to handle the task'
-            },
-            task: { type: 'string', description: 'Task description' },
-            context: { type: 'object', description: 'Optional context' },
-            returnMode: {
-              type: 'string',
-              enum: ['simple', 'step', 'overview', 'details'],
-              default: 'simple',
-              description: 'Controls response detail: simple (result only ~300b), step (per-step ~1-2KB), overview (summary ~500b-1KB), details (full debug ~5-50KB)'
-            }
-          },
-          required: ['department', 'task']
         }
       }
     ];
@@ -430,21 +243,6 @@ class McpStdioServer {
 
       const { decision, complexity } = this.tierRouter.routeWithComplexity(argsParsed.data.task);
       return toTextResult({ decision, complexity });
-    }
-
-    if (toolName === 'delegate') {
-      const argsParsed = DelegateArgsSchema.safeParse(args);
-      if (!argsParsed.success) {
-        throw new JsonRpcDispatchError(-32602, 'Invalid params', argsParsed.error.flatten());
-      }
-
-      const response = await this.delegateTool.delegate({
-        department: argsParsed.data.department,
-        task: argsParsed.data.task,
-        context: argsParsed.data.context,
-        returnMode: argsParsed.data.returnMode
-      });
-      return toTextResult(response);
     }
 
     throw new JsonRpcDispatchError(-32601, `Unknown tool: ${toolName}`);
