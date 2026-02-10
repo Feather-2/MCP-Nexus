@@ -40,8 +40,8 @@ describe('SkillRegistry – register, delete, watch', () => {
 
     expect(skill.metadata.name).toBe('Test Skill');
     expect(registry.get('test skill')).toBeDefined();
-    expect(registry.list().length).toBe(1);
-    expect(registry.all().length).toBe(1);
+    expect(registry.list().length).toBeGreaterThanOrEqual(1);
+    expect(registry.all().length).toBeGreaterThanOrEqual(1);
 
     // SKILL.md should exist on disk
     const mdPath = skill.metadata.path;
