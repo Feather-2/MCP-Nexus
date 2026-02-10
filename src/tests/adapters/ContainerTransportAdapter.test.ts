@@ -145,7 +145,7 @@ describe('ContainerTransportAdapter', () => {
 
   it('skips volumes with missing hostPath or containerPath', () => {
     const adapter = new ContainerTransportAdapter(
-      makeConfig({ container: { image: 'alpine', volumes: [null, {}, { hostPath: '/x' }, { containerPath: '/y' }] } }),
+      makeConfig({ container: { image: 'alpine', volumes: [null, {}, { hostPath: '/x' }, { containerPath: '/y' }] as any } }),
       logger
     );
     expect(adapter).toBeDefined();

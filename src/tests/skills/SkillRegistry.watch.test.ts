@@ -12,8 +12,9 @@ function makeLogger(): Logger {
 
 function makeMockSkill(name: string, skillPath: string): Skill {
   return {
-    metadata: { name, description: 'test', path: skillPath, scope: 'project' as const, keywords: [], keywordsAll: [] },
-    body: 'Body.'
+    metadata: { name, description: 'test', path: skillPath, scope: 'repo' as const, keywords: [], keywordsAll: [], priority: 0 },
+    body: 'Body.',
+    capabilities: { filesystem: { read: [], write: [] }, network: { allowedHosts: [], allowedPorts: [] }, env: [], subprocess: { allowed: false, allowedCommands: [] }, resources: { maxMemoryMB: 512, maxCpuPercent: 50, timeoutMs: 60000 } }
   };
 }
 
@@ -160,8 +161,8 @@ describe('SkillRegistry – watch logic', () => {
 
     // .git and node_modules should not have watchers
     const watchedDirs = Array.from((registry as any).watchers.keys());
-    expect(watchedDirs.some((d: string) => d.includes('.git'))).toBe(false);
-    expect(watchedDirs.some((d: string) => d.includes('node_modules'))).toBe(false);
+    expect(watchedDirs.some((d: unknown) => String(d).includes('.git'))).toBe(false);
+    expect(watchedDirs.some((d: unknown) => String(d).includes('node_modules'))).toBe(false);
 
     registry.stopWatch();
   });

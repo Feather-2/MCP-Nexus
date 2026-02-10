@@ -6,11 +6,11 @@ import { SecurityMiddleware } from '../../middleware/SecurityMiddleware.js';
 import type { Context, State } from '../../middleware/types.js';
 
 function makeCtx(): Context {
-  return { requestId: 'test-1', timestamp: Date.now(), metadata: {} };
+  return { requestId: 'test-1', startTime: Date.now(), metadata: {} };
 }
 
 function makeState(values?: Record<string, any>): State {
-  const s: State = { values: new Map(), aborted: false };
+  const s: State = { stage: 'beforeTool', values: new Map(), aborted: false };
   if (values) for (const [k, v] of Object.entries(values)) s.values.set(k, v);
   return s;
 }

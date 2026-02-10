@@ -7,7 +7,7 @@ function makeLogger(): Logger {
 
 function makeSvc(id: string, name: string, state = 'running'): ServiceInstance {
   return {
-    id, config: { name, version: '1', transport: 'stdio' as any, command: 'echo' }, state,
+    id, config: { name, version: '2024-11-26', transport: 'stdio' as any, command: 'echo', timeout: 30000, retries: 3 }, state,
     startTime: new Date(), startedAt: new Date(), errorCount: 0, metadata: {}
   } as ServiceInstance;
 }
@@ -150,10 +150,10 @@ describe('GatewayRouterImpl \u2013 branch coverage', () => {
       await router.addRoutingRule({
         name: 'ver-filter', enabled: true, priority: 100,
         condition: {},
-        action: { type: 'filter', criteria: { version: '2' } }
+        action: { type: 'filter', criteria: { version: '2025-03-26' } }
       });
       const svcs = [makeSvc('a', 'svc-a'), makeSvc('b', 'svc-b')];
-      svcs[1].config.version = '2';
+      svcs[1].config.version = '2025-03-26';
       const res = await router.route({
         method: 'GET', availableServices: svcs, serviceHealthMap: makeHealthMap(svcs)
       } as any);

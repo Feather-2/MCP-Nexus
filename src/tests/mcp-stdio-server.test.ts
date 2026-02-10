@@ -54,7 +54,7 @@ describe('mcp-stdio-server helpers', () => {
     // The mcp-stdio-server.ts is a standalone script, not a library module
     // We verify it can be loaded without crashing
     try {
-      await import('../../mcp-stdio-server.js');
+      await import('../../mcp-stdio-server.js' as string);
     } catch (e) {
       // May fail due to stdin mocking, but should not crash on import
     } finally {
