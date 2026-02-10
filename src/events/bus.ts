@@ -202,7 +202,7 @@ export class EventBus {
     for (const sub of subscribers) {
       try {
         sub.enqueue(evt);
-      } catch {
+      } catch (_e) {
         // isolation: never let one subscriber break dispatch
       }
     }

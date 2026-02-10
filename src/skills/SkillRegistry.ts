@@ -269,8 +269,8 @@ export class SkillRegistry {
     for (const entry of this.watchers.values()) {
       try {
         entry.watcher?.close?.();
-      } catch {
-        // ignored
+      } catch (e) {
+        this.logger?.warn('Failed to close skill watcher', { error: (e as Error).message });
       }
     }
     this.watchers.clear();
@@ -330,7 +330,8 @@ export class SkillRegistry {
       let entries: Dirent[];
       try {
         entries = await readdir(currentDir, { withFileTypes: true });
-      } catch {
+      } catch (e) {
+        this.logger?.warn('Failed to read directory during watch setup', { dir: currentDir, error: (e as Error).message });
         continue;
       }
 
@@ -398,8 +399,8 @@ export class SkillRegistry {
         this.watchers.delete(resolvedDir);
         try {
           watcher?.close?.();
-        } catch {
-          // ignored
+        } catch (e) {
+          this.logger?.warn('Failed to close watcher on cleanup', { dir: resolvedDir, error: (e as Error).message });
         }
       }
     })();
@@ -416,7 +417,8 @@ export class SkillRegistry {
     let st: Awaited<ReturnType<typeof stat>> | null = null;
     try {
       st = await stat(childPath);
-    } catch {
+    } catch (e) {
+      this.logger?.warn('Failed to stat child path', { path: childPath, error: (e as Error).message });
       st = null;
     }
     if (!st || !st.isDirectory()) return;

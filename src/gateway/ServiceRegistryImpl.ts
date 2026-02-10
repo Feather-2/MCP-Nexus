@@ -204,8 +204,8 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
   reportHeartbeat(serviceId: string, update: { healthy: boolean; latency?: number; error?: string }): void {
     try {
       (this.healthChecker as any).reportHeartbeat?.(serviceId, update);
-    } catch {
-      // ignore
+    } catch (e) {
+      this.logger.warn('Heartbeat report failed', { serviceId, error: (e as Error).message });
     }
   }
 

@@ -665,53 +665,16 @@ export class HttpApiServer {
       return reply.type('text/html').sendFile('index.html', staticRoot);
     });
 
-    this.server.get('/dashboard*', async (request, reply) => {
-      const indexPath = join(staticRoot, 'index.html');
-      if (!existsSync(indexPath)) {
-        return reply.code(503).type('text/plain').send('GUI assets not found. Please build GUI into dist-gui or gui/dist.');
-      }
-      return reply.type('text/html').sendFile('index.html', staticRoot);
-    });
-
-    this.server.get('/services*', async (request, reply) => {
-      const indexPath = join(staticRoot, 'index.html');
-      if (!existsSync(indexPath)) {
-        return reply.code(503).type('text/plain').send('GUI assets not found. Please build GUI into dist-gui or gui/dist.');
-      }
-      return reply.type('text/html').sendFile('index.html', staticRoot);
-    });
-
-    this.server.get('/templates*', async (request, reply) => {
-      const indexPath = join(staticRoot, 'index.html');
-      if (!existsSync(indexPath)) {
-        return reply.code(503).type('text/plain').send('GUI assets not found. Please build GUI into dist-gui or gui/dist.');
-      }
-      return reply.type('text/html').sendFile('index.html', staticRoot);
-    });
-
-    this.server.get('/auth*', async (request, reply) => {
-      const indexPath = join(staticRoot, 'index.html');
-      if (!existsSync(indexPath)) {
-        return reply.code(503).type('text/plain').send('GUI assets not found. Please build GUI into dist-gui or gui/dist.');
-      }
-      return reply.type('text/html').sendFile('index.html', staticRoot);
-    });
-
-    this.server.get('/monitoring*', async (request, reply) => {
-      const indexPath = join(staticRoot, 'index.html');
-      if (!existsSync(indexPath)) {
-        return reply.code(503).type('text/plain').send('GUI assets not found. Please build GUI into dist-gui or gui/dist.');
-      }
-      return reply.type('text/html').sendFile('index.html', staticRoot);
-    });
-
-    this.server.get('/settings*', async (request, reply) => {
-      const indexPath = join(staticRoot, 'index.html');
-      if (!existsSync(indexPath)) {
-        return reply.code(503).type('text/plain').send('GUI assets not found. Please build GUI into dist-gui or gui/dist.');
-      }
-      return reply.type('text/html').sendFile('index.html', staticRoot);
-    });
+    const spaRoutes = ['/dashboard*', '/services*', '/templates*', '/auth*', '/monitoring*', '/settings*'];
+    for (const route of spaRoutes) {
+      this.server.get(route, async (request, reply) => {
+        const indexPath = join(staticRoot, 'index.html');
+        if (!existsSync(indexPath)) {
+          return reply.code(503).type('text/plain').send('GUI assets not found. Please build GUI into dist-gui or gui/dist.');
+        }
+        return reply.type('text/html').sendFile('index.html', staticRoot);
+      });
+    }
 
     // Health check endpoint - FAST, no DB queries
     const healthHandler = async (_request: FastifyRequest, reply: FastifyReply) => {
@@ -896,22 +859,6 @@ export class HttpApiServer {
         timestamp: new Date().toISOString()
       });
     });
-  }
-
-  private extractBearerToken(request: FastifyRequest): string | undefined {
-    const authHeader = request.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      return authHeader.substring(7);
-    }
-    return undefined;
-  }
-
-  private extractApiKey(request: FastifyRequest): string | undefined {
-    // Try multiple common API key headers
-    return (request.headers['x-api-key'] as string) ||
-           (request.headers['x-api-token'] as string) ||
-           (request.headers['apikey'] as string) ||
-           undefined;
   }
 
   // Utility methods for external integration

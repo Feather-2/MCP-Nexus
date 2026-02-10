@@ -66,7 +66,7 @@ function matchesSelector(selector: ShellHook['selector'], payload: HookPayload):
       const json = stableStringify(payload);
       selector.pattern.lastIndex = 0;
       if (!selector.pattern.test(json)) return false;
-    } catch {
+    } catch (_e) {
       return false;
     }
   }
@@ -168,8 +168,8 @@ export class HookExecutor {
     for (const child of this.running) {
       try {
         child.kill('SIGKILL');
-      } catch {
-        // best-effort cleanup
+      } catch (_e) {
+        // best-effort kill
       }
     }
     this.running.clear();
@@ -233,8 +233,8 @@ export class HookExecutor {
         const err = new Error(`hooks: command timed out after ${timeoutMs}ms`);
         try {
           child.kill('SIGKILL');
-        } catch {
-          // best-effort cleanup
+        } catch (_e) {
+          // best-effort kill
         }
         const stderrWithTimeout = `${stderr || 'err'}${stderr ? '\n' : ''}${err.message}`;
         finalize({ decision: 'error', exitCode: -1, stdout, stderr: stderrWithTimeout }, err);

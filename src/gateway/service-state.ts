@@ -239,7 +239,7 @@ export class ServiceObservationStore {
         if (!this.subscribers.has(listener)) continue;
         try {
           listener(event);
-        } catch {
+        } catch (_e) {
           // Isolate store from subscriber failures.
         }
       }

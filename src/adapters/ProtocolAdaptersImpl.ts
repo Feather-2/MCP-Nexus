@@ -23,7 +23,7 @@ export class ProtocolAdaptersImpl implements ProtocolAdapters {
     if (enforced.applied) {
       try {
         this.logger.warn?.('Sandbox policy enforced for service', { name: config.name, reasons: enforced.reasons });
-      } catch { /* ignored */ }
+      } catch (_e) { /* sandbox policy log failed */ }
     }
     return { enforced, effective };
   }
@@ -149,7 +149,8 @@ export class ProtocolAdaptersImpl implements ProtocolAdapters {
 
       const contentType = response.headers.get('content-type');
       return contentType?.includes('text/event-stream') || false;
-    } catch {
+    } catch (e) {
+      this.logger?.warn?.('SSE endpoint check failed', { error: (e as Error).message });
       return false;
     }
   }

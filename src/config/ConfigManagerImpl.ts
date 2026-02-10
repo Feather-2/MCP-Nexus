@@ -449,7 +449,7 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
   async restoreFromBackup(backupPath?: string): Promise<void> {
     try {
       // Verify current config (consume first mocked read in tests if present)
-      try { await readFile(this.configPath, 'utf-8'); } catch { /* ignored */ }
+      try { await readFile(this.configPath, 'utf-8'); } catch (e) { this.logger.warn('Config file read check failed', { error: (e as Error).message }); }
 
       const candidate = backupPath || `${this.configPath}.backup`;
       let backupData: string;
@@ -464,7 +464,7 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
 
       // Accept both raw GatewayConfig JSON and wrapped { config, templates }
       let parsed: unknown;
-      try { parsed = JSON.parse(backupData) as unknown; } catch { parsed = null; }
+      try { parsed = JSON.parse(backupData) as unknown; } catch (e) { this.logger.warn('Backup JSON parse failed', { error: (e as Error).message }); parsed = null; }
       if (isRecord(parsed) && parsed.config) {
         await this.saveConfig(parsed.config as GatewayConfig);
         if (Array.isArray(parsed.templates)) {
@@ -607,9 +607,9 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
     }
     
     this.watchEnabled = false;
-    try { this._watcher?.close?.(); } catch { /* ignored */ }
+    try { this._watcher?.close?.(); } catch (e) { this.logger.warn('Failed to close config watcher', { error: (e as Error).message }); }
     this._watcher = undefined;
-    try { this._templatesWatcher?.close?.(); } catch { /* ignored */ }
+    try { this._templatesWatcher?.close?.(); } catch (e) { this.logger.warn('Failed to close templates watcher', { error: (e as Error).message }); }
     this._templatesWatcher = undefined;
     this.logger.debug('Stopped watching configuration file');
     this.emit('watchStopped');

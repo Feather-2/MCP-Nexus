@@ -31,7 +31,7 @@ export class OrchestratorEngine {
     const timeoutMs = req.timeoutMs ?? config.budget?.maxTimeMs ?? 300_000;
 
     // Best-effort: keep subagent cache warm for planning/template selection.
-    try { await this.subagents.loadAll(); } catch { /* ignored */ }
+    try { await this.subagents.loadAll(); } catch (e) { this.logger.warn('Failed to load subagents', { error: (e as Error).message }); }
 
     const plan = await this.buildPlan(req.goal, req.steps, config);
     const finalPlan = plan.slice(0, Math.max(1, Math.min(plan.length, maxSteps)));

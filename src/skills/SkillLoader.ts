@@ -224,7 +224,7 @@ async function fileExists(p: string): Promise<boolean> {
   try {
     await access(p, constants.F_OK);
     return true;
-  } catch {
+  } catch (_e) {
     return false;
   }
 }
@@ -232,7 +232,7 @@ async function fileExists(p: string): Promise<boolean> {
 async function isDirectory(p: string): Promise<boolean> {
   try {
     return (await stat(p)).isDirectory();
-  } catch {
+  } catch (_e) {
     return false;
   }
 }
@@ -241,7 +241,7 @@ async function listDirectories(p: string): Promise<string[]> {
   try {
     const ents = await readdir(p, { withFileTypes: true });
     return ents.filter((e) => e.isDirectory()).map((e) => e.name);
-  } catch {
+  } catch (_e) {
     return [];
   }
 }
@@ -254,7 +254,7 @@ async function readTextFile(p: string, maxBytes: number): Promise<string | null>
     // Skip likely-binary files.
     if (buf.includes(0)) return null;
     return buf.toString('utf8');
-  } catch {
+  } catch (_e) {
     return null;
   }
 }
@@ -458,7 +458,8 @@ export class SkillLoader {
       try {
         const raw = await readdir(dir, { withFileTypes: true });
         ents = raw.map((e) => ({ name: e.name, isDirectory: e.isDirectory(), isFile: e.isFile() }));
-      } catch {
+      } catch (e) {
+        this.logger?.warn?.('Failed to read directory during skill scan', { dir, error: (e as Error).message });
         continue;
       }
 

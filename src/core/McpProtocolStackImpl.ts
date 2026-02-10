@@ -356,7 +356,9 @@ export class McpProtocolStackImpl implements McpProtocolStack {
         }
         return patched;
       }
-    } catch { /* ignored */ }
+    } catch (e) {
+      this.logger.warn('Failed to build portable env', { error: (e as Error).message });
+    }
     return { ...baseEnv, ...overrideEnv };
   }
 
@@ -370,7 +372,8 @@ export class McpProtocolStackImpl implements McpProtocolStack {
       // packages installed under mcp-sandbox/packages/@modelcontextprotocol/server-*
       const pkgDir = path.resolve(process.cwd(), '../mcp-sandbox/packages', pkg);
       return pkgDir;
-    } catch {
+    } catch (e) {
+      this.logger.warn('Failed to infer portable cwd', { error: (e as Error).message });
       return undefined;
     }
   }

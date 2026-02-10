@@ -51,56 +51,6 @@ describe('HttpApiServer \u2013 branch coverage', () => {
     try { await server.stop(); } catch {}
   });
 
-  describe('extractBearerToken', () => {
-    it('extracts bearer token from Authorization header', async () => {
-      const res = await (server as any).server.inject({
-        method: 'GET', url: '/api/services',
-        headers: { Authorization: 'Bearer my-token-123' }
-      });
-      expect(res.statusCode).toBe(200);
-    });
-
-    it('returns undefined for non-Bearer auth header', async () => {
-      const res = await (server as any).server.inject({
-        method: 'GET', url: '/api/services',
-        headers: { Authorization: 'Basic dXNlcjpwYXNz' }
-      });
-      expect(res.statusCode).toBe(200);
-    });
-
-    it('returns undefined for missing auth header', async () => {
-      const res = await (server as any).server.inject({
-        method: 'GET', url: '/api/services'
-      });
-      expect(res.statusCode).toBe(200);
-    });
-  });
-
-  describe('extractApiKey', () => {
-    it('extracts x-api-key header', async () => {
-      const res = await (server as any).server.inject({
-        method: 'GET', url: '/api/services',
-        headers: { 'x-api-key': 'key1' }
-      });
-      expect(res.statusCode).toBe(200);
-    });
-
-    it('extracts x-api-token header', async () => {
-      const res = await (server as any).server.inject({
-        method: 'GET', url: '/api/services',
-        headers: { 'x-api-token': 'token1' }
-      });
-      expect(res.statusCode).toBe(200);
-    });
-
-    it('extracts apikey header', async () => {
-      const res = await (server as any).server.inject({
-        method: 'GET', url: '/api/services',
-        headers: { 'apikey': 'apikey1' }
-      });
-      expect(res.statusCode).toBe(200);
-    });
-  });
 
   describe('mapMiddlewareError branches', () => {
     it('maps MiddlewareTimeoutError to 504', () => {
