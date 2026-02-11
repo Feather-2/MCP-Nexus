@@ -1,6 +1,15 @@
 import { readFile } from 'fs/promises';
+import { z } from 'zod';
 import { GatewayConfig, GatewayConfigSchema } from '../types/index.js';
 import { deepMerge, isObject } from './merge.js';
+
+const envSchema = z.object({
+  PBMCP_HOST: z.string().optional(),
+  PBMCP_PORT: z.coerce.number().int().min(1).max(65535).optional(),
+  PBMCP_AUTH_MODE: z.enum(['none', 'token', 'apikey', 'local-trusted', 'external-secure', 'dual']).optional(),
+  PBMCP_LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error']).optional(),
+  NODE_ENV: z.string().optional(),
+}).passthrough();
 
 export interface ConfigLayer {
   name: string;
@@ -60,6 +69,12 @@ export class ConfigResolver {
   }
 
   static loadFromEnv(): Partial<GatewayConfig> {
+    const envResult = envSchema.safeParse(process.env);
+    if (!envResult.success) {
+      const issues = envResult.error.issues.map(i => `${i.path.join('.')}: ${i.message}`);
+      process.stderr.write(`[config] Environment variable validation warnings: ${issues.join('; ')}\n`);
+    }
+
     const out: Partial<GatewayConfig> = {};
 
     const envHost = process.env.PBMCP_HOST || process.env.PB_GATEWAY_HOST;

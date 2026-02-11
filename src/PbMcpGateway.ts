@@ -461,5 +461,3 @@ export function createGateway(
   return gateway;
 }
 
-// Default export
-export default PbMcpGateway;

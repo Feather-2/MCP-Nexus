@@ -1,4 +1,4 @@
-import { CommandValidator } from '../../security/index.js';
+import { CommandValidator } from '../../security/command-validator.js';
 
 describe('CommandValidator', () => {
   it('allows a normal command', () => {

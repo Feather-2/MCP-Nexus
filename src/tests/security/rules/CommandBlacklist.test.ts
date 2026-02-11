@@ -1,4 +1,4 @@
-import { checkCommand } from '../../../security/index.js';
+import { checkCommand } from '../../../security/rules/CommandBlacklist.js';
 
 describe('CommandBlacklist', () => {
   it('blocks curl|bash', () => {

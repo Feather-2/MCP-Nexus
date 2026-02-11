@@ -1,6 +1,6 @@
 import type { Skill } from '../../skills/types.js';
 import { DEFAULT_SKILL_CAPABILITIES } from '../../security/CapabilityManifest.js';
-import { HardRuleEngine } from '../../security/index.js';
+import { HardRuleEngine } from '../../security/HardRuleEngine.js';
 
 function makeSkill(body: string, supportFiles?: Map<string, string>): Skill {
   return {
