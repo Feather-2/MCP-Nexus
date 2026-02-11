@@ -26,12 +26,12 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
     this.loadBalancer = new IntelligentLoadBalancer(logger, this.store);
     // Initialize default templates and fix legacy placeholders asynchronously (safe guard)
     try {
-      const maybePromise = (this.templateManager as any).initializeDefaults?.();
+      const maybePromise = (this.templateManager as unknown as { initializeDefaults?: () => Promise<void> }).initializeDefaults?.();
       if (maybePromise && typeof maybePromise.then === 'function') {
-        void maybePromise.catch((err: any) => this.logger.warn('Failed to initialize default templates:', err));
+        void maybePromise.catch((err: unknown) => this.logger.warn('Failed to initialize default templates:', err));
       }
     } catch (err) {
-      this.logger.warn('Failed to initialize default templates:', err as any);
+      this.logger.warn('Failed to initialize default templates:', err);
     }
   }
 
@@ -73,7 +73,7 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
   }
 
   setHealthProbe(probe: (serviceId: string) => Promise<HealthCheckResult>): void {
-    (this.healthChecker as any).setProbe?.(probe);
+    (this.healthChecker as unknown as { setProbe?: (fn: unknown) => void }).setProbe?.(probe);
   }
 
   // Instance Management
@@ -105,7 +105,7 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
     }
 
     // Apply instance mode (keep-alive | managed)
-    const instanceMode = (overrides as any)?.instanceMode as ('keep-alive' | 'managed' | undefined);
+    const instanceMode = (overrides as Record<string, unknown> | undefined)?.instanceMode as ('keep-alive' | 'managed' | undefined);
     const now = new Date();
     const instanceId = this.generateInstanceId(config.name);
 
@@ -166,7 +166,7 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
     return this.getInstance(serviceId);
   }
 
-  async createServiceFromTemplate(templateName: string, overrides?: any): Promise<string> {
+  async createServiceFromTemplate(templateName: string, overrides?: Record<string, unknown>): Promise<string> {
     const instance = await this.createInstance(templateName, overrides);
     return instance.id;
   }
@@ -203,7 +203,7 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
 
   reportHeartbeat(serviceId: string, update: { healthy: boolean; latency?: number; error?: string }): void {
     try {
-      (this.healthChecker as any).reportHeartbeat?.(serviceId, update);
+      (this.healthChecker as unknown as { reportHeartbeat?: (id: string, u: unknown) => void }).reportHeartbeat?.(serviceId, update);
     } catch (e) {
       this.logger.warn('Heartbeat report failed', { serviceId, error: (e as Error).message });
     }
@@ -224,7 +224,7 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
   }
 
   // Metadata helpers for instances (exposed for server to annotate diagnostics)
-  async setInstanceMetadata(serviceId: string, key: string, value: any): Promise<void> {
+  async setInstanceMetadata(serviceId: string, key: string, value: unknown): Promise<void> {
     const updated = this.store.patchInstance(serviceId, { metadata: { [key]: value } });
     if (!updated) {
       throw new Error(`Instance ${serviceId} not found`);

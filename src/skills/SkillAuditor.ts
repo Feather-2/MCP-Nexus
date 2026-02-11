@@ -75,8 +75,9 @@ export class SkillAuditor {
 
     const gatewayConfig = this.opts.getGatewayConfig();
     const tools = parseAllowedTools(skill.metadata.allowedTools);
-    const whitelist: string[] | undefined = Array.isArray((gatewayConfig as any)?.skills?.allowedTools)
-      ? ((gatewayConfig as any).skills.allowedTools as any[]).map((t: any) => String(t))
+    const skills = (gatewayConfig as Record<string, unknown>)?.skills as Record<string, unknown> | undefined;
+    const whitelist: string[] | undefined = Array.isArray(skills?.allowedTools)
+      ? (skills.allowedTools as unknown[]).map((t) => String(t))
       : undefined;
 
     for (const toolId of tools) {
@@ -90,9 +91,10 @@ export class SkillAuditor {
         continue;
       }
 
-      const trustLevel = (template as any)?.security?.trustLevel || 'trusted';
-      const sandboxCfg: any = (gatewayConfig as any)?.sandbox || {};
-      const enforced = sandboxCfg?.profile === 'locked-down' || sandboxCfg?.container?.requiredForUntrusted === true;
+      const trustLevel = template.security?.trustLevel || 'trusted';
+      const sandboxCfg = ((gatewayConfig as Record<string, unknown>)?.sandbox || {}) as Record<string, unknown>;
+      const containerCfg = (sandboxCfg?.container || {}) as Record<string, unknown>;
+      const enforced = sandboxCfg?.profile === 'locked-down' || containerCfg?.requiredForUntrusted === true;
       if (trustLevel !== 'trusted' && !enforced) {
         warnings.push(
           `Tool '${toolId}' trustLevel=${trustLevel} but sandbox.container.requiredForUntrusted is disabled`
@@ -104,8 +106,8 @@ export class SkillAuditor {
         if (outcome.applied) {
           warnings.push(`Tool '${toolId}' sandbox policy applied (${outcome.reasons.join(', ')})`);
         }
-      } catch (e: any) {
-        errors.push(`Tool '${toolId}' violates sandbox policy: ${e?.message || String(e)}`);
+      } catch (e: unknown) {
+        errors.push(`Tool '${toolId}' violates sandbox policy: ${(e as Error)?.message || String(e)}`);
       }
     }
 
@@ -113,8 +115,8 @@ export class SkillAuditor {
 
     try {
       result.security = await this.auditSecurity(skill);
-    } catch (e: any) {
-      warnings.push(`Security audit failed: ${e?.message || String(e)}`);
+    } catch (e: unknown) {
+      warnings.push(`Security audit failed: ${(e as Error)?.message || String(e)}`);
     }
 
     const dryRun = Boolean(options?.dryRun);
@@ -130,8 +132,8 @@ export class SkillAuditor {
     let canarySetup: Awaited<ReturnType<typeof setupCanaries>> | undefined;
     try {
       canarySetup = await setupCanaries(canarySandboxRoot);
-    } catch (e: any) {
-      result.warnings.push(`Canary setup failed: ${e?.message || String(e)}`);
+    } catch (e: unknown) {
+      result.warnings.push(`Canary setup failed: ${(e as Error)?.message || String(e)}`);
     }
 
     const dryRunResults: AuditResult['dryRunResults'] = [];
@@ -143,26 +145,27 @@ export class SkillAuditor {
       const start = Date.now();
       try {
         const { config } = applyGatewaySandboxPolicy(template, gatewayConfig);
-        const adapter = await this.opts.protocolAdapters.createAdapter(config as any);
+        const adapter = await this.opts.protocolAdapters.createAdapter(config);
         await withTimeout(adapter.connect(), timeoutMs, `connect(${toolId})`);
         try {
-          const msg: any = { jsonrpc: '2.0', id: `dryrun-${Date.now()}`, method: 'tools/list', params: {} };
+          const msg: import('../types/index.js').McpMessage = { jsonrpc: '2.0', id: `dryrun-${Date.now()}`, method: 'tools/list', params: {} };
+          const sr = (adapter as unknown as { sendAndReceive?: (m: unknown) => Promise<unknown> }).sendAndReceive;
           const res = await withTimeout(
-            ((adapter as any).sendAndReceive?.(msg) ?? adapter.send(msg)),
+            (sr?.(msg) ?? adapter.send(msg)),
             timeoutMs,
             `tools/list(${toolId})`
           );
-          const ok = Boolean((res as any)?.result);
+          const ok = Boolean((res as Record<string, unknown>)?.result);
           dryRunResults.push({ tool: toolId, success: ok, latency: Date.now() - start });
         } finally {
           await withTimeout(adapter.disconnect(), timeoutMs, `disconnect(${toolId})`).catch(() => {});
         }
-      } catch (e: any) {
+      } catch (e: unknown) {
         dryRunResults.push({
           tool: toolId,
           success: false,
           latency: Date.now() - start,
-          error: e?.message || String(e)
+          error: (e as Error)?.message || String(e)
         });
       }
     }
@@ -176,8 +179,8 @@ export class SkillAuditor {
             `Canary files accessed during dry-run: ${canaryResult.accessedFiles.join(', ')}`
           );
         }
-      } catch (e: any) {
-        result.warnings.push(`Canary check failed: ${e?.message || String(e)}`);
+      } catch (e: unknown) {
+        result.warnings.push(`Canary check failed: ${(e as Error)?.message || String(e)}`);
       }
     }
 

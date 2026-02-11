@@ -7,7 +7,7 @@ import { SELECTED_INSTANCE_STATE_KEY } from '../../gateway/load-balancer.middlew
 
 interface _RouteRequestBody {
   method: string;
-  params?: any;
+  params?: unknown;
   serviceGroup?: string;
   contentType?: string;
   contentLength?: number;
@@ -34,7 +34,7 @@ export class RoutingRoutes extends BaseRouteHandler {
         contentLength: z.coerce.number().int().positive().optional()
       });
       let body: z.infer<typeof Body>;
-      try { body = Body.parse((request.body as any) || {}); } catch (e) {
+      try { body = Body.parse((request.body as Record<string, unknown>) || {}); } catch (e) {
         const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid route request', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
       }
 
@@ -74,7 +74,7 @@ export class RoutingRoutes extends BaseRouteHandler {
           };
           const mwState = {
             stage: 'beforeModel' as const,
-            values: new Map<string, any>([
+            values: new Map<string, unknown>([
               ['instances', services],
               ['serviceHealthMap', serviceHealthMap]
             ]),
@@ -82,11 +82,11 @@ export class RoutingRoutes extends BaseRouteHandler {
           };
           await chain.execute('beforeModel', mwCtx, mwState);
           const picked = mwState.values.get(SELECTED_INSTANCE_STATE_KEY);
-          if (picked) selectedService = picked;
+          if (picked) selectedService = picked as typeof selectedService;
         } catch (e) {
           // If middleware chain fails, fall back to router selection path below
-          this.ctx.logger?.warn?.('Middleware routing failed, falling back to router.route', { error: (e as any)?.message });
-          selectedService = undefined as any;
+          this.ctx.logger?.warn?.('Middleware routing failed, falling back to router.route', { error: (e as Error)?.message });
+          selectedService = undefined;
         }
 
         if (!selectedService && this.ctx.router?.route) {
@@ -130,7 +130,7 @@ export class RoutingRoutes extends BaseRouteHandler {
     server.post('/api/proxy/:serviceId', async (request: FastifyRequest, reply: FastifyReply) => {
       const Params = z.object({ serviceId: z.string().min(1) });
       let serviceId: string;
-      try { ({ serviceId } = Params.parse(request.params as any)); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid service id', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues }); }
+      try { ({ serviceId } = Params.parse(request.params as Record<string, unknown>)); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid service id', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues }); }
 
       // Validate MCP message structure
       const McpMessageSchema = z.object({
@@ -141,7 +141,7 @@ export class RoutingRoutes extends BaseRouteHandler {
       });
 
       let mcpMessage: z.infer<typeof McpMessageSchema>;
-      try { mcpMessage = McpMessageSchema.parse((request.body as any) || {}); } catch (e) {
+      try { mcpMessage = McpMessageSchema.parse((request.body as Record<string, unknown>) || {}); } catch (e) {
         const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid MCP message format', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
       }
 
@@ -156,17 +156,20 @@ export class RoutingRoutes extends BaseRouteHandler {
         await adapter.connect();
 
         // Wire adapter events into log buffer
-        (adapter as any).on?.('stderr', (line: string) => {
+        const emitter = adapter as unknown as { on?: (event: string, fn: (...args: unknown[]) => void) => void };
+        emitter.on?.('stderr', (line: unknown) => {
           this.ctx.addLogEntry('warn', `stderr: ${line}`, serviceId);
         });
-        (adapter as any).on?.('sent', (msg: any) => {
-          this.ctx.addLogEntry('debug', `${msg?.method || 'unknown'} id=${msg?.id ?? 'auto'}`, serviceId);
+        emitter.on?.('sent', (msg: unknown) => {
+          const m = msg as Record<string, unknown> | undefined;
+          this.ctx.addLogEntry('debug', `${m?.method || 'unknown'} id=${m?.id ?? 'auto'}`, serviceId);
         });
-        (adapter as any).on?.('message', (msg: any) => {
-          this.ctx.addLogEntry('debug', `${msg?.method || (msg?.result ? 'result' : 'message')} id=${msg?.id ?? 'n/a'}`, serviceId);
+        emitter.on?.('message', (msg: unknown) => {
+          const m = msg as Record<string, unknown> | undefined;
+          this.ctx.addLogEntry('debug', `${m?.method || (m?.result ? 'result' : 'message')} id=${m?.id ?? 'n/a'}`, serviceId);
         });
 
-        const isPortable = (service.config.env as any)?.SANDBOX === 'portable';
+        const isPortable = service.config.env?.SANDBOX === 'portable';
         const startTs = Date.now();
         this.ctx.addLogEntry('info', `Proxy call ${mcpMessage?.method || 'unknown'} (id=${mcpMessage?.id ?? 'auto'})${isPortable ? ' [SANDBOX: portable]' : ''}`, serviceId, { request: mcpMessage });
         try {
@@ -175,12 +178,14 @@ export class RoutingRoutes extends BaseRouteHandler {
         } catch { /* ignored */ }
 
         try {
-          const response = await ((adapter as any).sendAndReceive?.(mcpMessage) ?? adapter.send(mcpMessage));
+          const sendReceive = (adapter as unknown as { sendAndReceive?: (msg: unknown) => Promise<unknown> }).sendAndReceive;
+          const response = await (sendReceive?.(mcpMessage) ?? adapter.send(mcpMessage));
           const duration = Date.now() - startTs;
           this.ctx.addLogEntry('info', `Proxy response ${mcpMessage?.method || 'unknown'} (id=${mcpMessage?.id ?? 'auto'}) in ${duration}ms`, serviceId, { response });
           try { this.ctx.serviceRegistry.reportHeartbeat(serviceId, { healthy: true, latency: duration }); } catch {}
           try {
-            const preview = JSON.stringify(response?.result ?? response?.error ?? {}).slice(0, 800);
+            const r = response as Record<string, unknown> | undefined;
+            const preview = JSON.stringify(r?.result ?? r?.error ?? {}).slice(0, 800);
             this.ctx.addLogEntry('debug', `result: ${preview}${preview.length === 800 ? '…' : ''}`, serviceId);
           } catch { /* ignored */ }
           reply.send(response);
@@ -188,8 +193,8 @@ export class RoutingRoutes extends BaseRouteHandler {
           await adapter.disconnect();
         }
       } catch (error) {
-        try { this.ctx.serviceRegistry.reportHeartbeat(serviceId, { healthy: false, error: (error as any)?.message || 'proxy failed' }); } catch {}
-        this.ctx.addLogEntry('error', `Proxy failed: ${(error as Error)?.message || 'unknown error'}`, (request.params as any)?.serviceId);
+        try { this.ctx.serviceRegistry.reportHeartbeat(serviceId, { healthy: false, error: (error as Error)?.message || 'proxy failed' }); } catch {}
+        this.ctx.addLogEntry('error', `Proxy failed: ${(error as Error)?.message || 'unknown error'}`, (request.params as Record<string, unknown>)?.serviceId as string);
         return this.respondError(reply, 500, error instanceof Error ? error.message : 'Proxy request failed', { code: 'PROXY_ERROR' });
       }
     });
@@ -207,7 +212,7 @@ export class RoutingRoutes extends BaseRouteHandler {
 
       let mcpMessage: z.infer<typeof McpMessageSchema>;
       try {
-        mcpMessage = McpMessageSchema.parse((request.body as any) || {});
+        mcpMessage = McpMessageSchema.parse((request.body as Record<string, unknown>) || {});
       } catch (e) {
         const err = e as z.ZodError;
         return this.respondError(reply, 400, 'Invalid MCP message format', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
@@ -229,7 +234,8 @@ export class RoutingRoutes extends BaseRouteHandler {
         await adapter.connect();
 
         try {
-          const response = await ((adapter as any).sendAndReceive?.(mcpMessage) ?? adapter.send(mcpMessage));
+          const sr = (adapter as unknown as { sendAndReceive?: (msg: unknown) => Promise<unknown> }).sendAndReceive;
+          const response = await (sr?.(mcpMessage) ?? adapter.send(mcpMessage));
           reply.send(response);
         } finally {
           await adapter.disconnect();
@@ -250,7 +256,7 @@ export class RoutingRoutes extends BaseRouteHandler {
       const heartbeat = setInterval(() => {
         try { reply.raw.write(': heartbeat\n\n'); } catch { clearInterval(heartbeat); }
       }, 30_000);
-      (heartbeat as any).unref?.();
+      (heartbeat as unknown as { unref?: () => void }).unref?.();
 
       const cleanup = () => {
         clearInterval(heartbeat);
@@ -266,10 +272,10 @@ export class RoutingRoutes extends BaseRouteHandler {
 
   private convertHealthResult(health: HealthCheckResult): ServiceHealth {
     return {
-      status: (health as any).status || 'unknown',
-      responseTime: (health as any).responseTime || 0,
-      lastCheck: new Date((health as any).timestamp || Date.now()),
-      error: (health as any).error
+      status: health.healthy ? 'healthy' : 'unhealthy',
+      responseTime: health.latency || 0,
+      lastCheck: new Date(health.timestamp || Date.now()),
+      error: health.error
     };
   }
 }

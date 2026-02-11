@@ -7,7 +7,7 @@ import { z } from 'zod';
  * Sandbox runtime installation and management routes
  */
 export class SandboxRoutes extends BaseRouteHandler {
-  private sandboxProgress?: (evt: any) => void;
+  private sandboxProgress?: (evt: unknown) => void;
 
   constructor(ctx: RouteContext) {
     super(ctx);
@@ -29,7 +29,7 @@ export class SandboxRoutes extends BaseRouteHandler {
           return this.respondError(reply, 409, 'Sandbox installer busy', { code: 'BUSY', recoverable: true });
         }
         this.ctx.sandboxInstalling = true;
-        const body = (request.body as any) || {};
+        const body = (request.body as Record<string, unknown>) || {};
         const components: string[] = Array.isArray(body.components) && body.components.length ? body.components : ['node', 'packages'];
         const result = await this.installSandboxComponents(components);
         reply.send({ success: true, result });
@@ -47,8 +47,8 @@ export class SandboxRoutes extends BaseRouteHandler {
         // Prepare SSE response
         this.writeSseHeaders(reply, request);
 
-        const sendTo = (r: FastifyReply, obj: any) => { try { r.raw.write(`data: ${JSON.stringify(obj)}\n\n`); } catch { /* ignored */ } };
-        const broadcast = (obj: any) => {
+        const sendTo = (r: FastifyReply, obj: unknown) => { try { r.raw.write(`data: ${JSON.stringify(obj)}\n\n`); } catch { /* ignored */ } };
+        const broadcast = (obj: unknown) => {
           for (const r of Array.from(this.ctx.sandboxStreamClients)) {
             try { sendTo(r, obj); } catch { this.ctx.sandboxStreamClients.delete(r); }
           }
@@ -61,7 +61,7 @@ export class SandboxRoutes extends BaseRouteHandler {
         request.socket.on('end', onClose);
         request.socket.on('error', onClose);
 
-        const q = (request.query as any) || {};
+        const q = (request.query as Record<string, unknown>) || {};
         const compsStr: string = (q.components as string) || '';
         const components: string[] = compsStr
           ? compsStr.split(',').map((s: string) => s.trim()).filter(Boolean)
@@ -77,7 +77,7 @@ export class SandboxRoutes extends BaseRouteHandler {
 
         // Mark installing and set broadcaster
         this.ctx.sandboxInstalling = true;
-        this.sandboxProgress = (evt: any) => broadcast(evt);
+        this.sandboxProgress = (evt: unknown) => broadcast(evt);
 
         const total = components.length;
         let done = 0;
@@ -87,7 +87,7 @@ export class SandboxRoutes extends BaseRouteHandler {
             await this.installSandboxComponents([c]);
             done += 1;
             broadcast({ event: 'component_done', component: c, progress: Math.floor((done / total) * 100) });
-          } catch (e: any) {
+          } catch (e: unknown) {
             this.ctx.logger.error('Streaming sandbox install component failed', e);
             broadcast({ event: 'error', component: c, error: (e as Error).message });
             break;
@@ -119,7 +119,7 @@ export class SandboxRoutes extends BaseRouteHandler {
         }
         this.ctx.sandboxInstalling = true;
         const Body = z.object({ components: z.array(z.string()).optional() });
-        const parsed = Body.safeParse((request.body as any) || {});
+        const parsed = Body.safeParse((request.body as Record<string, unknown>) || {});
         const wants: string[] = parsed.success && parsed.data.components && parsed.data.components.length ? parsed.data.components : ['node','python','go','packages'];
         const status = await this.inspectSandbox();
         const missing: string[] = [];
@@ -194,7 +194,7 @@ export class SandboxRoutes extends BaseRouteHandler {
     const goReady = await exists(path.join(runtimesDir, 'go', 'bin'));
     const packagesReady = await exists(path.join(pkgsDir, 'server-filesystem')) && await exists(path.join(pkgsDir, 'server-memory'));
 
-    const details: Record<string, any> = { runtimesDir, pkgsDir };
+    const details: Record<string, unknown> = { runtimesDir, pkgsDir };
     if (process.platform === 'win32') {
       details.nodePath = await exists(path.join(runtimesDir, 'nodejs', 'node.exe')) ? path.join(runtimesDir, 'nodejs', 'node.exe') : undefined;
       details.npmPath = await exists(path.join(runtimesDir, 'nodejs', 'npm.cmd')) ? path.join(runtimesDir, 'nodejs', 'npm.cmd')
@@ -266,15 +266,15 @@ export class SandboxRoutes extends BaseRouteHandler {
     const ensureDir = async (p: string) => { try { await fs.mkdir(p, { recursive: true }); } catch { /* ignored */ } };
     const copyDir = async (src: string, dest: string) => {
       await ensureDir(dest);
-      const entries = await fs.readdir(src, { withFileTypes: true } as any);
-      for (const entry of entries as any[]) {
+      const entries = await fs.readdir(src, { withFileTypes: true });
+      for (const entry of entries) {
         const s = join(src, entry.name);
         const d = join(dest, entry.name);
         if (entry.isDirectory()) {
           await copyDir(s, d);
         } else {
           await fs.copyFile(s, d).catch(async () => {
-            await fs.rm(d, { force: true } as any).catch(() => {});
+            await fs.rm(d, { force: true }).catch(() => {});
             await fs.copyFile(s, d);
           });
         }
@@ -323,9 +323,9 @@ export class SandboxRoutes extends BaseRouteHandler {
             await run('unzip', ['-q', '-o', archivePath, '-d', extractPath]);
           } catch {
             try {
-              const dynamicImport: any = new Function('m', 'return import(m)');
-              const AdmZipMod: any = await dynamicImport('adm-zip');
-              const AdmZip = AdmZipMod?.default || AdmZipMod;
+              const dynamicImport = new Function('m', 'return import(m)') as (m: string) => Promise<Record<string, unknown>>;
+              const AdmZipMod = await dynamicImport('adm-zip');
+              const AdmZip = (AdmZipMod?.default || AdmZipMod) as new (path: string) => { extractAllTo: (target: string, overwrite: boolean) => void };
               const zip = new AdmZip(archivePath);
               zip.extractAllTo(extractPath, true);
             } catch (e) {
@@ -338,9 +338,9 @@ export class SandboxRoutes extends BaseRouteHandler {
           await run('tar', ['-xzf', archivePath, '-C', extractPath, '--strip-components=1']);
         } catch {
           try {
-            const dynamicImport: any = new Function('m', 'return import(m)');
+            const dynamicImport = new Function('m', 'return import(m)') as (m: string) => Promise<Record<string, unknown>>;
             const tar = await dynamicImport('tar');
-            await (tar as any).extract({ file: archivePath, cwd: extractPath, strip: 1 });
+            await (tar as { extract: (opts: Record<string, unknown>) => Promise<void> }).extract({ file: archivePath, cwd: extractPath, strip: 1 });
           } catch (e) {
             throw new Error('无法解压 TAR.GZ：需要 tar 或 npm 包 tar');
           }
@@ -446,16 +446,16 @@ export class SandboxRoutes extends BaseRouteHandler {
               const from = path.join(extractedDir, file);
               const to = path.join(runtimeDir, file);
               try {
-                await fs.rm(to, { recursive: true, force: true } as any).catch(() => {});
+                await fs.rm(to, { recursive: true, force: true }).catch(() => {});
                 await fs.rename(from, to);
-              } catch (err: any) {
-                if (err?.code === 'EPERM' || err?.code === 'EEXIST') {
+              } catch (err: unknown) {
+                if ((err as NodeJS.ErrnoException)?.code === 'EPERM' || (err as NodeJS.ErrnoException)?.code === 'EEXIST') {
                   try {
                     const fsp = await import('fs/promises');
                     const stat = await fsp.stat(from);
                     if (stat.isDirectory()) {
                       await copyDir(from, to);
-                      await fsp.rm(from, { recursive: true, force: true } as any);
+                      await fsp.rm(from, { recursive: true, force: true });
                     } else {
                       await fsp.copyFile(from, to);
                       await fsp.unlink(from).catch(() => {});
@@ -557,15 +557,15 @@ export class SandboxRoutes extends BaseRouteHandler {
             const from = path.join(extractedGoDir, file);
             const to = path.join(runtimeDir, file);
             try {
-              await fs.rm(to, { recursive: true, force: true } as any).catch(() => {});
+              await fs.rm(to, { recursive: true, force: true }).catch(() => {});
               await fs.rename(from, to);
-            } catch (err: any) {
-              if (err?.code === 'EPERM' || err?.code === 'EEXIST') {
+            } catch (err: unknown) {
+              if ((err as NodeJS.ErrnoException)?.code === 'EPERM' || (err as NodeJS.ErrnoException)?.code === 'EEXIST') {
                 try {
                   const stat = await fs.stat(from);
                   if (stat.isDirectory()) {
                     await copyDir(from, to);
-                    await fs.rm(from, { recursive: true, force: true } as any);
+                    await fs.rm(from, { recursive: true, force: true });
                   } else {
                     await fs.copyFile(from, to);
                     await fs.unlink(from).catch(() => {});

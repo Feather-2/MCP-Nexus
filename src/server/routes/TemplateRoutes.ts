@@ -13,10 +13,10 @@ export class TemplateRoutes extends BaseRouteHandler {
     super(ctx);
   }
 
-  private detectSandboxMode(tpl: any): 'none' | 'portable' | 'container' {
+  private detectSandboxMode(tpl: McpServiceConfig): 'none' | 'portable' | 'container' {
     if (!tpl || tpl.transport !== 'stdio') return 'none';
-    const env = (tpl as any).env || {};
-    if (env.SANDBOX === 'container' || Boolean((tpl as any).container)) return 'container';
+    const env = tpl.env || {};
+    if (env.SANDBOX === 'container' || Boolean(tpl.container)) return 'container';
     if (env.SANDBOX === 'portable') return 'portable';
     return 'none';
   }
@@ -30,7 +30,7 @@ export class TemplateRoutes extends BaseRouteHandler {
       const gwConfig = this.ctx.configManager.getConfig();
 
       const enriched = templates.map((tpl) => {
-        const safeTpl = redactMcpServiceConfig(tpl as any);
+        const safeTpl = redactMcpServiceConfig(tpl);
         const requested = this.detectSandboxMode(tpl);
         try {
           const enforced = applyGatewaySandboxPolicy(tpl, gwConfig);
@@ -68,7 +68,7 @@ export class TemplateRoutes extends BaseRouteHandler {
     // Get template by name
     server.get('/api/templates/:name', async (request: FastifyRequest, reply: FastifyReply) => {
       const Params = z.object({ name: z.string().min(1) });
-      let name: string; try { ({ name } = Params.parse(request.params as any)); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid template name', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues }); }
+      let name: string; try { ({ name } = Params.parse(request.params as Record<string, unknown>)); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid template name', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues }); }
       try {
         const tpl = await this.ctx.serviceRegistry.getTemplate(name);
         if (!tpl) return this.respondError(reply, 404, 'Template not found', { code: 'NOT_FOUND', recoverable: true });
@@ -80,7 +80,7 @@ export class TemplateRoutes extends BaseRouteHandler {
           const effective = this.detectSandboxMode(enforced.config);
           const forced = effective === 'container' && requested !== 'container';
           reply.send({
-            ...redactMcpServiceConfig(tpl as any),
+            ...redactMcpServiceConfig(tpl),
             sandboxPolicy: {
               requested,
               effective,
@@ -92,7 +92,7 @@ export class TemplateRoutes extends BaseRouteHandler {
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e);
           reply.send({
-            ...redactMcpServiceConfig(tpl as any),
+            ...redactMcpServiceConfig(tpl),
             sandboxPolicy: {
               requested,
               effective: requested,
@@ -111,7 +111,7 @@ export class TemplateRoutes extends BaseRouteHandler {
     // Register template
     server.post('/api/templates', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const config = McpServiceConfigSchema.parse((request.body as any) || {}) as McpServiceConfig;
+        const config = McpServiceConfigSchema.parse((request.body as Record<string, unknown>) || {}) as McpServiceConfig;
         assertNoPlaintextSecrets(config, { allowInsecure: process.env.PB_ALLOW_PLAINTEXT_SECRETS === '1', label: 'TemplateRoutes' });
         await this.ctx.serviceRegistry.registerTemplate(config);
         reply.code(201).send({
@@ -129,8 +129,8 @@ export class TemplateRoutes extends BaseRouteHandler {
     // Update template env only
     server.patch('/api/templates/:name/env', async (request: FastifyRequest, reply: FastifyReply) => {
       const Params = z.object({ name: z.string().min(1) });
-      let name: string; try { ({ name } = Params.parse(request.params as any)); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid template name', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues }); }
-      const rawBody = (request.body as any) ?? {};
+      let name: string; try { ({ name } = Params.parse(request.params as Record<string, unknown>)); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid template name', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues }); }
+      const rawBody = (request.body as Record<string, unknown>) ?? {};
       const body = typeof rawBody === 'object' && rawBody && !Array.isArray(rawBody)
         ? (rawBody.env && typeof rawBody.env === 'object' ? { env: rawBody.env as Record<string,string> } : { env: rawBody as Record<string,string> })
         : { env: undefined } as { env?: Record<string,string> };
@@ -154,7 +154,7 @@ export class TemplateRoutes extends BaseRouteHandler {
     // Diagnose template for missing envs
     server.post('/api/templates/:name/diagnose', async (request: FastifyRequest, reply: FastifyReply) => {
       const Params = z.object({ name: z.string().min(1) });
-      let name: string; try { ({ name } = Params.parse(request.params as any)); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid template name', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues }); }
+      let name: string; try { ({ name } = Params.parse(request.params as Record<string, unknown>)); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid template name', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues }); }
       try {
         const tpl = await this.ctx.serviceRegistry.getTemplate(name);
         if (!tpl) {
@@ -162,10 +162,10 @@ export class TemplateRoutes extends BaseRouteHandler {
           return;
         }
         let required: string[] = [];
-        try { required = this.computeRequiredEnvForTemplate(tpl as any) || []; } catch { required = []; }
-        const provided = Object.keys((tpl as any).env || {});
+        try { required = this.computeRequiredEnvForTemplate(tpl) || []; } catch { required = []; }
+        const provided = Object.keys(tpl.env || {});
         const missing = required.filter(k => !provided.includes(k));
-        reply.send({ success: true, name, required, provided, missing, transport: (tpl as any).transport });
+        reply.send({ success: true, name, required, provided, missing, transport: tpl.transport });
       } catch (error) {
         reply.code(200).send({ success: false, name, required: [], provided: [], missing: [], transport: 'unknown', error: (error as Error)?.message || 'Diagnose failed' });
       }
@@ -174,7 +174,7 @@ export class TemplateRoutes extends BaseRouteHandler {
     // Delete template
     server.delete('/api/templates/:name', async (request: FastifyRequest, reply: FastifyReply) => {
       const Params = z.object({ name: z.string().min(1) });
-      let name: string; try { ({ name } = Params.parse(request.params as any)); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid template name', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues }); }
+      let name: string; try { ({ name } = Params.parse(request.params as Record<string, unknown>)); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid template name', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues }); }
       try {
         await this.ctx.serviceRegistry.removeTemplate(name);
         reply.send({ success: true, message: 'Template deleted successfully', name });
@@ -188,7 +188,7 @@ export class TemplateRoutes extends BaseRouteHandler {
     // Repair templates
     server.post('/api/templates/repair', async (_request: FastifyRequest, reply: FastifyReply) => {
       try {
-        await (this.ctx.serviceRegistry as any).templateManager.initializeDefaults();
+        await (this.ctx.serviceRegistry as unknown as { templateManager: { initializeDefaults(): Promise<void> } }).templateManager.initializeDefaults();
         reply.send({ success: true });
       } catch (error) {
         return this.respondError(reply, 500, (error as Error).message || 'Repair templates failed', { code: 'TEMPLATE_REPAIR_FAILED' });
@@ -203,7 +203,7 @@ export class TemplateRoutes extends BaseRouteHandler {
         const updated: string[] = [];
 
         const suggestImage = (tpl: McpServiceConfig): string => {
-          const cmd = String((tpl as any).command || '').toLowerCase();
+          const cmd = String(tpl.command || '').toLowerCase();
           if (cmd.includes('npm') || cmd.includes('node')) return 'node:20-alpine';
           if (cmd.includes('python')) return 'python:3.11-alpine';
           if (cmd.includes('go')) return 'golang:1.22-alpine';
@@ -211,16 +211,15 @@ export class TemplateRoutes extends BaseRouteHandler {
         };
 
         for (const tpl of templates) {
-          const env = (tpl as any).env || {};
-          const isContainer = env.SANDBOX === 'container' || !!(tpl as any).container;
-          const isStdio = (tpl as any).transport === 'stdio';
+          const env = tpl.env || {};
+          const isContainer = env.SANDBOX === 'container' || !!tpl.container;
+          const isStdio = tpl.transport === 'stdio';
           if (!isStdio || !isContainer) continue;
 
-          const container = (tpl as any).container || {};
+          const container = tpl.container || {};
           if (!container.image) {
-            const image = suggestImage(tpl as any);
-            const next: any = { ...tpl, container: { ...container, image } };
-            next.env = { ...(tpl as any).env, SANDBOX: 'container' };
+            const image = suggestImage(tpl);
+            const next: McpServiceConfig = { ...tpl, container: { ...container, image }, env: { ...tpl.env, SANDBOX: 'container' } };
             try {
               await this.ctx.serviceRegistry.registerTemplate(next);
               fixed += 1;
@@ -240,8 +239,8 @@ export class TemplateRoutes extends BaseRouteHandler {
 
   private computeRequiredEnvForTemplate(tpl: McpServiceConfig): string[] {
     const name = String((tpl?.name || '')).toLowerCase();
-    const cmd = String((tpl as any)?.command || '').toLowerCase();
-    const args = Array.isArray((tpl as any)?.args) ? ((tpl as any).args as string[]).join(' ').toLowerCase() : '';
+    const cmd = String(tpl?.command || '').toLowerCase();
+    const args = Array.isArray(tpl?.args) ? (tpl.args as string[]).join(' ').toLowerCase() : '';
     if (name.includes('brave') || args.includes('@modelcontextprotocol/server-brave-search')) return ['BRAVE_API_KEY'];
     if (name.includes('github') || args.includes('@modelcontextprotocol/server-github')) return ['GITHUB_TOKEN'];
     if (name.includes('openai') || cmd.includes('openai') || args.includes('openai') || args.includes('@modelcontextprotocol/server-openai')) return ['OPENAI_API_KEY'];

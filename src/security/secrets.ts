@@ -59,14 +59,14 @@ export function redactEnv(env?: Record<string, unknown>): Record<string, unknown
 }
 
 export function redactMcpServiceConfig(config: McpServiceConfig): McpServiceConfig {
-  const clone: any = { ...(config as any) };
-  if ((config as any).env) clone.env = redactEnv((config as any).env);
-  return clone as McpServiceConfig;
+  const clone = { ...config };
+  if (config.env) clone.env = redactEnv(config.env) as Record<string, string> | undefined;
+  return clone;
 }
 
 export function findPlaintextSecrets(config: McpServiceConfig): string[] {
   const hits: string[] = [];
-  const env = (config as any)?.env as Record<string, unknown> | undefined;
+  const env = config.env as Record<string, unknown> | undefined;
   if (!env) return hits;
 
   for (const [k, v] of Object.entries(env)) {
@@ -119,9 +119,9 @@ export function resolveArgsEnvRefs(args?: unknown[], sourceEnv: NodeJS.ProcessEn
 }
 
 export function resolveMcpServiceConfigEnvRefs(config: McpServiceConfig, sourceEnv: NodeJS.ProcessEnv = process.env): McpServiceConfig {
-  const next: any = { ...(config as any) };
-  if ((config as any).env) next.env = resolveEnvRefs((config as any).env, sourceEnv);
-  if ((config as any).args) next.args = resolveArgsEnvRefs((config as any).args, sourceEnv);
-  return next as McpServiceConfig;
+  const next = { ...config };
+  if (config.env) next.env = resolveEnvRefs(config.env, sourceEnv) as Record<string, string> | undefined;
+  if (config.args) next.args = resolveArgsEnvRefs(config.args, sourceEnv);
+  return next;
 }
 

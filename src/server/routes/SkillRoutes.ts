@@ -99,7 +99,7 @@ function normalizeSupportFiles(input?: z.infer<typeof SkillDefinitionSchema>['su
 }
 
 function buildSkillFromDefinition(input: z.infer<typeof SkillDefinitionSchema>): Skill {
-  const caps = mergeWithDefaults(input.capabilities as any);
+  const caps = mergeWithDefaults(input.capabilities as Partial<SkillCapabilities> | undefined);
   validateCapabilities(caps);
 
   const keywords = Array.isArray(input.metadata.keywords) ? input.metadata.keywords.map(String) : [];
@@ -181,9 +181,10 @@ export class SkillRoutes extends BaseRouteHandler {
   constructor(ctx: RouteContext) {
     super(ctx);
 
-    const cfg: any = this.ctx.configManager?.getConfig?.() || {};
-    const roots: string[] | undefined = Array.isArray(cfg?.skills?.roots) ? cfg.skills.roots : undefined;
-    const managedRoot: string | undefined = typeof cfg?.skills?.managedRoot === 'string' ? cfg.skills.managedRoot : undefined;
+    const cfg = (this.ctx.configManager?.getConfig?.() || {}) as Record<string, unknown>;
+    const skillsCfg = (cfg?.skills || {}) as Record<string, unknown>;
+    const roots: string[] | undefined = Array.isArray(skillsCfg?.roots) ? skillsCfg.roots as string[] : undefined;
+    const managedRoot: string | undefined = typeof skillsCfg?.managedRoot === 'string' ? skillsCfg.managedRoot as string : undefined;
 
     this.registry = new SkillRegistry({
       logger: this.ctx.logger,
@@ -203,8 +204,8 @@ export class SkillRoutes extends BaseRouteHandler {
       loadSupportFiles: true
     });
 
-    const storageRoot = typeof cfg?.skills?.versionsRoot === 'string' && cfg.skills.versionsRoot.trim().length
-      ? cfg.skills.versionsRoot
+    const storageRoot = typeof skillsCfg?.versionsRoot === 'string' && (skillsCfg.versionsRoot as string).trim().length
+      ? skillsCfg.versionsRoot as string
       : path.resolve(process.cwd(), 'data');
     this.versionStore = new SkillVersionStore({
       storageRoot,
@@ -253,7 +254,7 @@ export class SkillRoutes extends BaseRouteHandler {
     server.get('/api/skills', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         await this.initPromise;
-        const query = ListQuerySchema.parse((request.query as any) || {});
+        const query = ListQuerySchema.parse((request.query as Record<string, unknown>) || {});
         const q = query.q?.trim().toLowerCase();
         const scope = query.scope;
 
@@ -283,8 +284,8 @@ export class SkillRoutes extends BaseRouteHandler {
     });
 
     server.get('/api/skills/:name', async (request: FastifyRequest, reply: FastifyReply) => {
-      const params = z.object({ name: z.string().min(1) }).parse(request.params as any);
-      const query = GetSkillQuerySchema.parse((request.query as any) || {});
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
+      const query = GetSkillQuerySchema.parse((request.query as Record<string, unknown>) || {});
 
       try {
         await this.initPromise;
@@ -316,7 +317,7 @@ export class SkillRoutes extends BaseRouteHandler {
 
     // Compatibility alias for paper-burner NexusSkillProvider
     server.get('/api/skills/:name/content', async (request: FastifyRequest, reply: FastifyReply) => {
-      const params = z.object({ name: z.string().min(1) }).parse(request.params as any);
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
 
       try {
         await this.initPromise;
@@ -341,7 +342,7 @@ export class SkillRoutes extends BaseRouteHandler {
     server.post('/api/skills/register', async (request: FastifyRequest, reply: FastifyReply) => {
       let body: z.infer<typeof RegisterSkillBodySchema>;
       try {
-        body = RegisterSkillBodySchema.parse((request.body as any) || {});
+        body = RegisterSkillBodySchema.parse((request.body as Record<string, unknown>) || {});
       } catch (e) {
         const err = e as z.ZodError;
         return this.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
@@ -353,10 +354,10 @@ export class SkillRoutes extends BaseRouteHandler {
         this.registryVersion += 1;
         this.matcherIndexCache = undefined;
         reply.send({ success: true, skill: { metadata: skill.metadata } });
-        this.localizer.distribute(skill).catch((e: any) => {
+        this.localizer.distribute(skill).catch((e: unknown) => {
           this.ctx.logger?.warn?.('Auto-distribute failed after register', {
             skill: skill.metadata.name,
-            error: e?.message || String(e)
+            error: (e as Error)?.message || String(e)
           });
         });
       } catch (error) {
@@ -366,7 +367,7 @@ export class SkillRoutes extends BaseRouteHandler {
     });
 
     server.delete('/api/skills/:name', async (request: FastifyRequest, reply: FastifyReply) => {
-      const params = z.object({ name: z.string().min(1) }).parse(request.params as any);
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
 
       try {
         await this.initPromise;
@@ -384,7 +385,7 @@ export class SkillRoutes extends BaseRouteHandler {
 
     server.post('/api/skills/audit', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const raw = (request.body as any) || {};
+        const raw = (request.body as Record<string, unknown>) || {};
 
         const isDefinition =
           raw &&
@@ -398,8 +399,8 @@ export class SkillRoutes extends BaseRouteHandler {
           let skill: Skill;
           try {
             skill = buildSkillFromDefinition(def);
-          } catch (e: any) {
-            return this.respondError(reply, 400, e?.message || t('errors.invalid_skill_definition'), {
+          } catch (e: unknown) {
+            return this.respondError(reply, 400, (e as Error)?.message || t('errors.invalid_skill_definition'), {
               code: 'BAD_REQUEST',
               recoverable: true
             });
@@ -430,7 +431,7 @@ export class SkillRoutes extends BaseRouteHandler {
     server.post('/api/skills/match', async (request: FastifyRequest, reply: FastifyReply) => {
       let body: z.infer<typeof MatchBodySchema>;
       try {
-        body = MatchBodySchema.parse((request.body as any) || {});
+        body = MatchBodySchema.parse((request.body as Record<string, unknown>) || {});
       } catch (e) {
         const err = e as z.ZodError;
         return this.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
@@ -478,7 +479,7 @@ export class SkillRoutes extends BaseRouteHandler {
     });
 
     server.get('/api/skills/:name/versions', async (request: FastifyRequest, reply: FastifyReply) => {
-      const params = z.object({ name: z.string().min(1) }).parse(request.params as any);
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
 
       try {
         await this.initPromise;
@@ -491,11 +492,11 @@ export class SkillRoutes extends BaseRouteHandler {
     });
 
     server.post('/api/skills/:name/versions', async (request: FastifyRequest, reply: FastifyReply) => {
-      const params = z.object({ name: z.string().min(1) }).parse(request.params as any);
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
 
       let body: z.infer<typeof CreateVersionBodySchema>;
       try {
-        body = CreateVersionBodySchema.parse((request.body as any) || {});
+        body = CreateVersionBodySchema.parse((request.body as Record<string, unknown>) || {});
       } catch (error) {
         const err = error as z.ZodError;
         return this.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
@@ -521,7 +522,7 @@ export class SkillRoutes extends BaseRouteHandler {
       const params = z.object({
         name: z.string().min(1),
         versionId: z.string().min(1)
-      }).parse(request.params as any);
+      }).parse(request.params as Record<string, unknown>);
 
       try {
         await this.initPromise;
@@ -545,10 +546,10 @@ export class SkillRoutes extends BaseRouteHandler {
         reply.send({ success: true, snapshot });
         const rolledBackSkill = this.registry.get(params.name);
         if (rolledBackSkill) {
-          this.localizer.distribute(rolledBackSkill).catch((e: any) => {
+          this.localizer.distribute(rolledBackSkill).catch((e: unknown) => {
             this.ctx.logger?.warn?.('Auto-distribute failed after rollback', {
               skill: params.name,
-              error: e?.message || String(e)
+              error: (e as Error)?.message || String(e)
             });
           });
         }
@@ -559,7 +560,7 @@ export class SkillRoutes extends BaseRouteHandler {
     });
 
     server.get('/api/skills/:name/permissions', async (request: FastifyRequest, reply: FastifyReply) => {
-      const params = z.object({ name: z.string().min(1) }).parse(request.params as any);
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
 
       try {
         await this.initPromise;
@@ -581,7 +582,7 @@ export class SkillRoutes extends BaseRouteHandler {
     });
 
     server.get('/api/skills/:name/audit-summary', async (request: FastifyRequest, reply: FastifyReply) => {
-      const params = z.object({ name: z.string().min(1) }).parse(request.params as any);
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
 
       try {
         await this.initPromise;
@@ -617,11 +618,11 @@ export class SkillRoutes extends BaseRouteHandler {
     });
 
     server.post('/api/skills/:name/authorize', async (request: FastifyRequest, reply: FastifyReply) => {
-      const params = z.object({ name: z.string().min(1) }).parse(request.params as any);
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
 
       let body: z.infer<typeof AuthorizeBodySchema>;
       try {
-        body = AuthorizeBodySchema.parse((request.body as any) || {});
+        body = AuthorizeBodySchema.parse((request.body as Record<string, unknown>) || {});
       } catch (error) {
         const err = error as z.ZodError;
         return this.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
@@ -647,7 +648,7 @@ export class SkillRoutes extends BaseRouteHandler {
     });
 
     server.post('/api/skills/:name/revoke', async (request: FastifyRequest, reply: FastifyReply) => {
-      const params = z.object({ name: z.string().min(1) }).parse(request.params as any);
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
 
       try {
         await this.initPromise;
@@ -665,8 +666,8 @@ export class SkillRoutes extends BaseRouteHandler {
     });
 
     server.get('/api/skills/:name/localized', async (request: FastifyRequest, reply: FastifyReply) => {
-      const params = z.object({ name: z.string().min(1) }).parse(request.params as any);
-      const query = LocalizedSkillQuerySchema.parse((request.query as any) || {});
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
+      const query = LocalizedSkillQuerySchema.parse((request.query as Record<string, unknown>) || {});
 
       try {
         await this.initPromise;
@@ -686,11 +687,11 @@ export class SkillRoutes extends BaseRouteHandler {
     });
 
     server.post('/api/skills/:name/distribute', async (request: FastifyRequest, reply: FastifyReply) => {
-      const params = z.object({ name: z.string().min(1) }).parse(request.params as any);
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
 
       let body: z.infer<typeof DistributeBodySchema>;
       try {
-        body = DistributeBodySchema.parse((request.body as any) || {});
+        body = DistributeBodySchema.parse((request.body as Record<string, unknown>) || {});
       } catch (error) {
         const err = error as z.ZodError;
         return this.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
@@ -712,11 +713,11 @@ export class SkillRoutes extends BaseRouteHandler {
     });
 
     server.delete('/api/skills/:name/distribute', async (request: FastifyRequest, reply: FastifyReply) => {
-      const params = z.object({ name: z.string().min(1) }).parse(request.params as any);
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
 
       let body: z.infer<typeof DistributeBodySchema>;
       try {
-        body = DistributeBodySchema.parse((request.body as any) || {});
+        body = DistributeBodySchema.parse((request.body as Record<string, unknown>) || {});
       } catch (error) {
         const err = error as z.ZodError;
         return this.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });

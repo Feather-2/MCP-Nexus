@@ -57,10 +57,10 @@ export class HttpApiServer {
   private router: GatewayRouterImpl;
   private protocolAdapters: ProtocolAdaptersImpl;
   private configManager: import('../config/ConfigManagerImpl.js').ConfigManagerImpl;
-  private readonly apiRoutesToAlias: any[] = [];
-  private logBuffer: Array<{ timestamp: string; level: string; message: string; service?: string; data?: any }> = [];
+  private readonly apiRoutesToAlias: Record<string, unknown>[] = [];
+  private logBuffer: Array<{ timestamp: string; level: string; message: string; service?: string; data?: unknown }> = [];
   private logStreamClients: Set<FastifyReply> = new Set();
-  private sandboxStatus: { nodeReady: boolean; pythonReady: boolean; goReady: boolean; packagesReady: boolean; details: Record<string, any> } = { nodeReady: false, pythonReady: false, goReady: false, packagesReady: false, details: {} };
+  private sandboxStatus: { nodeReady: boolean; pythonReady: boolean; goReady: boolean; packagesReady: boolean; details: Record<string, unknown> } = { nodeReady: false, pythonReady: false, goReady: false, packagesReady: false, details: {} };
   private sandboxInstalling: boolean = false;
   private orchestratorStatus: OrchestratorStatus | null = null;
   private orchestratorManager?: OrchestratorManager;
@@ -107,8 +107,8 @@ export class HttpApiServer {
     // Built-in cross-cutting middleware (migrated from Fastify hooks).
     const configProvider = {
       getConfig: () =>
-        typeof (this.configManager as any)?.getConfig === 'function'
-          ? (this.configManager as any).getConfig()
+        typeof this.configManager?.getConfig === 'function'
+          ? this.configManager.getConfig()
           : this.config
     };
     this.addMiddleware(
@@ -118,7 +118,7 @@ export class HttpApiServer {
       })
     );
     this.addMiddleware(
-      new AuthMiddleware(this.authLayer as any, {
+      new AuthMiddleware(this.authLayer, {
         respondError: this.respondError.bind(this),
         requiresAuth: (req) => req.url.startsWith('/api/')
       })
@@ -145,40 +145,40 @@ export class HttpApiServer {
       this.serviceRegistry.setHealthProbe(async (serviceId: string) => {
         const service = await this.serviceRegistry.getService(serviceId);
         if (!service) {
-          return { healthy: false, error: 'Service not found', timestamp: new Date() } as any;
+          return { healthy: false, error: 'Service not found', timestamp: new Date() };
         }
         // 仅对运行中的实例做探测，避免为非运行/一次性服务反复拉起进程
-        if ((service as any).state !== 'running') {
-          return { healthy: false, error: 'Service not running', timestamp: new Date() } as any;
+        if (service.state !== 'running') {
+          return { healthy: false, error: 'Service not running', timestamp: new Date() };
         }
         const start = Date.now();
         try {
           const adapter = await this.protocolAdapters.createAdapter(service.config);
           await adapter.connect();
           try {
-            const msg: any = { jsonrpc: '2.0', id: `health-${Date.now()}`, method: 'tools/list', params: {} };
-            const res = (adapter as any).sendAndReceive
-              ? await (adapter as any).sendAndReceive(msg)
-              : await adapter.send(msg as any);
+            const msg = { jsonrpc: '2.0' as const, id: `health-${Date.now()}`, method: 'tools/list', params: {} };
+            const sendReceive = (adapter as unknown as { sendAndReceive?: (m: unknown) => Promise<unknown> }).sendAndReceive;
+            const res = sendReceive
+              ? await sendReceive(msg)
+              : await adapter.send(msg);
             const latency = Date.now() - start;
-            const ok = !!(res && (res as any).result);
-            if (!ok && (res as any)?.error?.message) {
-              // Attach last error to instance metadata for quick surfacing in UI
+            const r = res as Record<string, unknown> | null;
+            const ok = !!(r && r.result);
+            if (!ok && (r?.error as Record<string, unknown>)?.message) {
               try {
-                await this.serviceRegistry.setInstanceMetadata(serviceId, 'lastProbeError', (res as any).error.message);
+                await this.serviceRegistry.setInstanceMetadata(serviceId, 'lastProbeError', String((r!.error as Record<string, unknown>).message));
               } catch {}
             }
             return { healthy: ok, latency, timestamp: new Date() };
           } finally {
             await adapter.disconnect();
           }
-        } catch (e: any) {
-          // Surface known env-related missing variable errors from stderr or message
-          const errMsg = e?.message || 'probe failed';
+        } catch (e: unknown) {
+          const errMsg = (e as Error)?.message || 'probe failed';
           try {
             await this.serviceRegistry.setInstanceMetadata(serviceId, 'lastProbeError', errMsg);
           } catch {}
-          return { healthy: false, error: errMsg, latency: Date.now() - start, timestamp: new Date() } as any;
+          return { healthy: false, error: errMsg, latency: Date.now() - start, timestamp: new Date() };
         }
       });
     } catch {}
@@ -209,26 +209,26 @@ export class HttpApiServer {
 
       this.addLogEntry(level, message, service);
     }, 3000 + Math.random() * 7000); // Random interval between 3-10 seconds
-    (this.demoLogTimer as any).unref?.();
+    (this.demoLogTimer as unknown as { unref?: () => void }).unref?.();
 
     // Periodic cleanup of disconnected SSE clients
     this.sseCleanupTimer = setInterval(() => {
       try {
         for (const client of Array.from(this.logStreamClients)) {
-          const raw: any = client.raw as any;
+          const raw = client.raw as { writableEnded?: boolean; destroyed?: boolean } | undefined;
           if (!raw || raw.writableEnded || raw.destroyed) {
             this.logStreamClients.delete(client);
           }
         }
         for (const client of Array.from(this.sandboxStreamClients)) {
-          const raw: any = client.raw as any;
+          const raw = client.raw as { writableEnded?: boolean; destroyed?: boolean } | undefined;
           if (!raw || raw.writableEnded || raw.destroyed) {
             this.sandboxStreamClients.delete(client);
           }
         }
       } catch {}
     }, 30000);
-    (this.sseCleanupTimer as any).unref?.();
+    (this.sseCleanupTimer as unknown as { unref?: () => void }).unref?.();
   }
 
   private setupApiVersioning(): void {
@@ -270,7 +270,7 @@ export class HttpApiServer {
     });
 
     this.server.addHook('onRequest', (request, reply, done) => {
-      const incoming = (request.headers['x-trace-id'] || request.headers['x-request-id']) as any;
+      const incoming = (request.headers['x-trace-id'] || request.headers['x-request-id']) as string | string[] | undefined;
       const clientTraceId = typeof incoming === 'string' && incoming.trim() ? incoming.trim() : undefined;
 
       let span: any;
@@ -362,7 +362,7 @@ export class HttpApiServer {
     });
   }
 
-  private addLogEntry(level: string, message: string, service?: string, data?: any): void {
+  private addLogEntry(level: string, message: string, service?: string, data?: unknown): void {
     const logEntry = {
       timestamp: new Date().toISOString(),
       level,
@@ -381,7 +381,7 @@ export class HttpApiServer {
     this.broadcastLogEntry(logEntry);
   }
 
-  private broadcastLogEntry(logEntry: any): void {
+  private broadcastLogEntry(logEntry: Record<string, unknown>): void {
     const payload = { ...logEntry, serviceId: logEntry.service };
     const message = `data: ${JSON.stringify(payload)}\n\n`;
 
@@ -460,7 +460,7 @@ export class HttpApiServer {
       respondError: this.respondError.bind(this),
       middlewares: this.middlewares,
       middlewareChain: this.middlewareChain
-    } as any;
+    } as unknown as RouteContext;
   }
 
   private setupMiddleware(): void {
@@ -475,11 +475,11 @@ export class HttpApiServer {
       }
 
       const traceId = (request as any).traceId as string | undefined;
-      const startedAtMs = (request as any).startedAtMs as number | undefined;
+      const startedAtMs2 = (request as any).startedAtMs as number | undefined;
       const mwCtx = {
         requestId: traceId || `http-${Date.now()}`,
         traceId,
-        startTime: typeof startedAtMs === 'number' ? startedAtMs : Date.now(),
+        startTime: typeof startedAtMs2 === 'number' ? startedAtMs2 : Date.now(),
         metadata: {
           method: request.method,
           url: request.url,
@@ -592,7 +592,7 @@ export class HttpApiServer {
     });
 
     // Response logging (helmet handles security headers)
-    this.server.addHook('onSend', (request: FastifyRequest, reply: FastifyReply, payload: any, done) => {
+    this.server.addHook('onSend', (request: FastifyRequest, reply: FastifyReply, payload: unknown, done) => {
       try {
         const elapsed = (reply as any).elapsedTime ?? undefined;
         this.logger.debug(`${request.method} ${request.url} - ${reply.statusCode}`, { responseTime: elapsed });
@@ -605,10 +605,10 @@ export class HttpApiServer {
     // Post-response stage for middleware chain (best-effort).
     this.server.addHook('onResponse', async (request: FastifyRequest) => {
       try {
-        const mwCtx = (request as any).__mwCtx as any;
-        const mwState = (request as any).__mwState as any;
+        const mwCtx = (request as any).__mwCtx;
+        const mwState = (request as any).__mwState;
         if (!mwCtx || !mwState) return;
-        await this.middlewareChain.execute('afterAgent', mwCtx, mwState);
+        await this.middlewareChain.execute('afterAgent', mwCtx as any, mwState as any);
       } catch {
         // ignore
       }
@@ -629,7 +629,7 @@ export class HttpApiServer {
       headers['Vary'] = 'Origin';
     }
     try {
-      (reply as any).raw.writeHead(200, headers);
+      (reply.raw as unknown as { writeHead: (status: number, headers: Record<string, string>) => void }).writeHead(200, headers);
     } catch {}
   }
 
@@ -747,7 +747,7 @@ export class HttpApiServer {
   }
 
   // Unified error response helper
-  private respondError(reply: FastifyReply, status: number, message: string, opts?: { code?: string; recoverable?: boolean; meta?: any }) {
+  private respondError(reply: FastifyReply, status: number, message: string, opts?: { code?: string; recoverable?: boolean; meta?: unknown }) {
     const payload = {
       success: false,
       error: {
@@ -758,13 +758,13 @@ export class HttpApiServer {
       }
     };
     try { this.logger.error(message, { ...(opts || {}), httpStatus: status }); } catch {}
-    return reply.code(status).send(payload as any);
+    return reply.code(status).send(payload);
   }
 
-  private mapMiddlewareError(error: unknown): { status: number; code: string; message: string; recoverable: boolean; meta?: any } {
+  private mapMiddlewareError(error: unknown): { status: number; code: string; message: string; recoverable: boolean; meta?: unknown } {
     const err = error instanceof Error ? error : new Error(String(error));
     const stageErr = err instanceof MiddlewareStageError ? err : undefined;
-    const causeCandidate = (stageErr?.cause as any) ?? (err as any).cause;
+    const causeCandidate = stageErr?.cause ?? (err as any).cause;
     const root = causeCandidate instanceof Error ? causeCandidate : err;
 
     if (root instanceof MiddlewareTimeoutError) {
@@ -830,18 +830,18 @@ export class HttpApiServer {
       try {
         const span = (request as any).otelSpan;
         if (span) {
-          span.recordException?.(error as any);
-          span.setStatus?.({ code: SpanStatusCode.ERROR, message: (error as any)?.message || String(error) });
+          span.recordException?.(error);
+          span.setStatus?.({ code: SpanStatusCode.ERROR, message: (error as Error)?.message || String(error) });
         }
       } catch {}
 
       const errorDetails = {
         method: request.method,
         url: request.url,
-        message: (error as any)?.message || String(error),
-        stack: (error as any)?.stack,
-        code: (error as any)?.code,
-        statusCode: (error as any)?.statusCode
+        message: (error as Error)?.message || String(error),
+        stack: (error as Error)?.stack,
+        code: (error as Record<string, unknown>)?.code,
+        statusCode: (error as Record<string, unknown>)?.statusCode
       };
       this.logger.error('HTTP API error:', errorDetails);
 

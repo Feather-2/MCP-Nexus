@@ -155,7 +155,7 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
 
       // Validate working directory stays within project cwd
       let effectiveWorkingDirectory = workingDirectory;
-      const sandboxMode = String((env as any)?.SANDBOX || '');
+      const sandboxMode = String((env as Record<string, unknown>)?.SANDBOX || '');
       const isPortableSandbox = sandboxMode === 'portable';
 
       // Infer portable packages directory when running npm/npx under SANDBOX=portable.
@@ -191,7 +191,7 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
 
       const processEnv = this.buildIsolatedEnv(process.env, env);
 
-      const opts: any = {
+      const opts: Record<string, unknown> = {
         stdio: ['pipe', 'pipe', 'pipe'],
         env: processEnv,
         shell: useShell
@@ -201,7 +201,7 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
         opts.cwd = effectiveWorkingDirectory;
 
         // When offline is enforced, require installed packages + lockfile under the sandbox directory.
-        const offline = String((env as any)?.npm_config_offline || '') === 'true' || args.includes('--no-install');
+        const offline = String((env as Record<string, unknown>)?.npm_config_offline || '') === 'true' || args.includes('--no-install');
         if (isPortableSandbox && offline) {
           const baseCmd = path.basename(normalizedCommand).toLowerCase().replace(/\\/g, '/');
           const cmdBase = baseCmd.replace(/\.(exe|cmd|bat|com)$/i, '');
@@ -235,8 +235,8 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
       // Validate base command against security blocklist
       try {
         StdioTransportAdapter.commandValidator.validate(normalizedCommand);
-      } catch (e: any) {
-        throw new Error(`Command blocked by security policy: ${e?.message || String(e)}`);
+      } catch (e: unknown) {
+        throw new Error(`Command blocked by security policy: ${(e as Error)?.message || String(e)}`);
       }
 
       this.process = spawn(normalizedCommand, args, opts);
@@ -280,7 +280,7 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
     }
   }
 
-  private buildIsolatedEnv(baseEnv: NodeJS.ProcessEnv, overrideEnv: Record<string, any> = {}): NodeJS.ProcessEnv {
+  private buildIsolatedEnv(baseEnv: NodeJS.ProcessEnv, overrideEnv: Record<string, string> = {}): NodeJS.ProcessEnv {
     // Optional lightweight sandbox when SANDBOX === 'portable'
     if (overrideEnv && overrideEnv.SANDBOX === 'portable') {
       const portableNodeDir = overrideEnv.SANDBOX_NODE_DIR
@@ -465,7 +465,7 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
   private setupProcessHandlers(): void {
     if (!this.process) return;
 
-    this.process.on('error', (error: any) => {
+    this.process.on('error', (error: Error) => {
       this.logger.error(`Stdio process error:`, error);
       // Try to surface common env missing patterns to upstream (for UI hints)
       const msg = String(error?.message || '').toLowerCase();

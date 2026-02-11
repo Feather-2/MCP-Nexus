@@ -117,7 +117,7 @@ export class PbMcpGateway extends EventEmitter {
   }
 
   // Service management methods
-  async createService(templateName: string, instanceArgs: any = {}): Promise<string> {
+  async createService(templateName: string, instanceArgs: Record<string, unknown> = {}): Promise<string> {
     this.ensureStarted();
     return await this._serviceRegistry.createServiceFromTemplate(templateName, instanceArgs);
   }
@@ -173,8 +173,8 @@ export class PbMcpGateway extends EventEmitter {
       timeout: template.timeout ?? 30000, // Provide default
       retries: template.retries ?? 3, // Provide default
       healthCheck: template.healthCheck,
-      container: (template as any).container,
-      security: (template as any).security
+      container: (template as unknown as Record<string, unknown>).container as McpServiceConfig['container'],
+      security: (template as unknown as Record<string, unknown>).security as McpServiceConfig['security']
     };
     await this._serviceRegistry.registerTemplate(serviceConfig);
   }
@@ -449,7 +449,7 @@ export function createGateway(
   // Create logger with specified level if no logger provided
   const gatewayLogger =
     logger ||
-    new PinoLogger({ level: (logLevel || 'info') as any, pretty: process.env.PB_LOG_PRETTY === '1' });
+    new PinoLogger({ level: (logLevel || 'info') as 'trace' | 'debug' | 'info' | 'warn' | 'error', pretty: process.env.PB_LOG_PRETTY === '1' });
 
   const gateway = new PbMcpGateway(configPath, gatewayLogger);
 

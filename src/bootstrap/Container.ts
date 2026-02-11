@@ -7,8 +7,8 @@ type Provider<T> =
   | { kind: 'factory'; factory: Factory<T>; singleton: boolean };
 
 export class Container {
-  private readonly providers = new Map<Token<any>, Provider<any>>();
-  private readonly singletonCache = new Map<Token<any>, any>();
+  private readonly providers = new Map<Token<unknown>, Provider<unknown>>();
+  private readonly singletonCache = new Map<Token<unknown>, unknown>();
 
   has<T>(token: Token<T>): boolean {
     return this.providers.has(token);

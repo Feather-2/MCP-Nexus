@@ -235,7 +235,7 @@ describe('McpProtocolHandshaker', () => {
 
       const message = vi.mocked(mockProtocolStack.sendMessage).mock.calls[0][1] as McpMessage;
       expect(message.method).toBe('initialize');
-      expect(message.params?.protocolVersion).toBe('2025-06-18');
+      expect((message.params as Record<string, unknown>)?.protocolVersion).toBe('2025-06-18');
     });
 
     it('should handle capabilities error', async () => {

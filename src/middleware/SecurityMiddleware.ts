@@ -44,7 +44,7 @@ export class SecurityMiddleware implements Middleware {
    * 工具执行前：路径检查与参数检查
    */
   async beforeTool(ctx: Context, state: State): Promise<void> {
-    const toolCall = state.values.get('toolCall') as any;
+    const toolCall = state.values.get('toolCall') as Record<string, unknown> | undefined;
     if (!toolCall) return;
 
     // 1. 参数级黑名单检查
@@ -56,8 +56,9 @@ export class SecurityMiddleware implements Middleware {
     }
 
     // 2. 路径符号链接防护 (Symlink Guard)
-    if (this.config.enableSymlinkGuard && toolCall.arguments?.path) {
-      this.validatePath(toolCall.arguments.path);
+    const toolArgs = toolCall.arguments as Record<string, unknown> | undefined;
+    if (this.config.enableSymlinkGuard && toolArgs?.path) {
+      this.validatePath(String(toolArgs.path));
     }
   }
 
@@ -67,7 +68,7 @@ export class SecurityMiddleware implements Middleware {
   async afterTool(ctx: Context, state: State): Promise<void> {
     if (!this.config.enableRedaction) return;
 
-    const result = state.values.get('toolResult') as any;
+    const result = state.values.get('toolResult') as Record<string, unknown> | undefined;
     if (!result || typeof result.content !== 'string') return;
 
     // 3. 敏感信息脱敏 (Secret Redaction)
@@ -88,7 +89,7 @@ export class SecurityMiddleware implements Middleware {
    * 模型输出检查：防止注入后的危险指令
    */
   async afterModel(ctx: Context, state: State): Promise<void> {
-    const output = state.values.get('modelOutput') as any;
+    const output = state.values.get('modelOutput') as Record<string, unknown> | undefined;
     if (!output || typeof output.content !== 'string') return;
 
     // 启发式扫描：防止 Prompt Injection 导致的破坏性建议
@@ -118,8 +119,8 @@ export class SecurityMiddleware implements Middleware {
       if (!realPath.startsWith(allowedDir)) {
         throw new Error(`Security Guard: Access denied to path outside allowed directory: ${filePath}`);
       }
-    } catch (err: any) {
-      if (err.message?.includes('Security Guard')) throw err;
+    } catch (err: unknown) {
+      if ((err as Error).message?.includes('Security Guard')) throw err;
       // 路径不存在或解析失败，也视为不安全（除非明确允许创建）
       throw new Error(`Security Guard: Path validation failed: ${filePath}`);
     }

@@ -66,7 +66,7 @@ export class OrchestratorRoutes extends BaseRouteHandler {
         return this.respondError(reply, 503, 'Orchestrator manager not available', { code: 'UNAVAILABLE' });
       }
       try {
-        const updates = OrchestratorConfigSchema.partial().parse((request.body ?? {}) as any) as Partial<OrchestratorConfig>;
+        const updates = OrchestratorConfigSchema.partial().parse((request.body ?? {}) as Record<string, unknown>) as Partial<OrchestratorConfig>;
         const updated = await this.ctx.orchestratorManager.updateConfig(updates);
         reply.send({ success: true, config: updated });
       } catch (error) {
@@ -111,9 +111,9 @@ export class OrchestratorRoutes extends BaseRouteHandler {
         const loader = this.ctx.subagentLoader || this.subagentLoader || (this.ctx.getSubagentLoader ? this.ctx.getSubagentLoader() : undefined);
 
         const Body = ExecuteRequestSchema.extend({
-          context: z.record(z.string(), z.any()).optional()
+          context: z.record(z.string(), z.unknown()).optional()
         });
-        const parsed = Body.parse((request.body as any) || {});
+        const parsed = Body.parse((request.body as Record<string, unknown>) || {});
         if (!parsed.goal && (!parsed.steps || parsed.steps.length === 0)) {
           return this.respondError(reply, 400, 'goal or steps is required', { code: 'BAD_REQUEST', recoverable: true });
         }
@@ -128,7 +128,7 @@ export class OrchestratorRoutes extends BaseRouteHandler {
             await this.subagentLoader.loadAll();
           }
         } catch (e) {
-          this.ctx.logger.warn('Failed to load subagents before orchestration', e as any);
+          this.ctx.logger.warn('Failed to load subagents before orchestration', e);
         }
 
         const { context: _context, ...execReq } = parsed;
@@ -151,7 +151,7 @@ export class OrchestratorRoutes extends BaseRouteHandler {
     // Create/update subagent
     server.post('/api/orchestrator/subagents', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const config = SubagentConfigSchema.parse((request.body as any) || {}) as SubagentConfig;
+        const config = SubagentConfigSchema.parse((request.body as Record<string, unknown>) || {}) as SubagentConfig;
         const status = this.ctx.getOrchestratorStatus ? this.ctx.getOrchestratorStatus() : undefined;
         if (!status) {
           return this.respondError(reply, 503, 'Orchestrator not available', { code: 'UNAVAILABLE' });
@@ -184,7 +184,7 @@ export class OrchestratorRoutes extends BaseRouteHandler {
     server.delete('/api/orchestrator/subagents/:name', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const Params = z.object({ name: z.string().min(1) });
-        const { name } = Params.parse(request.params as any);
+        const { name } = Params.parse(request.params as Record<string, unknown>);
         const status = this.ctx.getOrchestratorStatus ? this.ctx.getOrchestratorStatus() : undefined;
         if (!status) {
           return this.respondError(reply, 503, 'Orchestrator not available', { code: 'UNAVAILABLE' });
@@ -196,8 +196,8 @@ export class OrchestratorRoutes extends BaseRouteHandler {
         const filePath = path.join(status.subagentsDir, `${safeName}.json`);
         try {
           await fs.unlink(filePath);
-        } catch (err: any) {
-          if (err?.code === 'ENOENT') {
+        } catch (err: unknown) {
+          if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
             return this.respondError(reply, 404, 'Subagent not found', { code: 'NOT_FOUND', recoverable: true });
           }
           throw err;

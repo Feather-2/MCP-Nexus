@@ -33,11 +33,11 @@ export class ContainerTransportAdapter extends EventEmitter implements Transport
 
     // Build container command & args
     const { command: innerCmd, args: innerArgs = [], env = {} } = config;
-    const container = (config as any).container || {};
+    const container = (config as Record<string, unknown>).container as Record<string, unknown> || {};
     const policyOpts = this.policy;
 
-    const runtime: 'docker' | 'podman' = (container.runtime as any) || (process.env.CONTAINER_RUNTIME as any) || 'docker';
-    const image: string | undefined = container.image;
+    const runtime: 'docker' | 'podman' = (container.runtime as string || process.env.CONTAINER_RUNTIME || 'docker') as 'docker' | 'podman';
+    const image: string | undefined = container.image as string | undefined;
 
     if (!image) {
       throw new Error('Container image is required when SANDBOX=container or container config is present');
@@ -60,7 +60,7 @@ export class ContainerTransportAdapter extends EventEmitter implements Transport
     }
 
     // resources
-    const resources = container.resources || {};
+    const resources = (container.resources || {}) as Record<string, unknown>;
     if (resources.cpus != null) runArgs.push('--cpus', String(resources.cpus));
     if (resources.memory) runArgs.push('--memory', String(resources.memory));
     // PID limit: service config > policy default
@@ -71,7 +71,7 @@ export class ContainerTransportAdapter extends EventEmitter implements Transport
     const noNewPrivileges = container.noNewPrivileges ?? policyOpts?.defaultNoNewPrivileges ?? true;
     if (noNewPrivileges) runArgs.push('--security-opt', 'no-new-privileges:true');
     if (container.seccompProfile) runArgs.push('--security-opt', `seccomp=${container.seccompProfile}`);
-    const dropCaps = container.dropCapabilities ?? policyOpts?.defaultDropCapabilities ?? [];
+    const dropCaps = (container.dropCapabilities ?? policyOpts?.defaultDropCapabilities ?? []) as unknown[];
     for (const cap of dropCaps) {
       runArgs.push('--cap-drop', String(cap).toUpperCase());
     }
@@ -107,7 +107,7 @@ export class ContainerTransportAdapter extends EventEmitter implements Transport
     delete passEnv.SANDBOX_PYTHON_DIR;
     delete passEnv.SANDBOX_GO_DIR;
     // Host-only spawn hints should not affect container runtime invocation
-    delete (passEnv as any).USE_CWD;
+    delete (passEnv as Record<string, unknown>).USE_CWD;
 
     // Env whitelist: pass only safe keys or project-prefixed keys
     const safeList = Array.isArray(policyOpts?.envSafePrefixes) && policyOpts!.envSafePrefixes!.length
@@ -160,9 +160,9 @@ export class ContainerTransportAdapter extends EventEmitter implements Transport
     // Bubble up delegate events
     this.delegate.on('message', (m) => this.emit('message', m));
     this.delegate.on('sent', (m) => this.emit('sent', m));
-    this.delegate.on('stderr', (l) => this.emit('stderr', l as any));
+    this.delegate.on('stderr', (l) => this.emit('stderr', l));
     this.delegate.on('disconnect', (e) => this.emit('disconnect', e));
-    this.delegate.on('error', (e) => this.emit('error', e as any));
+    this.delegate.on('error', (e) => this.emit('error', e));
   }
 
   async connect(): Promise<void> {
@@ -171,26 +171,26 @@ export class ContainerTransportAdapter extends EventEmitter implements Transport
       this.logger.info(`Container adapter connected for ${this.config.name}`);
     } catch (e) {
       // Fallback: if docker fails and runtime unspecified, try podman once
-      const container = (this.config as any).container || {};
-      const runtime: string = container.runtime || process.env.CONTAINER_RUNTIME || 'docker';
-      if (runtime === 'docker') {
+      const container2 = (this.config as Record<string, unknown>).container as Record<string, unknown> || {};
+      const runtime2: string = container2.runtime as string || process.env.CONTAINER_RUNTIME || 'docker';
+      if (runtime2 === 'docker') {
         try {
           this.logger.warn('Docker failed to start; retry with podman');
           // Clean up old delegate listeners before replacing
           this.delegate.removeAllListeners();
-          (this.config as any).container = { ...container, runtime: 'podman' };
+          (this.config as Record<string, unknown>).container = { ...container2, runtime: 'podman' };
           const retry = new ContainerTransportAdapter(this.config, this.logger, this.policy);
-          this.delegate = (retry as any).delegate;
+          this.delegate = (retry as unknown as { delegate: StdioTransportAdapter }).delegate;
           // Re-wire event listeners to new delegate
           this.delegate.on('message', (m) => this.emit('message', m));
           this.delegate.on('sent', (m) => this.emit('sent', m));
-          this.delegate.on('stderr', (l) => this.emit('stderr', l as any));
+          this.delegate.on('stderr', (l) => this.emit('stderr', l));
           this.delegate.on('disconnect', (e) => this.emit('disconnect', e));
-          this.delegate.on('error', (e) => this.emit('error', e as any));
+          this.delegate.on('error', (e) => this.emit('error', e));
           await this.delegate.connect();
           return;
         } catch (err) {
-          this.logger.error('Podman fallback failed', err as any);
+          this.logger.error('Podman fallback failed', err);
         }
       }
       throw e;

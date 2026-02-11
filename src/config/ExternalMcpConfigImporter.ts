@@ -114,7 +114,7 @@ export class ExternalMcpConfigImporter {
   private async discoverFromSettingsFile(source: SourceName, filePath: string, _keys: string[]): Promise<DiscoveredTemplate[]> {
     try {
       // 文件大小限制与存在性检查
-      const st = await fs.stat(filePath).catch(() => null as any);
+      const st = await fs.stat(filePath).catch(() => null);
       if (!st || !st.isFile() || st.size > this.MAX_JSON_BYTES) return [];
       const raw = await fs.readFile(filePath, 'utf-8');
       const json = this.safeParseJson(raw);
@@ -124,7 +124,7 @@ export class ExternalMcpConfigImporter {
 
       // VS Code style: "mcp.servers": [ { name, command, args, env } ]
       if (json['mcp.servers'] && Array.isArray(json['mcp.servers'])) {
-        for (const entry of json['mcp.servers'] as any[]) {
+        for (const entry of json['mcp.servers'] as Record<string, unknown>[]) {
           const mapped = this.mapServerEntryToTemplate(entry);
           if (mapped) items.push(mapped);
         }
@@ -175,7 +175,7 @@ export class ExternalMcpConfigImporter {
     const baseResolved = this.normPath(resolve(baseDir));
     const walk = async (dir: string, d: number) => {
       if (d < 0) return;
-      let entries: any[] = [];
+      let entries: import('fs').Dirent[] = [];
       try {
         const fsP = await import('fs/promises');
         entries = await fsP.readdir(dir, { withFileTypes: true });
@@ -183,13 +183,13 @@ export class ExternalMcpConfigImporter {
         return;
       }
       for (const e of entries) {
-        const name = (e as any).name || '';
+        const name = e.name || '';
         const full = resolve(dir, name);
         const normFull = this.normPath(full);
         // 白名单：仅遍历 baseDir 子路径
         if (!this.isSubPath(baseResolved, normFull)) continue;
-        if ((e as any).isSymbolicLink?.()) continue; // 跳过符号链接
-        if ((e as any).isDirectory?.()) {
+        if (e.isSymbolicLink?.()) continue; // 跳过符号链接
+        if (e.isDirectory?.()) {
           await walk(full, d - 1);
         } else if (normFull.toLowerCase().endsWith('.json')) {
           acc.push(full);
@@ -201,32 +201,32 @@ export class ExternalMcpConfigImporter {
   }
 
   // ========== Mapping ==========
-  private mapMcpServersBlock(block: any): McpServiceConfig[] {
+  private mapMcpServersBlock(block: unknown): McpServiceConfig[] {
     const out: McpServiceConfig[] = [];
     if (Array.isArray(block)) {
       for (const entry of block) {
-        const mapped = this.mapServerEntryToTemplate(entry);
+        const mapped = this.mapServerEntryToTemplate(entry as Record<string, unknown>);
         if (mapped) out.push(mapped);
       }
     } else if (block && typeof block === 'object') {
       for (const [name, entry] of Object.entries(block)) {
-        const mapped = this.mapServerEntryToTemplate({ name, ...(entry as any) });
+        const mapped = this.mapServerEntryToTemplate({ name, ...(entry as Record<string, unknown>) });
         if (mapped) out.push(mapped);
       }
     }
     return out;
   }
 
-  private mapServerEntryToTemplate(entry: any): McpServiceConfig | null {
+  private mapServerEntryToTemplate(entry: Record<string, unknown>): McpServiceConfig | null {
     try {
-      const name: string = entry.name || entry.label || entry.id || this.deriveName(entry) || `imported-${Date.now()}`;
+      const name: string = (entry.name || entry.label || entry.id || this.deriveName(entry) || `imported-${Date.now()}`) as string;
       const env: Record<string, string> = {};
       let transport: 'stdio' | 'http' | 'streamable-http' = 'stdio';
-      const command: string | undefined = entry.command;
-      let args: string[] | undefined = entry.args;
+      const command: string | undefined = entry.command as string | undefined;
+      let args: string[] | undefined = entry.args as string[] | undefined;
 
       // URL-based (HTTP / Streamable HTTP)
-      const url: string | undefined = entry.url || entry.serverUrl || entry.endpoint || entry.baseUrl;
+      const url: string | undefined = (entry.url || entry.serverUrl || entry.endpoint || entry.baseUrl) as string | undefined;
       if (url) {
         if (!this.isValidHttpUrl(url)) return null;
         transport = url.includes('/sse') ? 'streamable-http' : 'http';
@@ -234,7 +234,7 @@ export class ExternalMcpConfigImporter {
       }
 
       // Headers mapping
-      const headers: Record<string, string> | undefined = entry.headers || entry.httpHeaders;
+      const headers: Record<string, string> | undefined = (entry.headers || entry.httpHeaders) as Record<string, string> | undefined;
       if (headers && Object.keys(headers).length > 0) {
         env['HTTP_HEADERS'] = JSON.stringify(headers);
         const auth = headers['Authorization'] || headers['authorization'];
@@ -253,13 +253,13 @@ export class ExternalMcpConfigImporter {
 
       // Ensure args array
       if (command && !Array.isArray(args)) {
-        args = typeof entry.args === 'string' ? [entry.args] : (Array.isArray(entry.args) ? entry.args : []);
+        args = typeof entry.args === 'string' ? [entry.args as string] : (Array.isArray(entry.args) ? entry.args as string[] : []);
       }
 
       const cfg: McpServiceConfig = {
         name,
         version: this.defaultVersion,
-        transport: transport as any,
+        transport: transport as McpServiceConfig['transport'],
         command,
         args,
         env: Object.keys(env).length > 0 ? env : undefined,
@@ -274,10 +274,10 @@ export class ExternalMcpConfigImporter {
     }
   }
 
-  private deriveName(entry: any): string | undefined {
+  private deriveName(entry: Record<string, unknown>): string | undefined {
     if (entry.url) {
       try {
-        const u = new URL(entry.url);
+        const u = new URL(entry.url as string);
         return `${u.hostname}-${u.pathname.replace(/\//g, '-')}`.replace(/-+/g, '-');
       } catch { /* ignored */ }
     }
@@ -288,7 +288,7 @@ export class ExternalMcpConfigImporter {
     return undefined;
   }
 
-  private safeParseJson(raw: string): any | null {
+  private safeParseJson(raw: string): Record<string, unknown> | null {
     try {
       return JSON.parse(raw);
     } catch {

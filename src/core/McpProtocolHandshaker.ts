@@ -115,6 +115,6 @@ export class McpProtocolHandshaker {
       throw new Error(`Failed to get server capabilities: ${response.error.message}`);
     }
 
-    return response.result?.capabilities || {};
+    return (response.result as Record<string, unknown>)?.capabilities as Record<string, unknown> || {};
   }
 }

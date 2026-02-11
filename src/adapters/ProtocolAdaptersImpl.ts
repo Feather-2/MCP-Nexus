@@ -32,7 +32,7 @@ export class ProtocolAdaptersImpl implements ProtocolAdapters {
     switch (config.transport) {
       case 'stdio': {
         // Detect container sandbox
-        if ((config as any)?.container || (config.env as any)?.SANDBOX === 'container') {
+        if ((config as Record<string, unknown>)?.container || config.env?.SANDBOX === 'container') {
           this.logger.info(`Creating container-stdio adapter for ${config.name} [SANDBOX: container]`);
           // Pass global sandbox policy hints to adapter for env/volume validation defaults
           const sandbox = enforced.policy.container;
@@ -47,7 +47,7 @@ export class ProtocolAdaptersImpl implements ProtocolAdapters {
           });
         }
 
-        const sandboxed = (config.env as any)?.SANDBOX === 'portable';
+        const sandboxed = config.env?.SANDBOX === 'portable';
         this.logger.info(`Creating stdio adapter for ${config.name}${sandboxed ? ' [SANDBOX: portable]' : ''}`);
         return new StdioTransportAdapter(config, this.logger);
       }
@@ -155,12 +155,12 @@ export class ProtocolAdaptersImpl implements ProtocolAdapters {
     }
   }
 
-  private isValidMcpResponse(response: any): boolean {
+  private isValidMcpResponse(response: unknown): response is Record<string, unknown> {
     return (
-      response &&
+      !!response &&
       typeof response === 'object' &&
-      response.jsonrpc === '2.0' &&
-      (response.result !== undefined || response.error !== undefined)
+      (response as Record<string, unknown>).jsonrpc === '2.0' &&
+      ((response as Record<string, unknown>).result !== undefined || (response as Record<string, unknown>).error !== undefined)
     );
   }
 

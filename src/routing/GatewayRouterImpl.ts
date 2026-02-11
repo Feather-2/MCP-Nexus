@@ -85,10 +85,10 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
 
   async route(request: RouteRequest): Promise<RouteResponse> {
     try {
-      this.logger.debug('Routing request', { 
-        method: (request as any).method, 
-        serviceGroup: (request as any).serviceGroup,
-        availableServices: (request as any).availableServices?.length ?? 0 
+      this.logger.debug('Routing request', {
+        method: request.method,
+        serviceGroup: request.serviceGroup,
+        availableServices: request.availableServices?.length ?? 0
       });
 
       // Apply routing rules
@@ -102,8 +102,8 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
       }
 
       // Build default health map if missing (tests may omit it)
-      if (!(request as any).serviceHealthMap) {
-        (request as any).serviceHealthMap = new Map<string, ServiceHealth>(
+      if (!request.serviceHealthMap) {
+        (request as { serviceHealthMap: Map<string, ServiceHealth> }).serviceHealthMap = new Map<string, ServiceHealth>(
           filteredServices.map(s => [s.id, { status: s.state === 'running' ? 'healthy' : 'unhealthy', responseTime: 0, lastCheck: new Date() } as ServiceHealth])
         );
       }
@@ -158,7 +158,7 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
   async addRoutingRule(rule: RoutingRule): Promise<void> {
     // Validate rule
     // Accept both legacy shape and test shape
-    const normalized = this.normalizeRule(rule as any);
+    const normalized = this.normalizeRule(rule as unknown as Record<string, unknown>);
     if (!normalized.name || !normalized.condition || !normalized.action) {
       throw new Error('Invalid routing rule: missing required fields');
     }
@@ -179,7 +179,7 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
   }
 
   async removeRoutingRule(ruleName: string): Promise<boolean> {
-    const index = this.routingRules.findIndex(r => r.name === ruleName || (r as any).id === ruleName);
+    const index = this.routingRules.findIndex(r => r.name === ruleName || (r as unknown as Record<string, unknown>).id === ruleName);
     
     if (index === -1) {
       return false;
@@ -199,7 +199,7 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
   }
 
   disableRoutingRule(ruleName: string): void {
-    const rule = this.routingRules.find(r => r.name === ruleName || (r as any).id === ruleName);
+    const rule = this.routingRules.find(r => r.name === ruleName || (r as unknown as Record<string, unknown>).id === ruleName);
     if (rule) {
       rule.enabled = false;
       this.rebuildRuleIndex();
@@ -207,7 +207,7 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
   }
 
   enableRoutingRule(ruleName: string): void {
-    const rule = this.routingRules.find(r => r.name === ruleName || (r as any).id === ruleName);
+    const rule = this.routingRules.find(r => r.name === ruleName || (r as unknown as Record<string, unknown>).id === ruleName);
     if (rule) {
       rule.enabled = true;
       this.rebuildRuleIndex();
@@ -283,8 +283,8 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
   }
 
   // Allow tests to push metrics directly
-  updateServiceMetrics(serviceId: string, metrics: any): void {
-    this.serviceMetrics.set(serviceId, metrics as any);
+  updateServiceMetrics(serviceId: string, metrics: Partial<ServiceLoadMetrics> & Record<string, unknown>): void {
+    this.serviceMetrics.set(serviceId, metrics as ServiceLoadMetrics);
   }
 
   private rebuildRuleIndex(): void {
@@ -303,16 +303,16 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
   }
 
   private getRulePathPattern(rule: RoutingRule): string | null {
-    const condition = (rule as any)?.condition as unknown;
+    const condition = rule?.condition as unknown;
     if (!condition || typeof condition !== 'object') return null;
     if (!('pathPattern' in condition)) return null;
-    const value = (condition as any).pathPattern;
+    const value = (condition as Record<string, unknown>).pathPattern;
     if (value == null) return null;
     return String(value);
   }
 
   private getCandidateRules(request: RouteRequest): RoutingRule[] {
-    const path = String((request as any).path ?? '');
+    const path = String(request.path ?? '');
     const candidates = [...this.nonPathRules, ...this.pathRuleIndex.match(path)];
 
     const seen = new Set<RoutingRule>();
@@ -328,7 +328,7 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
   }
 
   private getPreferredServiceIds(request: RouteRequest): ReadonlySet<string> | undefined {
-    const value = (request as any)._preferredServiceIds as unknown;
+    const value = (request as unknown as Record<string, unknown>)._preferredServiceIds as unknown;
     return value instanceof Set ? (value as Set<string>) : undefined;
   }
 
@@ -391,31 +391,32 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
       }
     }
 
-    (request as any)._preferredServiceIds = preferredServiceIds;
-    (request as any)._appliedRules = appliedRules;
+    (request as unknown as Record<string, unknown>)._preferredServiceIds = preferredServiceIds;
+    (request as unknown as Record<string, unknown>)._appliedRules = appliedRules;
     this.logger.debug(`Applied ${appliedRules.length} routing rules`, { appliedRules });
     return filteredServices;
   }
 
-  private normalizeRule(input: any): RoutingRule {
+  private normalizeRule(input: Record<string, unknown>): RoutingRule {
     // Accept test-style: { id, conditions, actions }
     if (input && input.id && input.conditions && input.actions) {
-      const criteriaNames = input.actions?.routeTo as string[] | undefined;
-      const name = input.name || input.id;
-      const condition = this.convertConditions(input.conditions);
-      const action = criteriaNames && criteriaNames.length
-        ? { type: 'filter', criteria: { name: criteriaNames[0] } }
+      const criteriaNames = input.actions as Record<string, unknown> | undefined;
+      const routeTo = (criteriaNames as Record<string, unknown>)?.routeTo as string[] | undefined;
+      const name = (input.name || input.id) as string;
+      const condition = this.convertConditions(input.conditions as Record<string, unknown>);
+      const action = routeTo && routeTo.length
+        ? { type: 'filter', criteria: { name: routeTo[0] } }
         : { type: 'allow' };
       return {
-        ...(input.id ? { id: input.id } : {} as any),
+        ...(input.id ? { id: input.id } : {}),
         name,
         enabled: input.enabled !== false,
-        priority: input.priority ?? 0,
+        priority: (input.priority as number) ?? 0,
         condition,
         action
       } as RoutingRule;
     }
-    return input as RoutingRule;
+    return input as unknown as RoutingRule;
   }
 
   private convertConditions(conds: any): any {
@@ -630,32 +631,32 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
     this.serviceMetrics.set(serviceId, metrics);
   }
 
-  private evaluateCondition(condition: any, request: RouteRequest): boolean {
+  private evaluateCondition(condition: Record<string, unknown> | string, request: RouteRequest): boolean {
     // Simple condition evaluation - would be more sophisticated in production
     if (typeof condition === 'string') {
       // Simple string matching
-      return (request as any).method?.includes(condition) || 
-             (request as any).serviceGroup?.includes(condition) || false;
+      return request.method?.includes(condition) ||
+             request.serviceGroup?.includes(condition) || false;
     }
-    
+
     if (typeof condition === 'object') {
       // Object-based condition evaluation
       for (const [key, value] of Object.entries(condition)) {
         switch (key) {
           case 'method':
-            if ((request as any).method !== value) return false;
+            if (request.method !== value) return false;
             break;
           case 'serviceGroup':
-            if ((request as any).serviceGroup !== value) return false;
+            if (request.serviceGroup !== value) return false;
             break;
           case 'contentType':
-            if ((request as any).contentType !== value) return false;
+            if (request.contentType !== value) return false;
             break;
           case 'clientIp':
-            if ((request as any).clientIp && !(request as any).clientIp.startsWith(value as string)) return false;
+            if (request.clientIp && !request.clientIp.startsWith(value as string)) return false;
             break;
           case 'pathPattern': {
-            const path = (request as any).path || '';
+            const path = request.path || '';
             const pattern = String(value);
             if (pattern.endsWith('*')) {
               const prefix = pattern.slice(0, -1);
@@ -666,7 +667,7 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
             break;
           }
           case 'headers': {
-            const headers = ((request as any).headers || {}) as Record<string, string>;
+            const headers = (request.headers || {}) as Record<string, string>;
             const expected = value as Record<string, string>;
             for (const hk of Object.keys(expected)) {
               if (headers[hk] !== expected[hk]) return false;
@@ -681,7 +682,7 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
     return false;
   }
 
-  private evaluateServiceFilter(criteria: any, service: ServiceInstance): boolean {
+  private evaluateServiceFilter(criteria: Record<string, unknown> | string, service: ServiceInstance): boolean {
     if (typeof criteria === 'string') {
       return service.config.name.includes(criteria) || service.id.includes(criteria);
     }
@@ -802,13 +803,13 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
     const interval = setInterval(() => {
       this.refreshServiceMetrics();
     }, 30000); // Every 30 seconds
-    (interval as any).unref?.();
+    (interval as unknown as { unref?: () => void }).unref?.();
   }
 
-  private refreshServiceMetrics(serviceId?: string, directMetrics?: any): void {
+  private refreshServiceMetrics(serviceId?: string, directMetrics?: ServiceLoadMetrics): void {
     // Test helper path: directly set metrics if provided
     if (serviceId && directMetrics) {
-      this.serviceMetrics.set(serviceId, directMetrics as any);
+      this.serviceMetrics.set(serviceId, directMetrics);
       return;
     }
     // Calculate success rates and response times from request history

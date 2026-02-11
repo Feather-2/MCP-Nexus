@@ -28,7 +28,7 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
     clientNonce: string;
     serverNonce: string;
     kdf: 'pbkdf2' | 'scrypt';
-    kdfParams: any;
+    kdfParams: { iterations: number; hash: string; length: number };
     approved: boolean;
     expiresAt: number;
   }>();
@@ -40,10 +40,10 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
     super(ctx);
     this.rotateVerificationCode();
     this.codeRotationTimer = setInterval(() => this.rotateVerificationCode(), this.codeRotationMs);
-    (this.codeRotationTimer as any).unref?.();
+    (this.codeRotationTimer as unknown as { unref?: () => void }).unref?.();
     // Periodic cleanup to prevent rateCounters memory leak
     this.rateCleanupTimer = setInterval(() => this.cleanupRateCounters(), LocalMcpProxyRoutes.RATE_CLEANUP_INTERVAL_MS);
-    (this.rateCleanupTimer as any).unref?.();
+    (this.rateCleanupTimer as unknown as { unref?: () => void }).unref?.();
   }
 
   setupRoutes(): void {
@@ -66,7 +66,7 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
           clientNonce: z.string().min(1),
           codeProof: z.string().regex(/^[a-fA-F0-9]{64}$/)
         });
-        const { clientNonce, codeProof } = initSchema.parse((request.body as any) || {});
+        const { clientNonce, codeProof } = initSchema.parse((request.body as Record<string, unknown>) || {});
 
         // Rate limit per origin (max 5/minute)
         if (!this.checkRateLimit(`init:${origin}`, 5, 60_000)) {
@@ -104,12 +104,12 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
 
         this.ctx.addLogEntry('info', 'mcp.local.handshake_init', undefined, { origin, handshakeId });
         reply.send({ handshakeId, serverNonce, expiresIn, kdf, kdfParams });
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (err instanceof z.ZodError) {
           return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
         }
         // Error already handled in requireAndValidateOrigin
-        if (!reply.sent) return this.respondError(reply, 500, err?.message || 'Internal error', { code: 'INTERNAL_ERROR' });
+        if (!reply.sent) return this.respondError(reply, 500, (err as Error)?.message || 'Internal error', { code: 'INTERNAL_ERROR' });
       }
     });
 
@@ -121,7 +121,7 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
       });
       let parsed: z.infer<typeof approveSchema>;
       try {
-        parsed = approveSchema.parse((request.body as any) || {});
+        parsed = approveSchema.parse((request.body as Record<string, unknown>) || {});
       } catch (e) {
         const err = e as z.ZodError;
         return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
@@ -144,7 +144,7 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
           handshakeId: z.string().min(1),
           response: z.string().min(1)
         });
-        const { handshakeId, response } = confirmSchema.parse((request.body as any) || {});
+        const { handshakeId, response } = confirmSchema.parse((request.body as Record<string, unknown>) || {});
         const hs = this.handshakeStore.get(handshakeId);
         if (!hs) return this.respondError(reply, 404, 'Handshake not found', { code: 'NOT_FOUND', recoverable: true });
         if (Date.now() > hs.expiresAt) return this.respondError(reply, 409, 'Handshake expired', { code: 'EXPIRED', recoverable: true });
@@ -175,11 +175,11 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
         this.handshakeStore.delete(handshakeId);
         this.ctx.addLogEntry('info', 'mcp.local.handshake_confirm', undefined, { origin });
         reply.send({ success: true, token, expiresIn });
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (err instanceof z.ZodError) {
           return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
         }
-        if (!reply.sent) return this.respondError(reply, 500, err?.message || 'Internal error', { code: 'INTERNAL_ERROR' });
+        if (!reply.sent) return this.respondError(reply, 500, (err as Error)?.message || 'Internal error', { code: 'INTERNAL_ERROR' });
       }
     });
 
@@ -201,7 +201,7 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
     const qSchema = z.object({ serviceId: z.string().min(1).optional() });
     let serviceId: string | undefined;
     try {
-      const parsed = qSchema.parse((request.query as any) || {});
+      const parsed = qSchema.parse((request.query as Record<string, unknown>) || {});
       serviceId = parsed.serviceId;
     } catch (e) {
       const err = e as z.ZodError;
@@ -213,15 +213,18 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
       const adapter = await this.ctx.protocolAdapters.createAdapter(service.config);
       await adapter.connect();
       try {
-        const msg: any = { jsonrpc: '2.0', id: `tools-list-${Date.now()}`, method: 'tools/list', params: {} };
-        const res = hasSendAndReceive(adapter) ? await (adapter as any).sendAndReceive(msg) : await adapter.send(msg);
+        const msg: import('../../types/index.js').McpMessage = { jsonrpc: '2.0', id: `tools-list-${Date.now()}`, method: 'tools/list', params: {} };
+        const sr = (adapter as unknown as { sendAndReceive?: (msg: unknown) => Promise<unknown> }).sendAndReceive;
+        const res = sr ? await sr(msg) : await adapter.send(msg);
+        const r = res as Record<string, unknown> | undefined;
+        const result = r?.result as Record<string, unknown> | undefined;
         this.ctx.addLogEntry('info', 'mcp.local.tools_list', service.id);
-        reply.send({ success: true, tools: res?.result?.tools ?? res?.result ?? res, requestId: msg.id });
+        reply.send({ success: true, tools: result?.tools ?? result ?? res, requestId: msg.id });
       } finally {
         await adapter.disconnect();
       }
-    } catch (error: any) {
-      return this.respondError(reply, 500, error?.message || 'Internal error', { code: 'INTERNAL_ERROR' });
+    } catch (error: unknown) {
+      return this.respondError(reply, 500, (error as Error)?.message || 'Internal error', { code: 'INTERNAL_ERROR' });
     }
   }
 
@@ -233,12 +236,12 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
     if (!this.validateToken(token, origin)) return this.respondError(reply, 403, 'Forbidden', { code: 'FORBIDDEN', recoverable: true });
     const callSchema = z.object({
       tool: z.string().min(1),
-      params: z.record(z.string(), z.any()).optional(),
+      params: z.record(z.string(), z.unknown()).optional(),
       serviceId: z.string().min(1).optional()
     });
-    let tool: string, params: any, serviceId: string | undefined;
+    let tool: string, params: Record<string, unknown> | undefined, serviceId: string | undefined;
     try {
-      const parsed = callSchema.parse((request.body as any) || {});
+      const parsed = callSchema.parse((request.body as Record<string, unknown>) || {});
       tool = parsed.tool;
       params = parsed.params || {};
       serviceId = parsed.serviceId;
@@ -252,15 +255,17 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
       const adapter = await this.ctx.protocolAdapters.createAdapter(service.config);
       await adapter.connect();
       try {
-        const msg: any = { jsonrpc: '2.0', id: `call-${Date.now()}`, method: 'tools/call', params: { name: tool, arguments: params || {} } };
-        const res = hasSendAndReceive(adapter) ? await (adapter as any).sendAndReceive(msg) : await adapter.send(msg);
+        const msg: import('../../types/index.js').McpMessage = { jsonrpc: '2.0', id: `call-${Date.now()}`, method: 'tools/call', params: { name: tool, arguments: params || {} } };
+        const sr = (adapter as unknown as { sendAndReceive?: (msg: unknown) => Promise<unknown> }).sendAndReceive;
+        const res = sr ? await sr(msg) : await adapter.send(msg);
+        const r = res as Record<string, unknown> | undefined;
         this.ctx.addLogEntry('info', 'mcp.local.call', service.id, { tool });
-        reply.send({ success: true, result: res?.result ?? res, requestId: msg.id });
+        reply.send({ success: true, result: r?.result ?? res, requestId: msg.id });
       } finally {
         await adapter.disconnect();
       }
-    } catch (error: any) {
-      return this.respondError(reply, 500, error?.message || 'Internal error', { code: 'INTERNAL_ERROR' });
+    } catch (error: unknown) {
+      return this.respondError(reply, 500, (error as Error)?.message || 'Internal error', { code: 'INTERNAL_ERROR' });
     }
   }
 
@@ -356,6 +361,6 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
 }
 
 // Helper type guard to safely use optional sendAndReceive when available
-function hasSendAndReceive(adapter: any): adapter is { sendAndReceive: (msg: any) => Promise<any> } {
-  return adapter && typeof adapter.sendAndReceive === 'function';
+function hasSendAndReceive(adapter: unknown): adapter is { sendAndReceive: (msg: unknown) => Promise<unknown> } {
+  return !!adapter && typeof (adapter as Record<string, unknown>).sendAndReceive === 'function';
 }

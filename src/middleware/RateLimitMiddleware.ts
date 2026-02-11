@@ -58,7 +58,7 @@ function defaultRespondError(
   reply: FastifyReply,
   status: number,
   message: string,
-  opts?: { code?: string; recoverable?: boolean; meta?: any }
+  opts?: { code?: string; recoverable?: boolean; meta?: unknown }
 ): unknown {
   return reply.code(status).send({
     success: false,
@@ -99,15 +99,15 @@ export class RateLimitMiddleware implements Middleware {
     const http = ctx.http;
     if (!http) return;
 
-    const cfg = this.configProvider.getConfig()?.rateLimiting as any;
+    const cfg = this.configProvider.getConfig()?.rateLimiting as Record<string, unknown> | undefined;
     if (!cfg?.enabled) return;
 
     const { request, reply } = http;
     const requiresRateLimit = this.options.requiresRateLimit?.(request) ?? request.url.startsWith('/api/');
     if (!requiresRateLimit) return;
 
-    const maxRequests = cfg.maxRequests ?? 100;
-    const windowMs = cfg.windowMs ?? 60000;
+    const maxRequests = (cfg.maxRequests as number) ?? 100;
+    const windowMs = (cfg.windowMs as number) ?? 60000;
     const store = (cfg.store ?? 'memory') as 'memory' | 'redis';
     const prefix = this.options.keyPrefix ?? 'rl:';
 
@@ -120,8 +120,9 @@ export class RateLimitMiddleware implements Middleware {
     const bucketKey = `${prefix}${key}`;
 
     const nowMs = Date.now();
+    const redisCfg = cfg.redis as Record<string, unknown> | undefined;
     const decision =
-      store === 'redis' ? await this.checkRedis(bucketKey, nowMs, maxRequests, windowMs, cfg.redis) : this.memory.check(bucketKey, nowMs, maxRequests, windowMs);
+      store === 'redis' ? await this.checkRedis(bucketKey, nowMs, maxRequests, windowMs, redisCfg) : this.memory.check(bucketKey, nowMs, maxRequests, windowMs);
 
     try {
       reply.header('X-RateLimit-Limit', String(decision.limit));
@@ -151,7 +152,7 @@ export class RateLimitMiddleware implements Middleware {
     nowMs: number,
     maxRequests: number,
     windowMs: number,
-    redisCfg: any
+    redisCfg: Record<string, unknown> | undefined
   ): Promise<RateLimitDecision> {
     const limit = Number.isFinite(maxRequests) && maxRequests > 0 ? Math.floor(maxRequests) : 0;
     const window = Number.isFinite(windowMs) && windowMs > 0 ? windowMs : 0;
@@ -170,20 +171,20 @@ export class RateLimitMiddleware implements Middleware {
     return { allowed: count <= limit, limit, remaining, resetAtMs };
   }
 
-  private async getRedisClient(redisCfg: any): Promise<RedisLike> {
+  private async getRedisClient(redisCfg: Record<string, unknown> | undefined): Promise<RedisLike> {
     if (this.redisClient) return this.redisClient;
 
     const { default: IORedis } = await import('ioredis');
-    let client: any;
+    let client: RedisLike;
     if (redisCfg?.url) {
-      client = new (IORedis as any)(redisCfg.url);
+      client = new (IORedis as unknown as new (url: string) => RedisLike)(redisCfg.url as string);
     } else {
-      client = new (IORedis as any)({
-        host: redisCfg?.host || '127.0.0.1',
-        port: redisCfg?.port || 6379,
-        username: redisCfg?.username,
-        password: redisCfg?.password,
-        db: redisCfg?.db,
+      client = new (IORedis as unknown as new (opts: Record<string, unknown>) => RedisLike)({
+        host: (redisCfg?.host as string) || '127.0.0.1',
+        port: (redisCfg?.port as number) || 6379,
+        username: redisCfg?.username as string | undefined,
+        password: redisCfg?.password as string | undefined,
+        db: redisCfg?.db as number | undefined,
         tls: redisCfg?.tls ? {} : undefined
       });
     }

@@ -13,12 +13,12 @@ export interface McpMessage {
   jsonrpc: '2.0';
   id?: string | number;
   method?: string;
-  params?: any;
-  result?: any;
+  params?: unknown;
+  result?: unknown;
   error?: {
     code: number;
     message: string;
-    data?: any;
+    data?: unknown;
   };
 }
 
@@ -32,7 +32,7 @@ export interface ServiceInstance {
   startedAt: Date;
   lastHealthCheck?: Date;
   errorCount: number;
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown>;
 }
 
 // Health Check Result
@@ -71,7 +71,7 @@ export interface AuthRequest {
   clientIp?: string;
   method?: string;
   resource?: string;
-  credentials?: any;
+  credentials?: unknown;
 }
 
 export interface AuthResponse {
@@ -95,7 +95,7 @@ export interface McpProtocolStack {
   sendMessage(serviceId: string, message: McpMessage): Promise<McpMessage>;
   receiveMessage(serviceId: string): Promise<McpMessage>;
   negotiateVersion(serviceId: string, versions: McpVersion[]): Promise<McpVersion>;
-  getCapabilities(serviceId: string): Promise<Record<string, any>>;
+  getCapabilities(serviceId: string): Promise<Record<string, unknown>>;
   startProcess(config: McpServiceConfig): Promise<ServiceInstance>;
   stopProcess(serviceId: string): Promise<void>;
   restartProcess(serviceId: string): Promise<void>;
@@ -103,19 +103,48 @@ export interface McpProtocolStack {
 }
 
 export interface ServiceRegistry extends EventEmitter {
+  // Template management
   registerTemplate(template: McpServiceConfig): Promise<void>;
   getTemplate(name: string): Promise<McpServiceConfig | null>;
   listTemplates(): Promise<McpServiceConfig[]>;
+  removeTemplate(templateName: string): Promise<void>;
+
+  // Instance lifecycle
   createInstance(templateName: string, overrides?: Partial<McpServiceConfig>): Promise<ServiceInstance>;
   getInstance(serviceId: string): Promise<ServiceInstance | null>;
   listInstances(): Promise<ServiceInstance[]>;
   removeInstance(serviceId: string): Promise<void>;
+
+  // Service-level aliases (used by routes & gateway)
+  listServices(): Promise<ServiceInstance[]>;
+  getService(serviceId: string): Promise<ServiceInstance | null>;
+  createServiceFromTemplate(templateName: string, overrides?: Partial<McpServiceConfig>): Promise<string>;
+  stopService(serviceId: string): Promise<boolean>;
+
+  // Health & monitoring
+  setHealthProbe(probe: (serviceId: string) => Promise<HealthCheckResult>): void;
   checkHealth(serviceId: string): Promise<HealthCheckResult>;
+  reportHeartbeat(serviceId: string, update: { healthy: boolean; latency?: number; error?: string }): void;
   getHealthyInstances(templateName?: string): Promise<ServiceInstance[]>;
   selectBestInstance(templateName: string, strategy?: RoutingStrategy): Promise<ServiceInstance | null>;
   startHealthMonitoring(): Promise<void>;
   stopHealthMonitoring(): Promise<void>;
   getHealthStatus(): Promise<Record<string, HealthCheckResult>>;
+  getHealthAggregates(): Promise<{
+    global: { monitoring: number; healthy: number; unhealthy: number; avgLatency: number; p95?: number; p99?: number; errorRate?: number };
+    perService: Array<{ id: string; last: HealthCheckResult | null; p95?: number; p99?: number; errorRate?: number; samples: number; lastError?: string }>;
+  }>;
+
+  // Instance metadata
+  setInstanceMetadata(serviceId: string, key: string, value: unknown): Promise<void>;
+
+  // Stats
+  getRegistryStats(): Promise<{
+    totalTemplates: number;
+    totalInstances: number;
+    healthyInstances: number;
+    instancesByState: Record<string, number>;
+  }>;
 }
 
 export interface ProtocolAdapters {
@@ -143,7 +172,7 @@ export interface AuthenticationLayer {
   validateSession(token: string): Promise<AuthContext | null>;
   revokeSession(token: string): Promise<void>;
   rateLimitCheck(identifier: string): Promise<boolean>;
-  auditLog(event: string, context: AuthContext, details?: any): Promise<void>;
+  auditLog(event: string, context: AuthContext, details?: unknown): Promise<void>;
 }
 
 export interface GatewayRouter {
@@ -152,6 +181,7 @@ export interface GatewayRouter {
   route(request: RouteRequest): Promise<RouteResponse>;
   setRoutingStrategy(strategy: LoadBalancingStrategy): void;
   getRoutingStrategy(): LoadBalancingStrategy;
+  updateLoadBalancingStrategy(strategy: LoadBalancingStrategy): Promise<void>;
   getMetrics(): {
     totalRequests: number;
     successRate: number;
@@ -171,19 +201,19 @@ export interface GatewayRequest {
   method: string;
   path: string;
   headers: Record<string, string>;
-  body?: any;
+  body?: unknown;
   timestamp: Date;
 }
 
 export interface GatewayResponse {
   status: number;
   headers: Record<string, string>;
-  body?: any;
+  body?: unknown;
   timestamp: Date;
 }
 
 // Event System
-export interface EventEmitter<T = any> {
+export interface EventEmitter<T = unknown> {
   on(event: string, listener: (data: T) => void): void;
   off(event: string, listener: (data: T) => void): void;
   emit(event: string, data: T): void;
@@ -191,26 +221,46 @@ export interface EventEmitter<T = any> {
 
 // Logger Interface
 export interface Logger {
-  trace(message: string, meta?: any): void;
-  debug(message: string, meta?: any): void;
-  info(message: string, meta?: any): void;
-  warn(message: string, meta?: any): void;
-  error(message: string, meta?: any): void;
+  trace(message: string, meta?: unknown): void;
+  debug(message: string, meta?: unknown): void;
+  info(message: string, meta?: unknown): void;
+  warn(message: string, meta?: unknown): void;
+  error(message: string, meta?: unknown): void;
 }
 
 // Configuration Management
 export interface ConfigManager {
-  get<T = any>(key: string): Promise<T | null>;
-  set<T = any>(key: string, value: T): Promise<void>;
+  // Key-value access
+  get<T = unknown>(key: string): Promise<T | null>;
+  set<T = unknown>(key: string, value: T): Promise<void>;
   has(key: string): Promise<boolean>;
   delete(key: string): Promise<boolean>;
-  getAll(): Promise<Record<string, any>>;
-  setAll(config: Record<string, any>): Promise<void>;
+  getAll(): Promise<Record<string, unknown>>;
+  setAll(config: Record<string, unknown>): Promise<void>;
   clear(): Promise<void>;
+
+  // Config lifecycle
+  getConfig(): GatewayConfig;
+  updateConfig(updates: Partial<GatewayConfig>): Promise<GatewayConfig>;
   loadConfig(): Promise<GatewayConfig>;
   saveConfig(config: GatewayConfig): Promise<void>;
+
+  // Template management
   loadTemplates(): Promise<void>;
   saveTemplates(): Promise<void>;
+  getLoadedTemplates(): ServiceTemplate[];
+  saveTemplate(template: ServiceTemplate): Promise<void>;
+  getTemplate(name: string): ServiceTemplate | undefined;
+  listTemplates(): ServiceTemplate[];
+  removeTemplate(name: string): Promise<boolean>;
+
+  // Watch
+  startConfigWatch(): void;
+  stopConfigWatch(): void;
+
+  // Import / Export
+  exportConfig(): Promise<string>;
+  importConfig(configData: string): Promise<void>;
 }
 
 // Service Template
@@ -295,11 +345,13 @@ export interface ServiceContentAnalysis {
 // Routing Types
 export interface RouteRequest {
   method: string;
-  params?: any;
+  params?: unknown;
   serviceGroup?: string;
   contentType?: string;
   contentLength?: number;
   clientIp: string;
+  path?: string;
+  headers?: Record<string, string>;
   availableServices: ServiceInstance[];
   serviceHealthMap: Map<string, ServiceHealth>;
 }
@@ -319,12 +371,12 @@ export interface RoutingRule {
   name: string;
   enabled: boolean;
   priority?: number;
-  condition: any;
+  condition: Record<string, unknown> | string;
   action: {
     type: 'allow' | 'deny' | 'redirect' | 'balance' | 'filter' | 'prefer' | 'reject';
     target?: string;
     weight?: number;
-    criteria?: any;
+    criteria?: Record<string, unknown> | string;
     targetServiceGroup?: string;
   };
 }

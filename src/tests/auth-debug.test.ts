@@ -53,13 +53,13 @@ describe('AuthenticationLayerImpl API Key Fix', () => {
     const loggerCalls = vi.mocked(mockLogger.info).mock.calls;
     const apiKeyCall = loggerCalls.find(call => call[0] === 'Created default development API key');
     expect(apiKeyCall).toBeDefined();
-    const apiKey = apiKeyCall?.[1]?.apiKey;
+    const apiKey = (apiKeyCall?.[1] as Record<string, unknown>)?.apiKey;
     expect(apiKey).toBeDefined();
 
     // Test authentication with this API key
     const request: AuthRequest = {
       clientIp: '8.8.8.8',
-      apiKey: apiKey,
+      apiKey: apiKey as string,
       method: 'GET',
       resource: '/api/templates'
     };

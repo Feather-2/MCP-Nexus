@@ -79,7 +79,7 @@ export class ToolRoutes extends BaseRouteHandler {
             meta: {
               transport: t.transport,
               version: t.version,
-              security: (t as any).security || { trustLevel: 'trusted' },
+              security: t.security || { trustLevel: 'trusted' },
               toolCount: toolInfo.toolCount
             }
           };
@@ -96,7 +96,7 @@ export class ToolRoutes extends BaseRouteHandler {
       const { toolId } = request.params as { toolId: string };
 
       try {
-        const template = await this.ctx.serviceRegistry.getTemplate(toolId as any);
+        const template = await this.ctx.serviceRegistry.getTemplate(toolId);
         if (!template) {
           return this.respondError(reply, 404, `Tool not found: ${toolId}`, {
             code: 'TOOL_NOT_FOUND',
@@ -131,7 +131,7 @@ export class ToolRoutes extends BaseRouteHandler {
     server.post('/api/tools/execute', async (request: FastifyRequest, reply: FastifyReply) => {
       let body: ToolExecuteBody;
       try {
-        body = ToolExecuteBodySchema.parse((request.body as any) || {});
+        body = ToolExecuteBodySchema.parse((request.body as Record<string, unknown>) || {});
       } catch (e) {
         const err = e as z.ZodError;
         return this.respondError(reply, 400, 'Invalid request body', {
@@ -150,11 +150,11 @@ export class ToolRoutes extends BaseRouteHandler {
         requestId: execId,
         startTime,
         metadata: {},
-        sessionId: (request as any).auth?.context?.userId
+        sessionId: ((request as any).auth as Record<string, unknown> | undefined)?.context as string | undefined
       };
       const mwState = {
         stage: 'beforeTool' as const,
-        values: new Map<string, any>([
+        values: new Map<string, unknown>([
           ['toolCall', { name: toolId, arguments: params }],
           ['selectedInstanceId', toolId],
           ['toolStartTimeMs', startTime]
@@ -174,7 +174,7 @@ export class ToolRoutes extends BaseRouteHandler {
         mwState.values.set('toolEndTimeMs', Date.now());
         await chain.execute('afterTool', mwCtx, mwState);
 
-        const finalResult = mwState.values.get('toolResult').content;
+        const finalResult = (mwState.values.get('toolResult') as Record<string, unknown>)?.content;
         const durationMs = Date.now() - startTime;
 
         // Record execution
@@ -196,7 +196,7 @@ export class ToolRoutes extends BaseRouteHandler {
         });
       } catch (error) {
         const durationMs = Date.now() - startTime;
-        const message = (error as any)?.message || 'Failed to execute tool';
+        const message = (error as Error)?.message || 'Failed to execute tool';
         const chain = this.ctx.middlewareChain ?? new MiddlewareChain(this.ctx.middlewares || []);
         mwState.values.set('toolError', message);
         mwState.values.set('toolEndTimeMs', Date.now());
@@ -225,7 +225,7 @@ export class ToolRoutes extends BaseRouteHandler {
     server.post('/api/tools/batch', async (request: FastifyRequest, reply: FastifyReply) => {
       let body: BatchExecuteBody;
       try {
-        body = BatchExecuteBodySchema.parse((request.body as any) || {});
+        body = BatchExecuteBodySchema.parse((request.body as Record<string, unknown>) || {});
       } catch (e) {
         const err = e as z.ZodError;
         return this.respondError(reply, 400, 'Invalid request body', {
@@ -263,7 +263,7 @@ export class ToolRoutes extends BaseRouteHandler {
               return {
                 toolId: call.toolId,
                 success: false,
-                error: (e as any)?.message || 'Execution failed',
+                error: (e as Error)?.message || 'Execution failed',
                 durationMs: Date.now() - callStart
               };
             }
@@ -282,7 +282,7 @@ export class ToolRoutes extends BaseRouteHandler {
               const errResult = {
                 toolId: call.toolId,
                 success: false,
-                error: (e as any)?.message || 'Execution failed',
+                error: (e as Error)?.message || 'Execution failed',
                 durationMs: Date.now() - callStart
               };
               results.push(errResult);
@@ -306,7 +306,7 @@ export class ToolRoutes extends BaseRouteHandler {
           }
         });
       } catch (error) {
-        const message = (error as any)?.message || 'Batch execution failed';
+        const message = (error as Error)?.message || 'Batch execution failed';
         return this.respondError(reply, 500, message, {
           code: 'BATCH_EXECUTE_FAILED',
           meta: { batchId }
@@ -343,7 +343,7 @@ export class ToolRoutes extends BaseRouteHandler {
     toolCount: number;
   }> {
     try {
-      const adapter = await this.ctx.protocolAdapters.createAdapter(template as any);
+      const adapter = await this.ctx.protocolAdapters.createAdapter(template);
       await adapter.connect();
       try {
         const msg: McpMessage = {
@@ -352,14 +352,16 @@ export class ToolRoutes extends BaseRouteHandler {
           method: 'tools/list',
           params: {}
         };
-        const res = (adapter as any).sendAndReceive
-          ? await (adapter as any).sendAndReceive(msg)
+        const sendReceive = (adapter as unknown as { sendAndReceive?: (msg: unknown) => Promise<unknown> }).sendAndReceive;
+        const res = sendReceive
+          ? await sendReceive(msg)
           : await adapter.send(msg);
 
-        const tools = (res as any)?.result?.tools || [];
-        const firstTool = tools[0];
+        const r = res as Record<string, unknown> | undefined;
+        const tools = ((r?.result as Record<string, unknown>)?.tools as unknown[]) || [];
+        const firstTool = tools[0] as Record<string, unknown> | undefined;
         return {
-          description: firstTool?.description,
+          description: firstTool?.description as string | undefined,
           inputSchema: firstTool?.inputSchema,
           tools,
           toolCount: tools.length
@@ -387,12 +389,12 @@ export class ToolRoutes extends BaseRouteHandler {
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        const template = await this.ctx.serviceRegistry.getTemplate(toolId as any);
+        const template = await this.ctx.serviceRegistry.getTemplate(toolId);
         if (!template) {
           throw new Error(`Tool not found: ${toolId}`);
         }
 
-        const adapter = await this.ctx.protocolAdapters.createAdapter(template as any);
+        const adapter = await this.ctx.protocolAdapters.createAdapter(template);
         await adapter.connect();
 
         try {
@@ -407,18 +409,19 @@ export class ToolRoutes extends BaseRouteHandler {
           };
 
           // Execute with timeout
-          const execPromise = (adapter as any).sendAndReceive
-            ? (adapter as any).sendAndReceive(msg)
+          const sr = (adapter as unknown as { sendAndReceive?: (msg: unknown) => Promise<unknown> }).sendAndReceive;
+          const execPromise = sr
+            ? sr(msg)
             : adapter.send(msg);
 
           const timeoutPromise = new Promise((_, reject) =>
             setTimeout(() => reject(new Error(`Execution timeout after ${timeoutMs}ms`)), timeoutMs)
           );
 
-          const res = await Promise.race([execPromise, timeoutPromise]) as any;
+          const res = await Promise.race([execPromise, timeoutPromise]) as Record<string, unknown> | undefined;
 
           if (res?.error) {
-            throw new Error(res.error.message || 'Tool execution error');
+            throw new Error((res.error as Record<string, unknown>)?.message as string || 'Tool execution error');
           }
 
           return res?.result ?? res;

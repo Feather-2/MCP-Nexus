@@ -146,10 +146,10 @@ function applyPortableSandboxPolicy(template: McpServiceConfig, policy: Normaliz
   if (!policy.portable.enabled) return { config: template, applied: false };
   if (template.transport !== 'stdio') return { config: template, applied: false };
 
-  const cmdBase = basenameCrossPlatform(String((template as any).command || ''));
+  const cmdBase = basenameCrossPlatform(String(template.command || ''));
   const cmdKey = cmdBase.endsWith('.js') ? cmdBase.slice(0, -3) : cmdBase;
-  const args = Array.isArray((template as any).args) ? ([...(template as any).args] as string[]) : [];
-  const env = { ...((template as any).env || {}) } as Record<string, string>;
+  const args = Array.isArray(template.args) ? ([...template.args] as string[]) : [];
+  const env = { ...(template.env || {}) } as Record<string, string>;
 
   const hasExplicitSandbox = typeof env.SANDBOX === 'string' && env.SANDBOX.length > 0;
   const isNpx = cmdKey === 'npx' || cmdKey === 'npx-cli';
@@ -168,7 +168,7 @@ function applyPortableSandboxPolicy(template: McpServiceConfig, policy: Normaliz
   }
 
   // Enforce offline behavior for portable sandbox unless explicitly allowed.
-  const svcNet = (template as any)?.security?.networkPolicy as string | undefined;
+  const svcNet = template.security?.networkPolicy as string | undefined;
   const effectiveNet: NormalizedPortableNetworkPolicy =
     svcNet === 'full' || svcNet === 'local-only' || svcNet === 'blocked'
       ? (svcNet as NormalizedPortableNetworkPolicy)
@@ -209,7 +209,7 @@ function applyPortableSandboxPolicy(template: McpServiceConfig, policy: Normaliz
 
 function normalizeStdioExecutableCommand(template: McpServiceConfig, reasons: string[]): McpServiceConfig {
   if (!template || template.transport !== 'stdio') return template;
-  const command = String((template as any).command || '').trim();
+  const command = String(template.command || '').trim();
   if (!command) return template;
 
   const resolver = new ExecutableResolver({
@@ -219,25 +219,25 @@ function normalizeStdioExecutableCommand(template: McpServiceConfig, reasons: st
   if (resolved.resolvedPath === command) return template;
 
   reasons.push('sandbox.exec.normalized');
-  return { ...(template as any), command: resolved.resolvedPath } as McpServiceConfig;
+  return { ...template, command: resolved.resolvedPath };
 }
 
 export function normalizeSandboxPolicy(gatewayConfig?: GatewayConfig): NormalizedSandboxPolicy {
-  const sandbox: any = (gatewayConfig as any)?.sandbox || {};
+  const sandbox = (gatewayConfig as Record<string, unknown> | undefined)?.sandbox as Record<string, unknown> || {};
 
   const profile: NormalizedSecurityProfile =
     sandbox.profile === 'locked-down' || sandbox.profile === 'dev' || sandbox.profile === 'default'
       ? sandbox.profile
       : 'default';
 
-  const portableCfg: any = sandbox.portable || {};
+  const portableCfg = (sandbox.portable || {}) as Record<string, unknown>;
   const portableEnabled = typeof portableCfg.enabled === 'boolean' ? portableCfg.enabled : true;
   const portableNetworkPolicy: NormalizedPortableNetworkPolicy =
     portableCfg.networkPolicy === 'full' || portableCfg.networkPolicy === 'local-only' || portableCfg.networkPolicy === 'blocked'
       ? portableCfg.networkPolicy
       : 'local-only';
 
-  const containerCfg: any = sandbox.container || {};
+  const containerCfg = (sandbox.container || {}) as Record<string, unknown>;
   const defaultNetwork: NormalizedContainerNetwork =
     containerCfg.defaultNetwork === 'bridge' || containerCfg.defaultNetwork === 'none'
       ? containerCfg.defaultNetwork
@@ -247,12 +247,12 @@ export function normalizeSandboxPolicy(gatewayConfig?: GatewayConfig): Normalize
     typeof containerCfg.defaultReadonlyRootfs === 'boolean' ? containerCfg.defaultReadonlyRootfs : true;
 
   const allowedVolumeRootsRaw: string[] = Array.isArray(containerCfg.allowedVolumeRoots) && containerCfg.allowedVolumeRoots.length
-    ? containerCfg.allowedVolumeRoots.map((v: any) => String(v))
+    ? (containerCfg.allowedVolumeRoots as unknown[]).map((v) => String(v))
     : DEFAULT_ALLOWED_VOLUME_ROOTS;
   const allowedVolumeRoots = allowedVolumeRootsRaw.map((p) => path.resolve(process.cwd(), p));
 
   const envSafePrefixes: string[] = Array.isArray(containerCfg.envSafePrefixes) && containerCfg.envSafePrefixes.length
-    ? containerCfg.envSafePrefixes.map((p: any) => String(p))
+    ? (containerCfg.envSafePrefixes as unknown[]).map((p) => String(p))
     : DEFAULT_ENV_SAFE_PREFIXES;
 
   const requiredForUntrusted =
@@ -263,7 +263,7 @@ export function normalizeSandboxPolicy(gatewayConfig?: GatewayConfig): Normalize
   const defaultPidsLimit = typeof containerCfg.defaultPidsLimit === 'number' ? containerCfg.defaultPidsLimit : undefined;
   const defaultNoNewPrivileges = containerCfg.defaultNoNewPrivileges !== false; // Default: true
   const defaultDropCapabilities: string[] = Array.isArray(containerCfg.defaultDropCapabilities)
-    ? containerCfg.defaultDropCapabilities.map((c: any) => String(c))
+    ? (containerCfg.defaultDropCapabilities as unknown[]).map((c) => String(c))
     : [];
 
   return {
@@ -287,8 +287,8 @@ export function normalizeSandboxPolicy(gatewayConfig?: GatewayConfig): Normalize
 }
 
 function suggestContainerImage(template: McpServiceConfig): string {
-  const cmd = String((template as any).command || '').toLowerCase();
-  const args = Array.isArray((template as any).args) ? ((template as any).args as string[]).join(' ').toLowerCase() : '';
+  const cmd = String(template.command || '').toLowerCase();
+  const args = Array.isArray(template.args) ? (template.args as string[]).join(' ').toLowerCase() : '';
   if (cmd.includes('python') || args.includes('python')) return 'python:3.11-alpine';
   if (cmd.includes('go') || args.includes('golang') || args.includes('go ')) return 'golang:1.22-alpine';
   if (cmd.includes('node') || cmd.includes('npm') || cmd.includes('npx') || args.includes('node') || args.includes('npm') || args.includes('npx')) {
@@ -298,7 +298,7 @@ function suggestContainerImage(template: McpServiceConfig): string {
 }
 
 function resolveTrustLevel(template: McpServiceConfig, policy: NormalizedSandboxPolicy): 'trusted' | 'partner' | 'untrusted' {
-  const explicit = (template as any)?.security?.trustLevel;
+  const explicit = template.security?.trustLevel;
   if (explicit === 'trusted' || explicit === 'partner' || explicit === 'untrusted') return explicit;
   // When quarantine is enabled, treat "missing trustLevel" as unreviewed/untrusted.
   if (policy.container.requiredForUntrusted) return 'untrusted';
@@ -306,7 +306,7 @@ function resolveTrustLevel(template: McpServiceConfig, policy: NormalizedSandbox
 }
 
 function validateVolumesAllowed(template: McpServiceConfig, policy: NormalizedSandboxPolicy): void {
-  const vols = (template as any)?.container?.volumes;
+  const vols = template.container?.volumes;
   if (!Array.isArray(vols) || vols.length === 0) return;
   for (const v of vols) {
     if (!v || !v.hostPath || !v.containerPath) continue;
@@ -332,13 +332,13 @@ export function applyGatewaySandboxPolicy(template: McpServiceConfig, gatewayCon
   const trustLevel = resolveTrustLevel(template, policy);
   const requireContainerByProfile = policy.profile === 'locked-down';
   const requireContainerByTrust = policy.container.requiredForUntrusted && trustLevel !== 'trusted';
-  const requireContainerByService = Boolean((template as any)?.security?.requireContainer);
+  const requireContainerByService = Boolean(template.security?.requireContainer);
   const preferContainer = policy.container.prefer && trustLevel !== 'trusted';
 
   const requireContainer = requireContainerByService || requireContainerByProfile || requireContainerByTrust || preferContainer;
 
-  const requestedSandbox = String(((template as any)?.env as any)?.SANDBOX || '');
-  const requestedContainer = requestedSandbox === 'container' || Boolean((template as any)?.container);
+  const requestedSandbox = String(template.env?.SANDBOX || '');
+  const requestedContainer = requestedSandbox === 'container' || Boolean(template.container);
 
   // If the service will run inside a container, do NOT normalize the inner command to a host realpath.
   if (requireContainer || requestedContainer) {
@@ -356,17 +356,17 @@ export function applyGatewaySandboxPolicy(template: McpServiceConfig, gatewayCon
     const next: McpServiceConfig = {
       ...template,
       env: { ...(template.env || {}), SANDBOX: 'container' },
-      container: { ...((template as any).container || {}) }
+      container: { ...(template.container || {}) }
     };
 
     // Default container params
-    const container: any = (next as any).container || {};
+    const container = (next.container || {}) as Record<string, unknown>;
     if (!container.image) container.image = suggestContainerImage(next);
     if (typeof container.readonlyRootfs !== 'boolean') {
       container.readonlyRootfs = policy.container.defaultReadonlyRootfs;
     }
 
-    const networkPolicy = (next as any)?.security?.networkPolicy as string | undefined;
+    const networkPolicy = next.security?.networkPolicy as string | undefined;
     if (networkPolicy === 'blocked' || networkPolicy === 'local-only') {
       container.network = 'none';
     } else if (networkPolicy === 'full') {
@@ -380,7 +380,7 @@ export function applyGatewaySandboxPolicy(template: McpServiceConfig, gatewayCon
       }
     }
 
-    (next as any).container = container;
+    (next as Record<string, unknown>).container = container;
 
     // Validate volumes against global allowlist (defense-in-depth; adapter will re-check).
     validateVolumesAllowed(next, policy);

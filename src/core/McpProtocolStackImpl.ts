@@ -118,7 +118,7 @@ export class McpProtocolStackImpl implements McpProtocolStack {
           for (const message of messages) {
             if (!message) continue;
             // Ignore handshake/no-id messages (compat with previous behavior)
-            if ((message as any).id === undefined && !(message as any).method) continue;
+            if ((message as unknown as Record<string, unknown>).id === undefined && !(message as unknown as Record<string, unknown>).method) continue;
             clearTimeout(timeout);
             process.stdout!.off('data', onData);
             resolve(message);
@@ -139,7 +139,7 @@ export class McpProtocolStackImpl implements McpProtocolStack {
     return this.handshaker.negotiateVersion(serviceId, versions);
   }
 
-  async getCapabilities(serviceId: string): Promise<Record<string, any>> {
+  async getCapabilities(serviceId: string): Promise<Record<string, unknown>> {
     const negotiatedVersion = await this.negotiateVersion(serviceId, [...MCP_VERSIONS]);
     const initMessage: McpMessage = {
       jsonrpc: '2.0',
@@ -161,7 +161,7 @@ export class McpProtocolStackImpl implements McpProtocolStack {
       throw new Error(`Failed to get capabilities: ${response.error.message}`);
     }
 
-    return response.result?.capabilities || {};
+    return (response.result as Record<string, unknown>)?.capabilities as Record<string, unknown> || {};
   }
 
   async startProcess(config: McpServiceConfig): Promise<ServiceInstance> {
@@ -297,8 +297,8 @@ export class McpProtocolStackImpl implements McpProtocolStack {
     // Validate command against security blocklist
     try {
       commandValidator.validate(command);
-    } catch (e: any) {
-      throw new Error(`Command blocked by security policy: ${e?.message || String(e)}`);
+    } catch (e: unknown) {
+      throw new Error(`Command blocked by security policy: ${(e as Error)?.message || String(e)}`);
     }
 
     const childProcess = spawn(command, args, {
@@ -316,7 +316,7 @@ export class McpProtocolStackImpl implements McpProtocolStack {
     return childProcess;
   }
 
-  private buildSandboxEnv(baseEnv: NodeJS.ProcessEnv, overrideEnv: Record<string, any> = {}): NodeJS.ProcessEnv {
+  private buildSandboxEnv(baseEnv: NodeJS.ProcessEnv, overrideEnv: Record<string, string> = {}): NodeJS.ProcessEnv {
     try {
       if (overrideEnv && String(overrideEnv.SANDBOX) === 'portable') {
         const resolve = path.resolve.bind(path);
@@ -362,7 +362,7 @@ export class McpProtocolStackImpl implements McpProtocolStack {
     return { ...baseEnv, ...overrideEnv };
   }
 
-  private inferPortableCwd(workingDirectory?: string, args: string[] = [], env: Record<string, any> = {}): string | undefined {
+  private inferPortableCwd(workingDirectory?: string, args: string[] = [], env: Record<string, string> = {}): string | undefined {
     if (workingDirectory) return workingDirectory;
     if (!(env && String(env.SANDBOX) === 'portable')) return undefined;
     // If using npm exec <pkg>, set cwd to portable package dir so exec resolves locally
@@ -438,11 +438,11 @@ export class McpProtocolStackImpl implements McpProtocolStack {
   }
 
   // Event system
-  on(event: string, listener: (...args: any[]) => void): void {
+  on(event: string, listener: (...args: unknown[]) => void): void {
     this.eventEmitter.on(event, listener);
   }
 
-  off(event: string, listener: (...args: any[]) => void): void {
+  off(event: string, listener: (...args: unknown[]) => void): void {
     this.eventEmitter.off(event, listener);
   }
 }

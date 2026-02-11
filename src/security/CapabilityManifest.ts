@@ -137,17 +137,18 @@ export function mergeWithDefaults(
     throw new Error('capabilities must be an object');
   }
 
-  const fsRaw = (input as any).filesystem;
-  const netRaw = (input as any).network;
-  const envRaw = (input as any).env;
-  const subRaw = (input as any).subprocess;
-  const resRaw = (input as any).resources;
+  const obj = input as Record<string, unknown>;
+  const fsRaw = obj.filesystem;
+  const netRaw = obj.network;
+  const envRaw = obj.env;
+  const subRaw = obj.subprocess;
+  const resRaw = obj.resources;
 
   const filesystem: FilesystemCapabilities = (() => {
     if (fsRaw === undefined) return { ...defaults.filesystem, read: [...defaults.filesystem.read], write: [...defaults.filesystem.write] };
     if (!isPlainObject(fsRaw)) throw new Error('capabilities.filesystem must be an object');
-    const read = hasOwn(fsRaw, 'read') ? normalizeStringArray((fsRaw as any).read, 'capabilities.filesystem.read') : [...defaults.filesystem.read];
-    const write = hasOwn(fsRaw, 'write') ? normalizeStringArray((fsRaw as any).write, 'capabilities.filesystem.write') : [...defaults.filesystem.write];
+    const read = hasOwn(fsRaw, 'read') ? normalizeStringArray(fsRaw.read, 'capabilities.filesystem.read') : [...defaults.filesystem.read];
+    const write = hasOwn(fsRaw, 'write') ? normalizeStringArray(fsRaw.write, 'capabilities.filesystem.write') : [...defaults.filesystem.write];
     return { read, write };
   })();
 
@@ -155,10 +156,10 @@ export function mergeWithDefaults(
     if (netRaw === undefined) return { ...defaults.network, allowedHosts: [...defaults.network.allowedHosts], allowedPorts: [...defaults.network.allowedPorts] };
     if (!isPlainObject(netRaw)) throw new Error('capabilities.network must be an object');
     const allowedHosts = hasOwn(netRaw, 'allowedHosts')
-      ? normalizeStringArray((netRaw as any).allowedHosts, 'capabilities.network.allowedHosts')
+      ? normalizeStringArray(netRaw.allowedHosts, 'capabilities.network.allowedHosts')
       : [...defaults.network.allowedHosts];
     const allowedPorts = hasOwn(netRaw, 'allowedPorts')
-      ? normalizeNumberArray((netRaw as any).allowedPorts, 'capabilities.network.allowedPorts')
+      ? normalizeNumberArray(netRaw.allowedPorts, 'capabilities.network.allowedPorts')
       : [...defaults.network.allowedPorts];
     return { allowedHosts, allowedPorts };
   })();
@@ -173,9 +174,9 @@ export function mergeWithDefaults(
       };
     }
     if (!isPlainObject(subRaw)) throw new Error('capabilities.subprocess must be an object');
-    const allowed = normalizeBoolean((subRaw as any).allowed, defaults.subprocess.allowed);
+    const allowed = normalizeBoolean(subRaw.allowed, defaults.subprocess.allowed);
     const allowedCommands = hasOwn(subRaw, 'allowedCommands')
-      ? normalizeStringArray((subRaw as any).allowedCommands, 'capabilities.subprocess.allowedCommands')
+      ? normalizeStringArray(subRaw.allowedCommands, 'capabilities.subprocess.allowedCommands')
       : [...defaults.subprocess.allowedCommands];
     return { allowed, allowedCommands };
   })();
@@ -184,9 +185,9 @@ export function mergeWithDefaults(
     if (resRaw === undefined) return { ...defaults.resources };
     if (!isPlainObject(resRaw)) throw new Error('capabilities.resources must be an object');
     return {
-      maxMemoryMB: normalizeInt((resRaw as any).maxMemoryMB, defaults.resources.maxMemoryMB, 'capabilities.resources.maxMemoryMB'),
-      maxCpuPercent: normalizeInt((resRaw as any).maxCpuPercent, defaults.resources.maxCpuPercent, 'capabilities.resources.maxCpuPercent'),
-      timeoutMs: normalizeInt((resRaw as any).timeoutMs, defaults.resources.timeoutMs, 'capabilities.resources.timeoutMs')
+      maxMemoryMB: normalizeInt(resRaw.maxMemoryMB, defaults.resources.maxMemoryMB, 'capabilities.resources.maxMemoryMB'),
+      maxCpuPercent: normalizeInt(resRaw.maxCpuPercent, defaults.resources.maxCpuPercent, 'capabilities.resources.maxCpuPercent'),
+      timeoutMs: normalizeInt(resRaw.timeoutMs, defaults.resources.timeoutMs, 'capabilities.resources.timeoutMs')
     };
   })();
 
@@ -223,19 +224,20 @@ function assertIntInRange(value: number, min: number, max: number, label: string
 export function validateCapabilities(capabilities: unknown): asserts capabilities is SkillCapabilities {
   if (!isPlainObject(capabilities)) throw new Error('capabilities must be an object');
 
-  const fs = (capabilities as any).filesystem;
+  const cap = capabilities as Record<string, unknown>;
+  const fs = cap.filesystem;
   if (!isPlainObject(fs)) throw new Error('capabilities.filesystem must be an object');
-  const fsRead = (fs as any).read;
-  const fsWrite = (fs as any).write;
+  const fsRead = fs.read;
+  const fsWrite = fs.write;
   if (!Array.isArray(fsRead)) throw new Error('capabilities.filesystem.read must be an array');
   if (!Array.isArray(fsWrite)) throw new Error('capabilities.filesystem.write must be an array');
   assertNonEmptyStrings(fsRead, 'capabilities.filesystem.read');
   assertNonEmptyStrings(fsWrite, 'capabilities.filesystem.write');
 
-  const net = (capabilities as any).network;
+  const net = cap.network;
   if (!isPlainObject(net)) throw new Error('capabilities.network must be an object');
-  const hosts = (net as any).allowedHosts;
-  const ports = (net as any).allowedPorts;
+  const hosts = net.allowedHosts;
+  const ports = net.allowedPorts;
   if (!Array.isArray(hosts)) throw new Error('capabilities.network.allowedHosts must be an array');
   if (!Array.isArray(ports)) throw new Error('capabilities.network.allowedPorts must be an array');
   assertNonEmptyStrings(hosts, 'capabilities.network.allowedHosts');
@@ -244,15 +246,15 @@ export function validateCapabilities(capabilities: unknown): asserts capabilitie
     assertIntInRange(p, 1, 65535, 'capabilities.network.allowedPorts');
   }
 
-  const env = (capabilities as any).env;
+  const env = cap.env;
   if (!Array.isArray(env)) throw new Error('capabilities.env must be an array');
   assertNonEmptyStrings(env, 'capabilities.env');
   assertEnvVarNames(env);
 
-  const sub = (capabilities as any).subprocess;
+  const sub = cap.subprocess;
   if (!isPlainObject(sub)) throw new Error('capabilities.subprocess must be an object');
-  const subAllowed = (sub as any).allowed;
-  const subCommands = (sub as any).allowedCommands;
+  const subAllowed = sub.allowed;
+  const subCommands = sub.allowedCommands;
   if (typeof subAllowed !== 'boolean') throw new Error('capabilities.subprocess.allowed must be a boolean');
   if (!Array.isArray(subCommands)) throw new Error('capabilities.subprocess.allowedCommands must be an array');
   assertNonEmptyStrings(subCommands, 'capabilities.subprocess.allowedCommands');
@@ -263,11 +265,11 @@ export function validateCapabilities(capabilities: unknown): asserts capabilitie
     throw new Error('capabilities.subprocess.allowedCommands is required when subprocess.allowed=true');
   }
 
-  const res = (capabilities as any).resources;
+  const res = cap.resources;
   if (!isPlainObject(res)) throw new Error('capabilities.resources must be an object');
-  const mem = (res as any).maxMemoryMB;
-  const cpu = (res as any).maxCpuPercent;
-  const timeout = (res as any).timeoutMs;
+  const mem = res.maxMemoryMB;
+  const cpu = res.maxCpuPercent;
+  const timeout = res.timeoutMs;
   if (typeof mem !== 'number') throw new Error('capabilities.resources.maxMemoryMB must be a number');
   if (typeof cpu !== 'number') throw new Error('capabilities.resources.maxCpuPercent must be a number');
   if (typeof timeout !== 'number') throw new Error('capabilities.resources.timeoutMs must be a number');

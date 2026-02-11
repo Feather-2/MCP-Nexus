@@ -290,9 +290,9 @@ export class GatewayBootstrapper {
   }
 
   private applyOverrides(overrides: GatewayBootstrapperOverrides): void {
-    for (const [key, value] of Object.entries(overrides) as Array<[keyof GatewayRuntime, any]>) {
+    for (const [key, value] of Object.entries(overrides) as Array<[keyof GatewayRuntime, unknown]>) {
       if (value === undefined) continue;
-      const token = (TOKENS as any)[key] as symbol | undefined;
+      const token = (TOKENS as Record<string, symbol>)[key] as symbol | undefined;
       if (!token) continue;
       this.container.register(token, value);
     }
@@ -311,8 +311,8 @@ export class GatewayBootstrapper {
       retries: template.retries ?? 3,
       healthCheck: template.healthCheck,
       // Preserve extended fields when templates are authored via API / disk (defense-in-depth)
-      container: (template as any).container,
-      security: (template as any).security
+      container: template.container as McpServiceConfig['container'],
+      security: template.security as McpServiceConfig['security']
     };
   }
 
@@ -321,37 +321,39 @@ export class GatewayBootstrapper {
       runtime.serviceRegistry.setHealthProbe(async (serviceId: string) => {
         const service = await runtime.serviceRegistry.getService(serviceId);
         if (!service) {
-          return { healthy: false, error: 'Service not found', timestamp: new Date() } as any;
+          return { healthy: false, error: 'Service not found', timestamp: new Date() };
         }
-        if ((service as any).state !== 'running') {
-          return { healthy: false, error: 'Service not running', timestamp: new Date() } as any;
+        if (service.state !== 'running') {
+          return { healthy: false, error: 'Service not running', timestamp: new Date() };
         }
         const start = Date.now();
         try {
           const adapter = await runtime.protocolAdapters.createAdapter(service.config);
           await adapter.connect();
           try {
-            const msg: any = { jsonrpc: '2.0', id: `health-${Date.now()}`, method: 'tools/list', params: {} };
-            const res = (adapter as any).sendAndReceive
-              ? await (adapter as any).sendAndReceive(msg)
-              : await adapter.send(msg as any);
+            const msg: import('../types/index.js').McpMessage = { jsonrpc: '2.0', id: `health-${Date.now()}`, method: 'tools/list', params: {} };
+            const sr = (adapter as unknown as { sendAndReceive?: (msg: unknown) => Promise<unknown> }).sendAndReceive;
+            const res = sr
+              ? await sr(msg)
+              : await adapter.send(msg);
             const latency = Date.now() - start;
-            const ok = !!(res && (res as any).result);
-            if (!ok && (res as any)?.error?.message) {
+            const r = res as Record<string, unknown> | undefined;
+            const ok = !!(res && r?.result);
+            if (!ok && (r?.error as Record<string, unknown>)?.message) {
               try {
-                await runtime.serviceRegistry.setInstanceMetadata(serviceId, 'lastProbeError', (res as any).error.message);
+                await runtime.serviceRegistry.setInstanceMetadata(serviceId, 'lastProbeError', (r?.error as Record<string, unknown>).message as string);
               } catch {}
             }
             return { healthy: ok, latency, timestamp: new Date() };
           } finally {
             await adapter.disconnect();
           }
-        } catch (e: any) {
-          const errMsg = e?.message || 'probe failed';
+        } catch (e: unknown) {
+          const errMsg = (e as Error)?.message || 'probe failed';
           try {
             await runtime.serviceRegistry.setInstanceMetadata(serviceId, 'lastProbeError', errMsg);
           } catch {}
-          return { healthy: false, error: errMsg, latency: Date.now() - start, timestamp: new Date() } as any;
+          return { healthy: false, error: errMsg, latency: Date.now() - start, timestamp: new Date() };
         }
       });
     } catch {}

@@ -32,15 +32,15 @@ export interface RouteContext {
   middlewareChain?: MiddlewareChain;
 
   // Shared state
-  logBuffer: Array<{ timestamp: string; level: string; message: string; service?: string; data?: any }>;
+  logBuffer: Array<{ timestamp: string; level: string; message: string; service?: string; data?: unknown }>;
   logStreamClients: Set<FastifyReply>;
   sandboxStreamClients: Set<FastifyReply>;
-  sandboxStatus: { nodeReady: boolean; pythonReady: boolean; goReady: boolean; packagesReady: boolean; details: Record<string, any> };
+  sandboxStatus: { nodeReady: boolean; pythonReady: boolean; goReady: boolean; packagesReady: boolean; details: Record<string, unknown> };
   sandboxInstalling: boolean;
 
   // Utility functions
-  addLogEntry: (level: string, message: string, service?: string, data?: any) => void;
-  respondError: (reply: FastifyReply, status: number, message: string, opts?: { code?: string; recoverable?: boolean; meta?: any }) => any;
+  addLogEntry: (level: string, message: string, service?: string, data?: unknown) => void;
+  respondError: (reply: FastifyReply, status: number, message: string, opts?: { code?: string; recoverable?: boolean; meta?: unknown }) => unknown;
 }
 
 /**
@@ -51,7 +51,7 @@ export abstract class BaseRouteHandler {
 
   abstract setupRoutes(): void;
 
-  protected respondError(reply: FastifyReply, status: number, message: string, opts?: { code?: string; recoverable?: boolean; meta?: any }) {
+  protected respondError(reply: FastifyReply, status: number, message: string, opts?: { code?: string; recoverable?: boolean; meta?: unknown }) {
     return this.ctx.respondError(reply, status, message, opts);
   }
 
@@ -60,7 +60,7 @@ export abstract class BaseRouteHandler {
    */
   protected writeSseHeaders(reply: FastifyReply, request: FastifyRequest): void {
     const origin = request.headers['origin'] as string | undefined;
-    const config = (this.ctx.configManager as any).config || {};
+    const config = (this.ctx.configManager as unknown as { config?: Record<string, unknown> }).config || {};
     const allowed = Array.isArray(config.corsOrigins) ? config.corsOrigins : [];
     const isAllowed = origin && allowed.includes(origin);
     reply.raw.writeHead(200, {

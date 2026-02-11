@@ -23,7 +23,7 @@ export class SseManager {
     this.cleanupTimer = setInterval(() => {
       this.removeDisconnected();
     }, this.cleanupIntervalMs);
-    (this.cleanupTimer as any).unref?.();
+    (this.cleanupTimer as unknown as { unref?: () => void }).unref?.();
   }
 
   /**
@@ -53,7 +53,7 @@ export class SseManager {
   /**
    * Broadcast a message to all connected clients.
    */
-  broadcast(data: any): void {
+  broadcast(data: unknown): void {
     const message = `data: ${JSON.stringify(data)}\n\n`;
 
     for (const client of this.clients) {
@@ -69,7 +69,7 @@ export class SseManager {
   /**
    * Send a message to a specific client.
    */
-  send(client: FastifyReply, data: any): boolean {
+  send(client: FastifyReply, data: unknown): boolean {
     const message = `data: ${JSON.stringify(data)}\n\n`;
     try {
       client.raw.write(message);
@@ -86,7 +86,7 @@ export class SseManager {
   removeDisconnected(): number {
     let removed = 0;
     for (const client of Array.from(this.clients)) {
-      const raw: any = client.raw as any;
+      const raw = client.raw as { writableEnded?: boolean; destroyed?: boolean; write?: (chunk: string) => boolean };
       if (!raw || raw.writableEnded || raw.destroyed) {
         this.clients.delete(client);
         removed++;

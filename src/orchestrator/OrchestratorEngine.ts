@@ -87,7 +87,7 @@ export class OrchestratorEngine {
     return planned.plan;
   }
 
-  private async runStep(step: OrchestratorStep): Promise<any> {
+  private async runStep(step: OrchestratorStep): Promise<unknown> {
     const templateName = step.template || this.selectTemplate(step);
     if (!templateName) throw new Error('No suitable template found for step');
 
@@ -105,13 +105,13 @@ export class OrchestratorEngine {
         params: { name: toolName, arguments: step.params || {} }
       };
       const res = await this.sendAndReceive(adapter, msg);
-      return (res as any)?.result ?? res;
+      return (res as unknown as Record<string, unknown>)?.result ?? res;
     } finally {
       await adapter.disconnect();
     }
   }
 
-  private async resolveToolName(adapter: any, requested?: string): Promise<string> {
+  private async resolveToolName(adapter: { sendAndReceive?: (msg: McpMessage) => Promise<McpMessage>; send: (msg: McpMessage) => Promise<void>; receive: () => Promise<McpMessage> }, requested?: string): Promise<string> {
     const listMsg: McpMessage = {
       jsonrpc: '2.0',
       id: `tools-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -119,8 +119,10 @@ export class OrchestratorEngine {
       params: {}
     };
     const res = await this.sendAndReceive(adapter, listMsg).catch(() => undefined);
-    const tools = (res as any)?.result?.tools;
-    const names: string[] = Array.isArray(tools) ? tools.map((t: any) => String(t?.name || '')).filter(Boolean) : [];
+    const r = res as Record<string, unknown> | undefined;
+    const result = r?.result as Record<string, unknown> | undefined;
+    const tools = result?.tools;
+    const names: string[] = Array.isArray(tools) ? tools.map((t) => String((t as Record<string, unknown>)?.name || '')).filter(Boolean) : [];
 
     if (!requested) {
       return names[0] || 'search';
@@ -135,7 +137,7 @@ export class OrchestratorEngine {
     return requested;
   }
 
-  private async sendAndReceive(adapter: any, message: McpMessage): Promise<McpMessage> {
+  private async sendAndReceive(adapter: { sendAndReceive?: (msg: McpMessage) => Promise<McpMessage>; send: (msg: McpMessage) => Promise<void>; receive: () => Promise<McpMessage> }, message: McpMessage): Promise<McpMessage> {
     if (typeof adapter?.sendAndReceive === 'function') {
       return adapter.sendAndReceive(message);
     }

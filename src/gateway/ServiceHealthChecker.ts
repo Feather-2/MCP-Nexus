@@ -20,7 +20,7 @@ export class ServiceHealthChecker {
       void this.performPeriodicChecks();
     }, this.checkInterval);
     // Don't keep the process alive solely for background health probes (important for tests/CLI).
-    (t as any).unref?.();
+    (t as unknown as { unref?: () => void }).unref?.();
   }
 
   setProbe(fn: (serviceId: string) => Promise<HealthCheckResult>): void {
@@ -60,7 +60,7 @@ export class ServiceHealthChecker {
     const maxAgeMs = opts?.maxAgeMs ?? this.checkInterval;
     const cached = this.store.getHealth(serviceId);
     if (!opts?.force && cached) {
-      const ts = cached.timestamp instanceof Date ? cached.timestamp.getTime() : new Date(cached.timestamp as any).getTime();
+      const ts = cached.timestamp instanceof Date ? cached.timestamp.getTime() : new Date(cached.timestamp as string | number).getTime();
       if (Number.isFinite(ts) && (now - ts) <= maxAgeMs) {
         return cached;
       }
@@ -145,10 +145,10 @@ export class ServiceHealthChecker {
           healthy: Boolean(res.healthy),
           latency: typeof res.latency === 'number' ? res.latency : (Date.now() - startedAtMs),
           error: res.error,
-          timestamp: res.timestamp instanceof Date ? res.timestamp : new Date(res.timestamp as any)
+          timestamp: res.timestamp instanceof Date ? res.timestamp : new Date(res.timestamp as string | number)
         };
-      } catch (e: any) {
-        return { healthy: false, error: e?.message || 'probe failed', latency: Date.now() - startedAtMs, timestamp: new Date() };
+      } catch (e: unknown) {
+        return { healthy: false, error: (e as Error)?.message || 'probe failed', latency: Date.now() - startedAtMs, timestamp: new Date() };
       }
     }
     // No fallback in production: require probe to be set
