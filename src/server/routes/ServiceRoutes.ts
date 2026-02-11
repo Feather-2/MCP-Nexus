@@ -37,7 +37,7 @@ export class ServiceRoutes extends BaseRouteHandler {
       const Params = ServiceIdParams;
       let id: string;
       try { ({ id } = Params.parse(request.params as any)); } catch (e) {
-        const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid service id', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
+        const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid service id', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
       }
       const service = await this.ctx.serviceRegistry.getService(id);
 
@@ -51,10 +51,10 @@ export class ServiceRoutes extends BaseRouteHandler {
 
     // Create service from template
     server.post('/api/services', async (request: FastifyRequest, reply: FastifyReply) => {
-      const Body = z.object({ templateName: z.string().min(1), instanceArgs: z.record(z.any()).optional() });
+      const Body = z.object({ templateName: z.string().min(1), instanceArgs: z.record(z.string(), z.any()).optional() });
       let body: z.infer<typeof Body>;
       try { body = Body.parse((request.body as any) || {}); } catch (e) {
-        const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
+        const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
       }
 
       try {
@@ -77,10 +77,10 @@ export class ServiceRoutes extends BaseRouteHandler {
     // Update service environment variables
     server.patch('/api/services/:id/env', async (request: FastifyRequest, reply: FastifyReply) => {
       const Params = ServiceIdParams;
-      const Body = z.object({ env: z.record(z.string()).refine(obj => Object.keys(obj).length >= 0) });
+      const Body = z.object({ env: z.record(z.string(), z.string()).refine(obj => Object.keys(obj).length >= 0) });
       let id: string; let body: z.infer<typeof Body>;
       try { ({ id } = Params.parse(request.params as any)); body = Body.parse((request.body as any) || {}); } catch (e) {
-        const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid request', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
+        const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid request', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
       }
 
       try {
@@ -109,7 +109,7 @@ export class ServiceRoutes extends BaseRouteHandler {
     // Stop service
     server.delete('/api/services/:id', async (request: FastifyRequest, reply: FastifyReply) => {
       const Params = ServiceIdParams;
-      let id: string; try { ({ id } = Params.parse(request.params as any)); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid service id', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors }); }
+      let id: string; try { ({ id } = Params.parse(request.params as any)); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid service id', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues }); }
 
       try {
         const success = await this.ctx.serviceRegistry.stopService(id);
@@ -127,7 +127,7 @@ export class ServiceRoutes extends BaseRouteHandler {
     // Get service health
     server.get('/api/services/:id/health', async (request: FastifyRequest, reply: FastifyReply) => {
       const Params = ServiceIdParams;
-      let id: string; try { ({ id } = Params.parse(request.params as any)); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid service id', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors }); }
+      let id: string; try { ({ id } = Params.parse(request.params as any)); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid service id', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues }); }
       try {
         const health = await this.ctx.serviceRegistry.checkHealth(id);
         reply.send({ health });
@@ -141,7 +141,7 @@ export class ServiceRoutes extends BaseRouteHandler {
       const Params = ServiceIdParams;
       const Query = z.object({ limit: z.coerce.number().int().positive().max(1000).default(50) });
       let id: string; let q: z.infer<typeof Query>;
-      try { ({ id } = Params.parse(request.params as any)); q = Query.parse(request.query as any); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid request', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors }); }
+      try { ({ id } = Params.parse(request.params as any)); q = Query.parse(request.query as any); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid request', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues }); }
       const logLimit = q.limit;
 
       try {

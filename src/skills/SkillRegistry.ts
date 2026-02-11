@@ -36,7 +36,7 @@ const SkillFrontmatterSchema = z.object({
   metadata: z.object({
     'short-description': z.string().optional(),
     keywords: z.array(z.string()).optional(),
-    tags: z.record(z.string()).optional(),
+    tags: z.record(z.string(), z.string()).optional(),
     traits: z.array(z.string()).optional(),
     allowedTools: z.string().optional(),
     priority: z.number().optional()

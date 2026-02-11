@@ -10,7 +10,7 @@ export const OrchestratorStepSchema = z.object({
    * Tool name inside the selected MCP server. When omitted, the engine will auto-pick from tools/list.
    */
   tool: z.string().min(1).optional(),
-  params: z.record(z.any()).optional(),
+  params: z.record(z.string(), z.any()).optional(),
   retries: z.number().int().min(0).max(5).optional(),
   timeoutMs: z.number().int().positive().max(600_000).optional()
 });

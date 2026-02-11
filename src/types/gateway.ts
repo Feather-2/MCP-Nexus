@@ -51,7 +51,7 @@ export const McpServiceConfigSchema = z.object({
   transport: z.enum(TRANSPORT_TYPES),
   command: z.string().optional(),
   args: z.array(z.string()).optional(),
-  env: z.record(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
   workingDirectory: z.string().optional(),
   timeout: z.number().default(30000),
   retries: z.number().default(3),
@@ -168,7 +168,7 @@ const BudgetConfigSchema = z.object({
   maxTokens: z.number().default(200_000),
   maxTimeMs: z.number().default(300_000),
   maxCostUsd: z.number().default(1.5),
-  concurrency: ConcurrencyConfigSchema.default({})
+  concurrency: ConcurrencyConfigSchema.default(() => ({ global: 8, perSubagent: 2 }))
 }).partial();
 
 const SwitchThresholdSchema = z.object({
@@ -178,7 +178,7 @@ const SwitchThresholdSchema = z.object({
 
 const RoutingConfigSchema = z.object({
   preferLocal: z.boolean().default(true),
-  switchThreshold: SwitchThresholdSchema.default({})
+  switchThreshold: SwitchThresholdSchema.default(() => ({ planDepth: 6, failRate: 0.3 }))
 }).partial();
 
 export const SubagentConfigSchema = z.object({
@@ -190,13 +190,13 @@ export const SubagentConfigSchema = z.object({
     cost: z.number().default(0.5),
     performance: z.number().default(0.5)
   }).partial().default({}),
-  policy: z.record(z.any()).optional()
+  policy: z.record(z.string(), z.any()).optional()
 });
 
 export const OrchestratorConfigSchema = z.object({
   enabled: z.boolean().default(false),
   mode: z.enum(ORCHESTRATOR_MODES).default('manager-only'),
-  planner: PlannerConfigSchema.default({}),
+  planner: PlannerConfigSchema.default(() => ({ provider: 'local' as const, model: 'local-planner', maxSteps: 8, fallbackRemote: false })),
   vectorStore: VectorStoreConfigSchema.optional(),
   reranker: RerankerConfigSchema.optional(),
   budget: BudgetConfigSchema.optional(),

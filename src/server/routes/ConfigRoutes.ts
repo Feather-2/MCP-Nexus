@@ -33,7 +33,7 @@ export class ConfigRoutes extends BaseRouteHandler {
         reply.send({ success: true, message: 'Configuration updated successfully', config: updatedConfig });
       } catch (error) {
         if (error instanceof z.ZodError) {
-          return this.respondError(reply, 400, 'Invalid configuration payload', { code: 'BAD_REQUEST', recoverable: true, meta: error.errors });
+          return this.respondError(reply, 400, 'Invalid configuration payload', { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
         }
         return this.respondError(reply, 500, (error as Error).message || 'Failed to update configuration', { code: 'CONFIG_ERROR' });
       }
@@ -51,7 +51,7 @@ export class ConfigRoutes extends BaseRouteHandler {
         reply.send({ key, value });
       } catch (error) {
         if (error instanceof z.ZodError) {
-          return this.respondError(reply, 400, 'Invalid config key', { code: 'BAD_REQUEST', recoverable: true, meta: error.errors });
+          return this.respondError(reply, 400, 'Invalid config key', { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
         }
         return this.respondError(reply, 500, (error as Error).message || 'Failed to get configuration value', { code: 'CONFIG_ERROR' });
       }

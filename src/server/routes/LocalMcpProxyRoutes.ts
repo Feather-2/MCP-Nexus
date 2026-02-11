@@ -106,7 +106,7 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
         reply.send({ handshakeId, serverNonce, expiresIn, kdf, kdfParams });
       } catch (err: any) {
         if (err instanceof z.ZodError) {
-          return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
+          return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
         }
         // Error already handled in requireAndValidateOrigin
         if (!reply.sent) return this.respondError(reply, 500, err?.message || 'Internal error', { code: 'INTERNAL_ERROR' });
@@ -124,7 +124,7 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
         parsed = approveSchema.parse((request.body as any) || {});
       } catch (e) {
         const err = e as z.ZodError;
-        return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
+        return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
       }
       const { handshakeId, approve } = parsed;
       const hs = this.handshakeStore.get(handshakeId);
@@ -177,7 +177,7 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
         reply.send({ success: true, token, expiresIn });
       } catch (err: any) {
         if (err instanceof z.ZodError) {
-          return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
+          return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
         }
         if (!reply.sent) return this.respondError(reply, 500, err?.message || 'Internal error', { code: 'INTERNAL_ERROR' });
       }
@@ -205,7 +205,7 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
       serviceId = parsed.serviceId;
     } catch (e) {
       const err = e as z.ZodError;
-      return this.respondError(reply, 400, 'Invalid query', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
+      return this.respondError(reply, 400, 'Invalid query', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
     }
     try {
       const service = await this.findTargetService(serviceId);
@@ -233,7 +233,7 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
     if (!this.validateToken(token, origin)) return this.respondError(reply, 403, 'Forbidden', { code: 'FORBIDDEN', recoverable: true });
     const callSchema = z.object({
       tool: z.string().min(1),
-      params: z.record(z.any()).optional(),
+      params: z.record(z.string(), z.any()).optional(),
       serviceId: z.string().min(1).optional()
     });
     let tool: string, params: any, serviceId: string | undefined;
@@ -244,7 +244,7 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
       serviceId = parsed.serviceId;
     } catch (e) {
       const err = e as z.ZodError;
-      return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
+      return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
     }
     try {
       const service = await this.findTargetService(serviceId);

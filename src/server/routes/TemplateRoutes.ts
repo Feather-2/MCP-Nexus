@@ -68,7 +68,7 @@ export class TemplateRoutes extends BaseRouteHandler {
     // Get template by name
     server.get('/api/templates/:name', async (request: FastifyRequest, reply: FastifyReply) => {
       const Params = z.object({ name: z.string().min(1) });
-      let name: string; try { ({ name } = Params.parse(request.params as any)); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid template name', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors }); }
+      let name: string; try { ({ name } = Params.parse(request.params as any)); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid template name', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues }); }
       try {
         const tpl = await this.ctx.serviceRegistry.getTemplate(name);
         if (!tpl) return this.respondError(reply, 404, 'Template not found', { code: 'NOT_FOUND', recoverable: true });
@@ -120,7 +120,7 @@ export class TemplateRoutes extends BaseRouteHandler {
         });
       } catch (error) {
         if (error instanceof z.ZodError) {
-          return this.respondError(reply, 400, 'Invalid template config', { code: 'BAD_REQUEST', recoverable: true, meta: error.errors });
+          return this.respondError(reply, 400, 'Invalid template config', { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
         }
         return this.respondError(reply, 400, error instanceof Error ? error.message : 'Failed to register template', { code: 'TEMPLATE_REGISTER_FAILED', recoverable: true });
       }
@@ -129,7 +129,7 @@ export class TemplateRoutes extends BaseRouteHandler {
     // Update template env only
     server.patch('/api/templates/:name/env', async (request: FastifyRequest, reply: FastifyReply) => {
       const Params = z.object({ name: z.string().min(1) });
-      let name: string; try { ({ name } = Params.parse(request.params as any)); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid template name', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors }); }
+      let name: string; try { ({ name } = Params.parse(request.params as any)); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid template name', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues }); }
       const rawBody = (request.body as any) ?? {};
       const body = typeof rawBody === 'object' && rawBody && !Array.isArray(rawBody)
         ? (rawBody.env && typeof rawBody.env === 'object' ? { env: rawBody.env as Record<string,string> } : { env: rawBody as Record<string,string> })
@@ -154,7 +154,7 @@ export class TemplateRoutes extends BaseRouteHandler {
     // Diagnose template for missing envs
     server.post('/api/templates/:name/diagnose', async (request: FastifyRequest, reply: FastifyReply) => {
       const Params = z.object({ name: z.string().min(1) });
-      let name: string; try { ({ name } = Params.parse(request.params as any)); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid template name', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors }); }
+      let name: string; try { ({ name } = Params.parse(request.params as any)); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid template name', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues }); }
       try {
         const tpl = await this.ctx.serviceRegistry.getTemplate(name);
         if (!tpl) {
@@ -174,7 +174,7 @@ export class TemplateRoutes extends BaseRouteHandler {
     // Delete template
     server.delete('/api/templates/:name', async (request: FastifyRequest, reply: FastifyReply) => {
       const Params = z.object({ name: z.string().min(1) });
-      let name: string; try { ({ name } = Params.parse(request.params as any)); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid template name', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors }); }
+      let name: string; try { ({ name } = Params.parse(request.params as any)); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid template name', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues }); }
       try {
         await this.ctx.serviceRegistry.removeTemplate(name);
         reply.send({ success: true, message: 'Template deleted successfully', name });

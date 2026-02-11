@@ -22,7 +22,7 @@ export class LogRoutes extends BaseRouteHandler {
         reply.send(recentLogs);
       } catch (error) {
         if (error instanceof z.ZodError) {
-          return this.respondError(reply, 400, 'Invalid query', { code: 'BAD_REQUEST', recoverable: true, meta: error.errors });
+          return this.respondError(reply, 400, 'Invalid query', { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
         }
         return this.respondError(reply, 500, (error as Error).message || 'Failed to get logs', { code: 'LOG_ERROR' });
       }

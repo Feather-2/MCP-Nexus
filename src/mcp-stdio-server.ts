@@ -43,7 +43,7 @@ type JsonRpcRequest = z.infer<typeof JsonRpcRequestSchema>;
 
 const ToolsCallParamsSchema = z.object({
   name: z.string().min(1),
-  arguments: z.record(z.unknown()).optional()
+  arguments: z.record(z.string(), z.unknown()).optional()
 });
 
 const RouteTaskArgsSchema = z.object({

@@ -175,7 +175,7 @@ describe('HttpApiServer orchestrator routes', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect(orchestratorStub.updateConfig).toHaveBeenCalledWith({ enabled: true, mode: 'auto' });
+    expect(orchestratorStub.updateConfig).toHaveBeenCalledWith({ enabled: true, mode: 'auto', planner: { provider: 'local', model: 'local-planner', maxSteps: 8, fallbackRemote: false }, subagentsDir: './config/subagents' });
     expect(res.json()).toEqual({ success: true, config: { enabled: true, mode: 'auto', subagentsDir: './config/subagents' } });
   });
 });

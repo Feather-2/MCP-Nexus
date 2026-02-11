@@ -31,7 +31,7 @@ const RegisterSkillBodySchema = z.object({
   body: z.string().min(1),
   shortDescription: z.string().optional(),
   keywords: z.array(z.string()).optional(),
-  tags: z.record(z.string()).optional(),
+  tags: z.record(z.string(), z.string()).optional(),
   traits: z.array(z.string()).optional(),
   allowedTools: z.string().optional(),
   priority: z.number().optional(),
@@ -75,7 +75,7 @@ const SkillDefinitionSchema = z.object({
     path: z.string().optional(),
     keywords: z.array(z.string()).optional(),
     keywordsAll: z.array(z.string()).optional(),
-    tags: z.record(z.string()).optional(),
+    tags: z.record(z.string(), z.string()).optional(),
     traits: z.array(z.string()).optional(),
     allowedTools: z.string().optional(),
     priority: z.number().optional()
@@ -84,7 +84,7 @@ const SkillDefinitionSchema = z.object({
   capabilities: SkillCapabilitiesSchema.optional(),
   supportFiles: z.union([
     z.array(z.object({ path: z.string().min(1), content: z.string() })),
-    z.record(z.string())
+    z.record(z.string(), z.string())
   ]).optional()
 });
 
@@ -344,7 +344,7 @@ export class SkillRoutes extends BaseRouteHandler {
         body = RegisterSkillBodySchema.parse((request.body as any) || {});
       } catch (e) {
         const err = e as z.ZodError;
-        return this.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
+        return this.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
       }
 
       try {
@@ -420,7 +420,7 @@ export class SkillRoutes extends BaseRouteHandler {
         reply.send({ success: true, result });
       } catch (error) {
         if (error instanceof z.ZodError) {
-          return this.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: error.errors });
+          return this.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
         }
         const message = error instanceof Error ? error.message : t('errors.skill_audit_failed');
         return this.respondError(reply, 500, message, { code: 'SKILL_AUDIT_FAILED' });
@@ -433,7 +433,7 @@ export class SkillRoutes extends BaseRouteHandler {
         body = MatchBodySchema.parse((request.body as any) || {});
       } catch (e) {
         const err = e as z.ZodError;
-        return this.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
+        return this.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
       }
 
       try {
@@ -498,7 +498,7 @@ export class SkillRoutes extends BaseRouteHandler {
         body = CreateVersionBodySchema.parse((request.body as any) || {});
       } catch (error) {
         const err = error as z.ZodError;
-        return this.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
+        return this.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
       }
 
       try {
@@ -624,7 +624,7 @@ export class SkillRoutes extends BaseRouteHandler {
         body = AuthorizeBodySchema.parse((request.body as any) || {});
       } catch (error) {
         const err = error as z.ZodError;
-        return this.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
+        return this.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
       }
 
       try {
@@ -693,7 +693,7 @@ export class SkillRoutes extends BaseRouteHandler {
         body = DistributeBodySchema.parse((request.body as any) || {});
       } catch (error) {
         const err = error as z.ZodError;
-        return this.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
+        return this.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
       }
 
       try {
@@ -719,7 +719,7 @@ export class SkillRoutes extends BaseRouteHandler {
         body = DistributeBodySchema.parse((request.body as any) || {});
       } catch (error) {
         const err = error as z.ZodError;
-        return this.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
+        return this.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
       }
 
       try {

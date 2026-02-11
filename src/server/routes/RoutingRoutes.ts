@@ -35,7 +35,7 @@ export class RoutingRoutes extends BaseRouteHandler {
       });
       let body: z.infer<typeof Body>;
       try { body = Body.parse((request.body as any) || {}); } catch (e) {
-        const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid route request', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
+        const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid route request', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
       }
 
       try {
@@ -130,7 +130,7 @@ export class RoutingRoutes extends BaseRouteHandler {
     server.post('/api/proxy/:serviceId', async (request: FastifyRequest, reply: FastifyReply) => {
       const Params = z.object({ serviceId: z.string().min(1) });
       let serviceId: string;
-      try { ({ serviceId } = Params.parse(request.params as any)); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid service id', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors }); }
+      try { ({ serviceId } = Params.parse(request.params as any)); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid service id', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues }); }
 
       // Validate MCP message structure
       const McpMessageSchema = z.object({
@@ -142,7 +142,7 @@ export class RoutingRoutes extends BaseRouteHandler {
 
       let mcpMessage: z.infer<typeof McpMessageSchema>;
       try { mcpMessage = McpMessageSchema.parse((request.body as any) || {}); } catch (e) {
-        const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid MCP message format', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
+        const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid MCP message format', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
       }
 
       try {
@@ -210,7 +210,7 @@ export class RoutingRoutes extends BaseRouteHandler {
         mcpMessage = McpMessageSchema.parse((request.body as any) || {});
       } catch (e) {
         const err = e as z.ZodError;
-        return this.respondError(reply, 400, 'Invalid MCP message format', { code: 'BAD_REQUEST', recoverable: true, meta: err.errors });
+        return this.respondError(reply, 400, 'Invalid MCP message format', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
       }
 
       if (!MCP_ALLOWED_PREFIXES.some(p => mcpMessage.method.startsWith(p))) {

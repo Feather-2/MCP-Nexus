@@ -137,7 +137,7 @@ export class ToolRoutes extends BaseRouteHandler {
         return this.respondError(reply, 400, 'Invalid request body', {
           code: 'BAD_REQUEST',
           recoverable: true,
-          meta: err.errors
+          meta: err.issues
         });
       }
 
@@ -231,7 +231,7 @@ export class ToolRoutes extends BaseRouteHandler {
         return this.respondError(reply, 400, 'Invalid request body', {
           code: 'BAD_REQUEST',
           recoverable: true,
-          meta: err.errors
+          meta: err.issues
         });
       }
 
