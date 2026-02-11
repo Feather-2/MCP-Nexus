@@ -847,7 +847,7 @@ export class HttpApiServer {
 
       reply.code(500).send({
         error: 'Internal Server Error',
-        message: error.message,
+        message: (error as Error).message,
         timestamp: new Date().toISOString()
       });
     });

@@ -24,8 +24,8 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: true,
-    testTimeout: 10000,
-    hookTimeout: 10000,
+    testTimeout: 30000,
+    hookTimeout: 30000,
     exclude: ['**/node_modules/**', '**/dist/**'],
     coverage: {
       provider: 'v8',

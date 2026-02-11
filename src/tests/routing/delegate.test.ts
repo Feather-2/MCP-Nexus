@@ -235,7 +235,7 @@ describe('DelegateTool', () => {
     const executor: SubAgentExecutor = {
       execute: vi.fn().mockImplementation(() => new Promise(() => {}))
     };
-    const onCompleteSpy = vi.fn<[DelegateRequest, DelegateResponse], void>();
+    const onCompleteSpy = vi.fn<(req: DelegateRequest, res: DelegateResponse) => void>();
     const onComplete = (request: DelegateRequest, response: DelegateResponse) => {
       onCompleteSpy(request, response);
     };

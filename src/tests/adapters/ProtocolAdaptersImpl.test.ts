@@ -160,7 +160,7 @@ describe('ProtocolAdaptersImpl', () => {
       const adapter: Pick<TransportAdapter, 'connect' | 'send' | 'receive' | 'disconnect'> = {
         connect: vi.fn().mockResolvedValue(undefined),
         send: vi.fn().mockResolvedValue(undefined),
-        receive: vi.fn(() => new Promise(() => { /* never resolves */ })),
+        receive: vi.fn((): Promise<any> => new Promise(() => { /* never resolves */ })),
         disconnect: vi.fn().mockResolvedValue(undefined)
       };
 
