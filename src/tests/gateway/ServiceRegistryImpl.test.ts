@@ -4,9 +4,15 @@ import { ServiceHealthChecker } from '../../gateway/ServiceHealthChecker.js';
 import { IntelligentLoadBalancer } from '../../gateway/IntelligentLoadBalancer.js';
 import type { Logger, McpServiceConfig, ServiceInstance } from '../../types/index.js';
 
-vi.mock('../../gateway/ServiceTemplateManager.js');
-vi.mock('../../gateway/ServiceHealthChecker.js');
-vi.mock('../../gateway/IntelligentLoadBalancer.js');
+vi.mock('../../gateway/ServiceTemplateManager.js', () => ({
+  ServiceTemplateManager: vi.fn().mockImplementation(function () { return {}; })
+}));
+vi.mock('../../gateway/ServiceHealthChecker.js', () => ({
+  ServiceHealthChecker: vi.fn().mockImplementation(function () { return {}; })
+}));
+vi.mock('../../gateway/IntelligentLoadBalancer.js', () => ({
+  IntelligentLoadBalancer: vi.fn().mockImplementation(function () { return {}; })
+}));
 
 function makeTemplate(name: string, overrides: Partial<McpServiceConfig> = {}): McpServiceConfig {
   return {
@@ -61,9 +67,9 @@ describe('ServiceRegistryImpl (store façade)', () => {
       selectInstance: vi.fn()
     } as any;
 
-    vi.mocked(ServiceTemplateManager).mockImplementation(() => mockTemplateManager);
-    vi.mocked(ServiceHealthChecker).mockImplementation(() => mockHealthChecker);
-    vi.mocked(IntelligentLoadBalancer).mockImplementation(() => mockLoadBalancer);
+    vi.mocked(ServiceTemplateManager).mockImplementation(function () { return mockTemplateManager; } as any);
+    vi.mocked(ServiceHealthChecker).mockImplementation(function () { return mockHealthChecker; } as any);
+    vi.mocked(IntelligentLoadBalancer).mockImplementation(function () { return mockLoadBalancer; } as any);
 
     registry = new ServiceRegistryImpl(mockLogger);
   });

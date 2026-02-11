@@ -1,6 +1,6 @@
 {
   "host": "127.0.0.1",
-  "port": 19249,
+  "port": 19233,
   "authMode": "local-trusted",
   "routingStrategy": "performance",
   "loadBalancingStrategy": "performance-based",
@@ -29,12 +29,5 @@
       "requiredForUntrusted": false,
       "prefer": false
     }
-  },
-  "ai": {
-    "provider": "none",
-    "model": "",
-    "endpoint": "",
-    "timeoutMs": 30000,
-    "streaming": true
   }
 }

@@ -1,44 +1,49 @@
 import { HttpApiServer } from '../../../server/HttpApiServer.js';
 import type { GatewayConfig, Logger } from '../../../types/index.js';
 
-const { mockStaticPlugin, mockCorsPlugin } = vi.hoisted(() => ({
-  mockStaticPlugin: vi.fn((_instance: any, _opts: any, done?: (err?: Error) => void) => done?.()),
-  mockCorsPlugin: vi.fn((_instance: any, _opts: any, done?: (err?: Error) => void) => done?.())
-}));
+const {
+  mockStaticPlugin, mockCorsPlugin, mockDiscoverAll,
+  serviceRegistryStub, authLayerStub, routerStub,
+  ServiceRegistryImpl, AuthenticationLayerImpl, GatewayRouterImpl, ProtocolAdaptersImpl,
+  ExternalMcpConfigImporter
+} = vi.hoisted(() => {
+  const mockDiscoverAll = vi.fn().mockResolvedValue([]);
+  const serviceRegistryStub = {
+    getRegistryStats: vi.fn().mockResolvedValue({}),
+    listServices: vi.fn().mockResolvedValue([]),
+    getService: vi.fn().mockResolvedValue(null),
+    checkHealth: vi.fn().mockResolvedValue({ healthy: true, timestamp: new Date() }),
+    listTemplates: vi.fn().mockResolvedValue([]),
+    getTemplate: vi.fn().mockResolvedValue(null),
+    registerTemplate: vi.fn().mockResolvedValue(undefined),
+    removeTemplate: vi.fn().mockResolvedValue(undefined)
+  };
+  const authLayerStub = {
+    authenticate: vi.fn().mockResolvedValue({ success: true }),
+    getActiveTokenCount: vi.fn().mockReturnValue(0),
+    getActiveApiKeyCount: vi.fn().mockReturnValue(0)
+  };
+  const routerStub = { getMetrics: vi.fn().mockReturnValue({}) };
+  return {
+    mockStaticPlugin: vi.fn((_instance: any, _opts: any, done?: (err?: Error) => void) => done?.()),
+    mockCorsPlugin: vi.fn((_instance: any, _opts: any, done?: (err?: Error) => void) => done?.()),
+    mockDiscoverAll,
+    serviceRegistryStub, authLayerStub, routerStub,
+    ServiceRegistryImpl: vi.fn().mockImplementation(function () { return serviceRegistryStub; }),
+    AuthenticationLayerImpl: vi.fn().mockImplementation(function () { return authLayerStub; }),
+    GatewayRouterImpl: vi.fn().mockImplementation(function () { return routerStub; }),
+    ProtocolAdaptersImpl: vi.fn().mockImplementation(function () { return {}; }),
+    ExternalMcpConfigImporter: vi.fn().mockImplementation(function () { return { discoverAll: mockDiscoverAll }; }),
+  };
+});
 
 vi.mock('@fastify/static', () => ({ default: mockStaticPlugin }));
 vi.mock('@fastify/cors', () => ({ default: mockCorsPlugin }));
-
-// Mock ExternalMcpConfigImporter for import routes
-const mockDiscoverAll = vi.fn().mockResolvedValue([]);
-vi.mock('../../../config/ExternalMcpConfigImporter.js', () => ({
-  ExternalMcpConfigImporter: vi.fn().mockImplementation(() => ({ discoverAll: mockDiscoverAll }))
-}));
-
-const serviceRegistryStub = {
-  getRegistryStats: vi.fn().mockResolvedValue({}),
-  listServices: vi.fn().mockResolvedValue([]),
-  getService: vi.fn().mockResolvedValue(null),
-  checkHealth: vi.fn().mockResolvedValue({ healthy: true, timestamp: new Date() }),
-  listTemplates: vi.fn().mockResolvedValue([]),
-  getTemplate: vi.fn().mockResolvedValue(null),
-  registerTemplate: vi.fn().mockResolvedValue(undefined),
-  removeTemplate: vi.fn().mockResolvedValue(undefined)
-};
-
-const authLayerStub = {
-  authenticate: vi.fn().mockResolvedValue({ success: true }),
-  getActiveTokenCount: vi.fn().mockReturnValue(0),
-  getActiveApiKeyCount: vi.fn().mockReturnValue(0)
-};
-
-const routerStub = { getMetrics: vi.fn().mockReturnValue({}) };
-const adaptersStub = {};
-
-vi.mock('../../../gateway/ServiceRegistryImpl.js', () => ({ ServiceRegistryImpl: vi.fn().mockImplementation(() => serviceRegistryStub) }));
-vi.mock('../../../auth/AuthenticationLayerImpl.js', () => ({ AuthenticationLayerImpl: vi.fn().mockImplementation(() => authLayerStub) }));
-vi.mock('../../../router/GatewayRouterImpl.js', () => ({ GatewayRouterImpl: vi.fn().mockImplementation(() => routerStub) }));
-vi.mock('../../../adapters/ProtocolAdaptersImpl.js', () => ({ ProtocolAdaptersImpl: vi.fn().mockImplementation(() => adaptersStub) }));
+vi.mock('../../../config/ExternalMcpConfigImporter.js', () => ({ ExternalMcpConfigImporter }));
+vi.mock('../../../gateway/ServiceRegistryImpl.js', () => ({ ServiceRegistryImpl }));
+vi.mock('../../../auth/AuthenticationLayerImpl.js', () => ({ AuthenticationLayerImpl }));
+vi.mock('../../../routing/GatewayRouterImpl.js', () => ({ GatewayRouterImpl }));
+vi.mock('../../../adapters/ProtocolAdaptersImpl.js', () => ({ ProtocolAdaptersImpl }));
 
 describe('Medium coverage routes', () => {
   const config: GatewayConfig = {

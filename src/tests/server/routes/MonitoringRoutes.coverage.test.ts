@@ -1,32 +1,40 @@
 import { HttpApiServer } from '../../../server/HttpApiServer.js';
 import type { GatewayConfig, Logger } from '../../../types/index.js';
 
-const { mockStaticPlugin, mockCorsPlugin } = vi.hoisted(() => ({
-  mockStaticPlugin: vi.fn((_i: any, _o: any, done?: (e?: Error) => void) => done?.()),
-  mockCorsPlugin: vi.fn((_i: any, _o: any, done?: (e?: Error) => void) => done?.())
-}));
+const {
+  mockStaticPlugin, mockCorsPlugin,
+  svcStub, authStub, routerStub,
+  ServiceRegistryImpl, AuthenticationLayerImpl, GatewayRouterImpl, ProtocolAdaptersImpl
+} = vi.hoisted(() => {
+  const svcStub = {
+    getRegistryStats: vi.fn().mockResolvedValue({ templates: 2, instances: 1 }),
+    listServices: vi.fn().mockResolvedValue([
+      { id: 's1', config: { name: 'svc-a' }, state: 'running', startedAt: new Date(), errorCount: 0 },
+      { id: 's2', config: { name: 'svc-b' }, state: 'stopped', startedAt: new Date(), errorCount: 0 }
+    ]),
+    getService: vi.fn().mockResolvedValue(null),
+    checkHealth: vi.fn().mockResolvedValue({ healthy: true, timestamp: new Date(), status: 'healthy', responseTime: 5 }),
+    getHealthAggregates: vi.fn().mockResolvedValue({ total: 2, healthy: 1, unhealthy: 1 })
+  };
+  const authStub = { authenticate: vi.fn().mockResolvedValue({ success: true }), getActiveTokenCount: vi.fn().mockReturnValue(0), getActiveApiKeyCount: vi.fn().mockReturnValue(0) };
+  const routerStub = { getMetrics: vi.fn().mockReturnValue({ totalRequests: 100, successRate: 0.95, averageResponseTime: 50 }) };
+  return {
+    mockStaticPlugin: vi.fn((_i: any, _o: any, done?: (e?: Error) => void) => done?.()),
+    mockCorsPlugin: vi.fn((_i: any, _o: any, done?: (e?: Error) => void) => done?.()),
+    svcStub, authStub, routerStub,
+    ServiceRegistryImpl: vi.fn().mockImplementation(function () { return svcStub; }),
+    AuthenticationLayerImpl: vi.fn().mockImplementation(function () { return authStub; }),
+    GatewayRouterImpl: vi.fn().mockImplementation(function () { return routerStub; }),
+    ProtocolAdaptersImpl: vi.fn().mockImplementation(function () { return {}; }),
+  };
+});
 
 vi.mock('@fastify/static', () => ({ default: mockStaticPlugin }));
 vi.mock('@fastify/cors', () => ({ default: mockCorsPlugin }));
-
-const svcStub = {
-  getRegistryStats: vi.fn().mockResolvedValue({ templates: 2, instances: 1 }),
-  listServices: vi.fn().mockResolvedValue([
-    { id: 's1', config: { name: 'svc-a' }, state: 'running', startedAt: new Date(), errorCount: 0 },
-    { id: 's2', config: { name: 'svc-b' }, state: 'stopped', startedAt: new Date(), errorCount: 0 }
-  ]),
-  getService: vi.fn().mockResolvedValue(null),
-  checkHealth: vi.fn().mockResolvedValue({ healthy: true, timestamp: new Date(), status: 'healthy', responseTime: 5 }),
-  getHealthAggregates: vi.fn().mockResolvedValue({ total: 2, healthy: 1, unhealthy: 1 })
-};
-
-const authStub = { authenticate: vi.fn().mockResolvedValue({ success: true }), getActiveTokenCount: vi.fn().mockReturnValue(0), getActiveApiKeyCount: vi.fn().mockReturnValue(0) };
-const routerStub = { getMetrics: vi.fn().mockReturnValue({ totalRequests: 100, successRate: 0.95, averageResponseTime: 50 }) };
-
-vi.mock('../../../gateway/ServiceRegistryImpl.js', () => ({ ServiceRegistryImpl: vi.fn().mockImplementation(() => svcStub) }));
-vi.mock('../../../auth/AuthenticationLayerImpl.js', () => ({ AuthenticationLayerImpl: vi.fn().mockImplementation(() => authStub) }));
-vi.mock('../../../router/GatewayRouterImpl.js', () => ({ GatewayRouterImpl: vi.fn().mockImplementation(() => routerStub) }));
-vi.mock('../../../adapters/ProtocolAdaptersImpl.js', () => ({ ProtocolAdaptersImpl: vi.fn().mockImplementation(() => ({})) }));
+vi.mock('../../../gateway/ServiceRegistryImpl.js', () => ({ ServiceRegistryImpl }));
+vi.mock('../../../auth/AuthenticationLayerImpl.js', () => ({ AuthenticationLayerImpl }));
+vi.mock('../../../routing/GatewayRouterImpl.js', () => ({ GatewayRouterImpl }));
+vi.mock('../../../adapters/ProtocolAdaptersImpl.js', () => ({ ProtocolAdaptersImpl }));
 
 describe('MonitoringRoutes – extended coverage', () => {
   const config: GatewayConfig = {

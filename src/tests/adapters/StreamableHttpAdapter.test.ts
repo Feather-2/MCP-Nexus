@@ -95,7 +95,9 @@ class MockEventSource {
 }
 
 // Mock EventSource and fetch globally using vitest
-const MockEventSourceConstructor: any = vi.fn().mockImplementation((url, options) => new MockEventSource(url, options));
+const MockEventSourceConstructor: any = vi.fn().mockImplementation(function (this: any, url: string, options?: EventSourceInit) {
+  return new MockEventSource(url, options);
+});
 MockEventSourceConstructor.CONNECTING = 0;
 MockEventSourceConstructor.OPEN = 1;
 MockEventSourceConstructor.CLOSED = 2;
@@ -132,7 +134,7 @@ describe('StreamableHttpAdapter', () => {
     };
 
     // Set up default EventSource mock
-    MockEventSourceConstructor.mockImplementation((url: any, options: any) => new MockEventSource(url, options));
+    MockEventSourceConstructor.mockImplementation(function (this: any, url: any, options: any) { return new MockEventSource(url, options); });
     
     // Set up default fetch mock
     mockFetch = vi.mocked(global.fetch) as any;
@@ -181,10 +183,10 @@ describe('StreamableHttpAdapter', () => {
 
     it('should handle connection timeout', async () => {
       // Mock EventSource that doesn't fire open event
-      MockEventSourceConstructor.mockImplementation(() => {
+      MockEventSourceConstructor.mockImplementation(function (this: any) {
         const mockES = new MockEventSource('test-url');
         // Prevent the auto-open event to trigger timeout
-        mockES.cancelAutoOpen(); 
+        mockES.cancelAutoOpen();
         return mockES as any;
       });
 
@@ -199,7 +201,7 @@ describe('StreamableHttpAdapter', () => {
       let connectionErrorHandler: (error: Event) => void;
       
       // Mock EventSource that fires error event quickly
-      MockEventSourceConstructor.mockImplementation((url: any, options: any) => {
+      MockEventSourceConstructor.mockImplementation(function (this: any, url: any, options: any) {
         const mockES = new MockEventSource(url, options);
         // Prevent auto-open so error happens first
         mockES.cancelAutoOpen();

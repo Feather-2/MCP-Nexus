@@ -3,9 +3,10 @@ import type { Context, State } from '../../middleware/index.js';
 import type { GatewayConfig } from '../../types/index.js';
 
 const { ioredisMock, setIoredisClient } = vi.hoisted(() => {
-  const ctor: any = vi.fn();
+  const ctor: any = vi.fn().mockImplementation(function (this: any, ..._args: any[]) {
+    return (ctor as any).__client;
+  });
   ctor.__client = undefined;
-  ctor.mockImplementation(() => ctor.__client);
   const setter = (client: any) => {
     ctor.__client = client;
   };
@@ -71,7 +72,7 @@ describe('RateLimitMiddleware', () => {
     setIoredisClient(undefined);
     vi.restoreAllMocks();
     // `restoreAllMocks` may reset mock implementations; re-apply the ctor behavior.
-    (ioredisMock as any).mockImplementation(() => (ioredisMock as any).__client);
+    (ioredisMock as any).mockImplementation(function (this: any) { return (ioredisMock as any).__client; });
   });
 
   it('does nothing without ctx.http', async () => {

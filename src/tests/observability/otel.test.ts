@@ -4,13 +4,15 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 const origEnv = { ...process.env };
 
 // Mock the OTel SDK so we don't need real infrastructure
-const mockStart = vi.fn().mockResolvedValue(undefined);
-const mockShutdown = vi.fn().mockResolvedValue(undefined);
+const { mockStart, mockShutdown } = vi.hoisted(() => ({
+  mockStart: vi.fn().mockResolvedValue(undefined),
+  mockShutdown: vi.fn().mockResolvedValue(undefined)
+}));
 vi.mock('@opentelemetry/sdk-node', () => ({
-  NodeSDK: vi.fn().mockImplementation(() => ({ start: mockStart, shutdown: mockShutdown }))
+  NodeSDK: vi.fn().mockImplementation(function () { return { start: mockStart, shutdown: mockShutdown }; })
 }));
 vi.mock('@opentelemetry/exporter-trace-otlp-http', () => ({
-  OTLPTraceExporter: vi.fn().mockImplementation(() => ({}))
+  OTLPTraceExporter: vi.fn().mockImplementation(function () { return {}; })
 }));
 vi.mock('@opentelemetry/resources', () => ({
   resourceFromAttributes: vi.fn().mockReturnValue({})

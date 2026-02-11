@@ -1,38 +1,47 @@
 import { HttpApiServer } from '../../../server/HttpApiServer.js';
 import type { GatewayConfig, Logger } from '../../../types/index.js';
 
-const { mockStaticPlugin, mockCorsPlugin } = vi.hoisted(() => ({
-  mockStaticPlugin: vi.fn((_i: any, _o: any, done?: (e?: Error) => void) => done?.()),
-  mockCorsPlugin: vi.fn((_i: any, _o: any, done?: (e?: Error) => void) => done?.())
-}));
+const {
+  mockStaticPlugin, mockCorsPlugin,
+  adapterStub, svcStub, authStub, routerStub, cfgStub, adaptersStub,
+  ServiceRegistryImpl, AuthenticationLayerImpl, GatewayRouterImpl, ProtocolAdaptersImpl
+} = vi.hoisted(() => {
+  const adapterStub = {
+    connect: vi.fn().mockResolvedValue(undefined),
+    disconnect: vi.fn().mockResolvedValue(undefined),
+    sendAndReceive: vi.fn().mockResolvedValue({ jsonrpc: '2.0', id: 1, result: { tools: [{ name: 'test', description: 'A test tool', inputSchema: {} }] } }),
+    send: vi.fn().mockResolvedValue({ jsonrpc: '2.0', id: 1, result: { content: 'ok' } })
+  };
+  const svcStub = {
+    getRegistryStats: vi.fn().mockResolvedValue({}),
+    listServices: vi.fn().mockResolvedValue([]),
+    getService: vi.fn().mockResolvedValue(null),
+    getTemplate: vi.fn().mockResolvedValue({ name: 'test-tool', version: '1', transport: 'stdio', command: 'echo' })
+  };
+  const authStub = { authenticate: vi.fn().mockResolvedValue({ success: true }), getActiveTokenCount: vi.fn().mockReturnValue(0), getActiveApiKeyCount: vi.fn().mockReturnValue(0) };
+  const routerStub = { getMetrics: vi.fn().mockReturnValue({}) };
+  const cfgStub = {
+    listTemplates: vi.fn().mockResolvedValue([{ name: 'test-tool', version: '1', transport: 'stdio' }]),
+    getTemplate: vi.fn().mockResolvedValue({ name: 'test-tool', version: '1', transport: 'stdio', command: 'echo' })
+  };
+  const adaptersStub = { createAdapter: vi.fn().mockResolvedValue(adapterStub) };
+  return {
+    mockStaticPlugin: vi.fn((_i: any, _o: any, done?: (e?: Error) => void) => done?.()),
+    mockCorsPlugin: vi.fn((_i: any, _o: any, done?: (e?: Error) => void) => done?.()),
+    adapterStub, svcStub, authStub, routerStub, cfgStub, adaptersStub,
+    ServiceRegistryImpl: vi.fn().mockImplementation(function () { return svcStub; }),
+    AuthenticationLayerImpl: vi.fn().mockImplementation(function () { return authStub; }),
+    GatewayRouterImpl: vi.fn().mockImplementation(function () { return routerStub; }),
+    ProtocolAdaptersImpl: vi.fn().mockImplementation(function () { return adaptersStub; }),
+  };
+});
+
 vi.mock('@fastify/static', () => ({ default: mockStaticPlugin }));
 vi.mock('@fastify/cors', () => ({ default: mockCorsPlugin }));
-
-const adapterStub = {
-  connect: vi.fn().mockResolvedValue(undefined),
-  disconnect: vi.fn().mockResolvedValue(undefined),
-  sendAndReceive: vi.fn().mockResolvedValue({ jsonrpc: '2.0', id: 1, result: { tools: [{ name: 'test', description: 'A test tool', inputSchema: {} }] } }),
-  send: vi.fn().mockResolvedValue({ jsonrpc: '2.0', id: 1, result: { content: 'ok' } })
-};
-
-const svcStub = {
-  getRegistryStats: vi.fn().mockResolvedValue({}),
-  listServices: vi.fn().mockResolvedValue([]),
-  getService: vi.fn().mockResolvedValue(null),
-  getTemplate: vi.fn().mockResolvedValue({ name: 'test-tool', version: '1', transport: 'stdio', command: 'echo' })
-};
-const authStub = { authenticate: vi.fn().mockResolvedValue({ success: true }), getActiveTokenCount: vi.fn().mockReturnValue(0), getActiveApiKeyCount: vi.fn().mockReturnValue(0) };
-const routerStub = { getMetrics: vi.fn().mockReturnValue({}) };
-const cfgStub = {
-  listTemplates: vi.fn().mockResolvedValue([{ name: 'test-tool', version: '1', transport: 'stdio' }]),
-  getTemplate: vi.fn().mockResolvedValue({ name: 'test-tool', version: '1', transport: 'stdio', command: 'echo' })
-};
-const adaptersStub = { createAdapter: vi.fn().mockResolvedValue(adapterStub) };
-
-vi.mock('../../../gateway/ServiceRegistryImpl.js', () => ({ ServiceRegistryImpl: vi.fn().mockImplementation(() => svcStub) }));
-vi.mock('../../../auth/AuthenticationLayerImpl.js', () => ({ AuthenticationLayerImpl: vi.fn().mockImplementation(() => authStub) }));
-vi.mock('../../../routing/GatewayRouterImpl.js', () => ({ GatewayRouterImpl: vi.fn().mockImplementation(() => routerStub) }));
-vi.mock('../../../adapters/ProtocolAdaptersImpl.js', () => ({ ProtocolAdaptersImpl: vi.fn().mockImplementation(() => adaptersStub) }));
+vi.mock('../../../gateway/ServiceRegistryImpl.js', () => ({ ServiceRegistryImpl }));
+vi.mock('../../../auth/AuthenticationLayerImpl.js', () => ({ AuthenticationLayerImpl }));
+vi.mock('../../../routing/GatewayRouterImpl.js', () => ({ GatewayRouterImpl }));
+vi.mock('../../../adapters/ProtocolAdaptersImpl.js', () => ({ ProtocolAdaptersImpl }));
 
 describe('ToolRoutes \u2013 branch coverage', () => {
   const config: GatewayConfig = {

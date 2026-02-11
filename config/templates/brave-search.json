@@ -2,15 +2,13 @@
   "name": "brave-search",
   "version": "2024-11-26",
   "transport": "stdio",
-  "command": "npm",
+  "command": "npx",
   "args": [
-    "exec",
-    "-y",
     "@modelcontextprotocol/server-brave-search"
   ],
   "env": {
     "BRAVE_API_KEY": "${BRAVE_API_KEY}"
   },
-  "timeout": 30000,
-  "retries": 3
+  "timeout": 45000,
+  "retries": 2
 }
