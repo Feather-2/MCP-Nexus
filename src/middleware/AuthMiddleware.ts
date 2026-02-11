@@ -6,7 +6,7 @@ export type HttpErrorResponder = (
   reply: FastifyReply,
   status: number,
   message: string,
-  opts?: { code?: string; recoverable?: boolean; meta?: any }
+  opts?: { code?: string; recoverable?: boolean; meta?: unknown }
 ) => unknown;
 
 export interface AuthMiddlewareOptions {
@@ -35,7 +35,7 @@ function defaultRespondError(
   reply: FastifyReply,
   status: number,
   message: string,
-  opts?: { code?: string; recoverable?: boolean; meta?: any }
+  opts?: { code?: string; recoverable?: boolean; meta?: unknown }
 ): unknown {
   return reply.code(status).send({
     success: false,
@@ -80,7 +80,7 @@ export class AuthMiddleware implements Middleware {
       return;
     }
 
-    (request as any).auth = authResponse;
+    (request as unknown as Record<string, unknown>).auth = authResponse;
     const userId = authResponse.context?.userId;
     if (typeof userId === 'string' && userId.trim()) {
       ctx.sessionId = userId;

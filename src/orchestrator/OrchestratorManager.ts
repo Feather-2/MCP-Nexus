@@ -81,7 +81,7 @@ export class OrchestratorManager {
   }
 
   async updateConfig(partial: Partial<OrchestratorConfig>): Promise<OrchestratorConfig> {
-    const merged = this.deepMerge(this.currentConfig, partial);
+    const merged = this.deepMerge(this.currentConfig as unknown as Record<string, unknown>, partial as Record<string, unknown>);
     const validated = OrchestratorConfigSchema.parse(merged);
     await this.saveConfig(validated);
     this.currentConfig = validated;
@@ -103,15 +103,15 @@ export class OrchestratorManager {
     }
   }
 
-  private deepMerge<T>(target: T, source: Partial<T>): T {
+  private deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
     if (!source) return target;
-    const output: any = Array.isArray(target) ? [...(target as any)] : { ...(target as any) };
-    for (const key of Object.keys(source) as Array<keyof T>) {
-      const srcVal = (source as any)[key];
+    const output: Record<string, unknown> = { ...target };
+    for (const key of Object.keys(source)) {
+      const srcVal = source[key];
       if (srcVal === undefined) continue;
-      const tgtVal = (output as any)[key];
+      const tgtVal = output[key];
       if (srcVal && typeof srcVal === 'object' && !Array.isArray(srcVal)) {
-        output[key] = this.deepMerge(tgtVal ?? {}, srcVal);
+        output[key] = this.deepMerge((tgtVal ?? {}) as Record<string, unknown>, srcVal as Record<string, unknown>);
       } else {
         output[key] = srcVal;
       }

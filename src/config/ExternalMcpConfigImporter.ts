@@ -149,7 +149,7 @@ export class ExternalMcpConfigImporter {
       const files = await this.findJsonFiles(base, depth).catch(() => [] as string[]);
       for (const f of files) {
         try {
-          const st = await fs.stat(f).catch(() => null as any);
+          const st = await fs.stat(f).catch(() => null as null);
           if (!st || !st.isFile() || st.size > this.MAX_JSON_BYTES) continue;
           const raw = await fs.readFile(f, 'utf-8');
           if (!raw.includes('mcpServers') && !raw.includes('mcp.servers')) continue;
@@ -158,7 +158,7 @@ export class ExternalMcpConfigImporter {
           const items: McpServiceConfig[] = [];
           if (json['mcpServers']) items.push(...this.mapMcpServersBlock(json['mcpServers']));
           if (json['mcp.servers']) {
-            for (const entry of json['mcp.servers'] as any[]) {
+            for (const entry of json['mcp.servers'] as Record<string, unknown>[]) {
               const mapped = this.mapServerEntryToTemplate(entry);
               if (mapped) items.push(mapped);
             }

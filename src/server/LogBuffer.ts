@@ -8,7 +8,7 @@ export interface LogEntry {
   level: string;
   message: string;
   service?: string;
-  data?: any;
+  data?: unknown;
 }
 
 export class LogBuffer {
@@ -24,7 +24,7 @@ export class LogBuffer {
    * Add a log entry to the buffer.
    * Removes oldest entry if buffer exceeds max size.
    */
-  add(level: string, message: string, service?: string, data?: any): LogEntry {
+  add(level: string, message: string, service?: string, data?: unknown): LogEntry {
     const entry: LogEntry = {
       timestamp: new Date().toISOString(),
       level,

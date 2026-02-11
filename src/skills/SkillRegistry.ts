@@ -112,7 +112,7 @@ export class SkillRegistry {
 
   constructor(options?: { logger?: Logger; roots?: string[]; managedRoot?: string; loader?: SkillLoader }) {
     this.logger = options?.logger;
-    this.roots = options?.roots && options.roots.length ? options.roots : undefined as any;
+    this.roots = options?.roots && options.roots.length ? options.roots : undefined as unknown as string[];
     this.managedRoot = options?.managedRoot ?? path.resolve(process.cwd(), 'config', 'skills');
     this.loader = options?.loader ?? new SkillLoader({ logger: this.logger });
     const baseRoots = options?.roots && options.roots.length ? options.roots : this.loader.getDefaultRoots();
@@ -186,7 +186,7 @@ export class SkillRegistry {
 
     await mkdir(skillDir, { recursive: true });
 
-    const capabilities = mergeWithDefaults(input.capabilities as any);
+    const capabilities = mergeWithDefaults(input.capabilities as Partial<SkillCapabilities> | undefined);
     validateCapabilities(capabilities);
 
     const frontmatter = SkillFrontmatterSchema.parse({
@@ -349,7 +349,7 @@ export class SkillRegistry {
 
     let watcher: AsyncFsWatcher;
     try {
-      watcher = watchAsync(resolvedDir, { persistent: false }) as any;
+      watcher = watchAsync(resolvedDir, { persistent: false }) as unknown as AsyncFsWatcher;
     } catch (error) {
       this.logger?.warn('Unable to watch skills directory', {
         dir: resolvedDir,
@@ -364,11 +364,11 @@ export class SkillRegistry {
 
     (async () => {
       try {
-        for await (const event of watcher as any) {
+        for await (const event of watcher) {
           if (!this.watchEnabled) break;
 
-          const filenameRaw = (event as any)?.filename as string | Buffer | undefined;
-          const eventType = (event as any)?.eventType as string | undefined;
+          const filenameRaw = event.filename;
+          const eventType = event.eventType;
           const filename = typeof filenameRaw === 'string'
             ? filenameRaw
             : (filenameRaw ? filenameRaw.toString() : undefined);

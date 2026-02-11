@@ -4,7 +4,22 @@ import { createRef, DEFAULT_MEMORY_STORE_CONFIG, parseRef } from './types.js';
 import type { MemoryStats, MemoryStore, MemoryStoreConfig, MemoryTier } from './types.js';
 
 const require = createRequire(import.meta.url);
-let BetterSqlite: any;
+
+// Minimal interfaces for better-sqlite3 (optional native dep)
+interface SqliteDb {
+  pragma(source: string): unknown;
+  exec(source: string): void;
+  prepare(source: string): SqliteStatement;
+  close(): void;
+}
+
+interface SqliteStatement {
+  run(...params: unknown[]): { changes: number };
+  get(...params: unknown[]): unknown;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic require of optional native module
+let BetterSqlite: (new (path: string) => SqliteDb) | null = null as any;
 try {
   // Native module; may be unavailable on some platforms (e.g., Windows CI)
   // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -15,8 +30,6 @@ try {
 const SQLITE_AVAILABLE = Boolean(BetterSqlite);
 
 type EpochMs = number;
-type SqliteDb = any;
-type SqliteStatement<_Params = any, _Result = any> = any;
 
 interface L1IndexEntry {
   key: string;
@@ -218,30 +231,19 @@ export class ThreeTierMemoryStore implements MemoryStore {
   private readonly config: Required<MemoryStoreConfig>;
   private readonly l0: L0LruCache;
   private readonly l1 = new Map<string, L1IndexEntry>();
-  private readonly db: SqliteDb;
+  private readonly db: SqliteDb | null;
 
-  private readonly stmtInsert: SqliteStatement<
-    {
-      id: string;
-      key: string;
-      tier: string;
-      value_json: string;
-      summary: string;
-      created_at: number;
-      size_bytes: number;
-    },
-    unknown
-  >;
-  private readonly stmtSelectById: SqliteStatement<[string], L2Row>;
-  private readonly stmtExistsById: SqliteStatement<[string], { present: 1 }>;
-  private readonly stmtDeleteById: SqliteStatement<[string], unknown>;
-  private readonly stmtStats: SqliteStatement<[], L2StatsRow>;
+  private readonly stmtInsert: SqliteStatement | null;
+  private readonly stmtSelectById: SqliteStatement | null;
+  private readonly stmtExistsById: SqliteStatement | null;
+  private readonly stmtDeleteById: SqliteStatement | null;
+  private readonly stmtStats: SqliteStatement | null;
 
   constructor(config?: MemoryStoreConfig) {
     this.config = toRequiredConfig(config);
     this.l0 = new L0LruCache(this.config.l0Capacity, this.config.l0TtlMs);
 
-    this.db = SQLITE_AVAILABLE ? new BetterSqlite(this.config.l2DbPath) : null;
+    this.db = SQLITE_AVAILABLE && BetterSqlite ? new BetterSqlite(this.config.l2DbPath) : null;
     if (this.db) {
       this.db.pragma('journal_mode = WAL');
 
@@ -290,11 +292,11 @@ export class ThreeTierMemoryStore implements MemoryStore {
       `);
     } else {
       // Fallback: disable L2 when sqlite is unavailable
-      this.stmtInsert = null as any;
-      this.stmtSelectById = null as any;
-      this.stmtExistsById = null as any;
-      this.stmtDeleteById = null as any;
-      this.stmtStats = null as any;
+      this.stmtInsert = null;
+      this.stmtSelectById = null;
+      this.stmtExistsById = null;
+      this.stmtDeleteById = null;
+      this.stmtStats = null;
     }
   }
 
@@ -388,13 +390,13 @@ export class ThreeTierMemoryStore implements MemoryStore {
 
     const l1 = this.l1.get(parsed.id);
     if (l1?.inL2 && SQLITE_AVAILABLE && this.db) {
-      const present = this.stmtExistsById.get(parsed.id);
+      const present = this.stmtExistsById!.get(parsed.id);
       if (!present) this.l1.delete(parsed.id);
       return Boolean(present);
     }
 
     if (!SQLITE_AVAILABLE || !this.db) return false;
-    const present = this.stmtExistsById.get(parsed.id);
+    const present = this.stmtExistsById!.get(parsed.id);
     return Boolean(present);
   }
 
@@ -404,14 +406,14 @@ export class ThreeTierMemoryStore implements MemoryStore {
 
     const deletedL0 = this.l0.delete(parsed.id);
     const deletedL1 = this.l1.delete(parsed.id);
-    const deletedL2 = SQLITE_AVAILABLE && this.db ? (this.stmtDeleteById.run(parsed.id).changes > 0) : false;
+    const deletedL2 = SQLITE_AVAILABLE && this.db ? (this.stmtDeleteById!.run(parsed.id).changes > 0) : false;
 
     return deletedL0 || deletedL1 || deletedL2;
   }
 
   stats(): MemoryStats {
     this.l0.pruneExpired(Date.now());
-    const row = SQLITE_AVAILABLE && this.db ? this.stmtStats.get() : undefined;
+    const row = SQLITE_AVAILABLE && this.db ? this.stmtStats!.get() as L2StatsRow : undefined;
     const l2Bytes = row?.l2_bytes ?? 0;
     const l2Count = row?.l2_count ?? 0;
 
@@ -450,7 +452,7 @@ export class ThreeTierMemoryStore implements MemoryStore {
     createdAtMs: EpochMs;
     sizeBytes: number;
   }): void {
-    this.stmtInsert.run({
+    this.stmtInsert!.run({
       id: args.id,
       key: args.key,
       tier: args.tier,
@@ -462,6 +464,6 @@ export class ThreeTierMemoryStore implements MemoryStore {
   }
 
   private readFromL2(id: string): L2Row | undefined {
-    return this.stmtSelectById.get(id);
+    return this.stmtSelectById!.get(id) as L2Row | undefined;
   }
 }

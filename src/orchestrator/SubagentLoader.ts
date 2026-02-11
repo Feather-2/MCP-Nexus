@@ -27,14 +27,14 @@ export class SubagentLoader {
           const parsed = JSON.parse(raw);
           const cfg = SubagentConfigSchema.parse(parsed);
           map.set(cfg.name, cfg);
-        } catch (err: any) {
-          this.logger.warn('Failed to load subagent config', { file: full, error: err?.message || String(err) });
+        } catch (err: unknown) {
+          this.logger.warn('Failed to load subagent config', { file: full, error: (err as Error)?.message || String(err) });
         }
       }
       this.cache = map;
       this.logger.info('Subagents loaded', { count: map.size, dir: this.dir });
-    } catch (err: any) {
-      this.logger.warn('Failed to read subagents directory', { dir: this.dir, error: err?.message || String(err) });
+    } catch (err: unknown) {
+      this.logger.warn('Failed to read subagents directory', { dir: this.dir, error: (err as Error)?.message || String(err) });
     }
     return this.cache;
   }

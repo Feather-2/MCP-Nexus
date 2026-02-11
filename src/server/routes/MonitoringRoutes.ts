@@ -15,31 +15,33 @@ export class MonitoringRoutes extends BaseRouteHandler {
     // Redis rate-limit store connectivity check
     server.get('/api/health/ratelimit', async (_req: FastifyRequest, reply: FastifyReply) => {
       try {
-        const rl = (this.ctx.configManager.getConfig() as any).rateLimiting || {};
+        const cfg = this.ctx.configManager.getConfig() as Record<string, unknown>;
+        const rl = (cfg.rateLimiting || {}) as Record<string, unknown>;
         if (!rl.enabled) return reply.send({ enabled: false, store: 'memory' });
         if (rl.store !== 'redis') return reply.send({ enabled: true, store: 'memory' });
 
-        const info: any = { enabled: true, store: 'redis', connected: false };
+        const info: Record<string, unknown> = { enabled: true, store: 'redis', connected: false };
         try {
           const { default: IORedis } = await import('ioredis');
-          let client;
-          if (rl.redis?.url) {
-            client = new (IORedis as any)(rl.redis.url);
+          const redisCfg = (rl.redis || {}) as Record<string, unknown>;
+          let client: { ping: () => Promise<string>; quit: () => Promise<unknown> };
+          if (redisCfg.url) {
+            client = new (IORedis as unknown as new (url: string) => typeof client)(redisCfg.url as string);
           } else {
-            client = new (IORedis as any)({
-              host: rl.redis?.host || '127.0.0.1',
-              port: rl.redis?.port || 6379,
-              username: rl.redis?.username,
-              password: rl.redis?.password,
-              db: rl.redis?.db,
-              tls: rl.redis?.tls ? {} : undefined
+            client = new (IORedis as unknown as new (opts: Record<string, unknown>) => typeof client)({
+              host: (redisCfg.host as string) || '127.0.0.1',
+              port: (redisCfg.port as number) || 6379,
+              username: redisCfg.username as string | undefined,
+              password: redisCfg.password as string | undefined,
+              db: redisCfg.db as number | undefined,
+              tls: redisCfg.tls ? {} : undefined
             });
           }
           const pong = await client.ping();
           info.connected = pong === 'PONG';
           await client.quit();
-        } catch (e: any) {
-          info.error = e?.message || String(e);
+        } catch (e: unknown) {
+          info.error = (e as Error)?.message || String(e);
         }
         return reply.send(info);
       } catch (error) {

@@ -28,7 +28,7 @@ export class ConfigRoutes extends BaseRouteHandler {
     server.put('/api/config', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const PartialSchema = GatewayConfigSchema.partial();
-        const updates = PartialSchema.parse((request.body as any) || {});
+        const updates = PartialSchema.parse((request.body as Record<string, unknown>) || {});
         const updatedConfig = await this.ctx.configManager.updateConfig(updates as Partial<GatewayConfig>);
         reply.send({ success: true, message: 'Configuration updated successfully', config: updatedConfig });
       } catch (error) {
@@ -43,7 +43,7 @@ export class ConfigRoutes extends BaseRouteHandler {
     server.get('/api/config/:key', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const Params = z.object({ key: z.string().min(1) });
-        const { key } = Params.parse(request.params as any);
+        const { key } = Params.parse(request.params as Record<string, unknown>);
         const value = await this.ctx.configManager.get(key);
         if (value === null) {
           return this.respondError(reply, 404, 'Configuration key not found', { code: 'NOT_FOUND', recoverable: true, meta: { key } });
