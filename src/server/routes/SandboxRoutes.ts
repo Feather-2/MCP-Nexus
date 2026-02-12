@@ -44,6 +44,10 @@ export class SandboxRoutes extends BaseRouteHandler {
     // Streaming install via SSE: GET /api/sandbox/install/stream?components=a,b,c
     server.get('/api/sandbox/install/stream', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
+        if (!this.ctx.canAcceptSseClient()) {
+          return this.respondError(reply, 503, 'Too many SSE connections', { code: 'SSE_LIMIT_REACHED' });
+        }
+
         // Prepare SSE response
         this.writeSseHeaders(reply, request);
 

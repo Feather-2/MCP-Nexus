@@ -41,6 +41,7 @@ export interface RouteContext {
   // Utility functions
   addLogEntry: (level: string, message: string, service?: string, data?: unknown) => void;
   respondError: (reply: FastifyReply, status: number, message: string, opts?: { code?: string; recoverable?: boolean; meta?: unknown }) => unknown;
+  canAcceptSseClient: () => boolean;
 }
 
 /**

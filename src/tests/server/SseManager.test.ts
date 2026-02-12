@@ -24,6 +24,11 @@ describe('SseManager', () => {
       const manager = new SseManager(5000);
       expect(manager.size).toBe(0);
     });
+
+    it('creates with custom maxConnections', () => {
+      const manager = new SseManager(30000, 50);
+      expect(manager.size).toBe(0);
+    });
   });
 
   describe('add/remove', () => {
@@ -45,6 +50,43 @@ describe('SseManager', () => {
       manager.add(client);
       manager.add(client);
       expect(manager.size).toBe(1);
+    });
+
+    it('returns true when adding within limit', () => {
+      const manager = new SseManager(30000, 3);
+      const client1 = createMockReply();
+      const client2 = createMockReply();
+
+      expect(manager.add(client1)).toBe(true);
+      expect(manager.add(client2)).toBe(true);
+      expect(manager.size).toBe(2);
+    });
+
+    it('returns false when maxConnections reached', () => {
+      const manager = new SseManager(30000, 2);
+      const client1 = createMockReply();
+      const client2 = createMockReply();
+      const client3 = createMockReply();
+
+      expect(manager.add(client1)).toBe(true);
+      expect(manager.add(client2)).toBe(true);
+      expect(manager.add(client3)).toBe(false);
+      expect(manager.size).toBe(2);
+    });
+
+    it('allows adding after removing when at limit', () => {
+      const manager = new SseManager(30000, 2);
+      const client1 = createMockReply();
+      const client2 = createMockReply();
+      const client3 = createMockReply();
+
+      manager.add(client1);
+      manager.add(client2);
+      expect(manager.add(client3)).toBe(false);
+
+      manager.remove(client1);
+      expect(manager.add(client3)).toBe(true);
+      expect(manager.size).toBe(2);
     });
   });
 

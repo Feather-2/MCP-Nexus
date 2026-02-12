@@ -9,9 +9,11 @@ export class SseManager {
   private clients: Set<FastifyReply> = new Set();
   private cleanupTimer?: ReturnType<typeof setInterval>;
   private readonly cleanupIntervalMs: number;
+  private readonly maxConnections: number;
 
-  constructor(cleanupIntervalMs: number = 30000) {
+  constructor(cleanupIntervalMs: number = 30000, maxConnections: number = 200) {
     this.cleanupIntervalMs = cleanupIntervalMs;
+    this.maxConnections = maxConnections;
   }
 
   /**
@@ -38,9 +40,14 @@ export class SseManager {
 
   /**
    * Add a client to the managed set.
+   * Returns false if the connection limit has been reached.
    */
-  add(client: FastifyReply): void {
+  add(client: FastifyReply): boolean {
+    if (this.clients.size >= this.maxConnections) {
+      return false;
+    }
     this.clients.add(client);
+    return true;
   }
 
   /**

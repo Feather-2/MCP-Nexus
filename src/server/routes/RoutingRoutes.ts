@@ -247,6 +247,10 @@ export class RoutingRoutes extends BaseRouteHandler {
 
     // SSE notification endpoints for paper-burner discovery (/events, /sse)
     const sseHandler = async (request: FastifyRequest, reply: FastifyReply) => {
+      if (!this.ctx.canAcceptSseClient()) {
+        return this.respondError(reply, 503, 'Too many SSE connections', { code: 'SSE_LIMIT_REACHED' });
+      }
+
       this.writeSseHeaders(reply, request);
       reply.raw.write(`data: ${JSON.stringify({ type: 'connected', ts: Date.now() })}\n\n`);
 

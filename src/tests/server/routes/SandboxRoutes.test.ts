@@ -97,7 +97,8 @@ function makeRouteContext(server: FastifyInstance, logger: Logger, corsOrigins: 
         }
       };
       return reply.code(status).send(payload);
-    }
+    },
+    canAcceptSseClient: () => true,
   } as any;
 }
 

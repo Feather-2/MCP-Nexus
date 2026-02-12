@@ -31,6 +31,10 @@ export class LogRoutes extends BaseRouteHandler {
     // Server-Sent Events stream for real-time logs
     server.get('/api/logs/stream', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
+        if (!this.ctx.canAcceptSseClient()) {
+          return this.respondError(reply, 503, 'Too many SSE connections', { code: 'SSE_LIMIT_REACHED' });
+        }
+
         // Write SSE headers
         this.writeSseHeaders(reply, request);
 

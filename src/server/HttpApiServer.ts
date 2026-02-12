@@ -61,6 +61,7 @@ export class HttpApiServer {
   private readonly apiRoutesToAlias: Record<string, unknown>[] = [];
   private logBuffer: Array<{ timestamp: string; level: string; message: string; service?: string; data?: unknown }> = [];
   private logStreamClients: Set<FastifyReply> = new Set();
+  private static readonly MAX_SSE_CONNECTIONS = 200;
   private sandboxStatus: { nodeReady: boolean; pythonReady: boolean; goReady: boolean; packagesReady: boolean; details: Record<string, unknown> } = { nodeReady: false, pythonReady: false, goReady: false, packagesReady: false, details: {} };
   private sandboxInstalling: boolean = false;
   private orchestratorStatus: OrchestratorStatus | null = null;
@@ -366,6 +367,7 @@ export class HttpApiServer {
       sandboxInstalling: this.sandboxInstalling,
       addLogEntry: this.addLogEntry.bind(this),
       respondError: this.respondError.bind(this),
+      canAcceptSseClient: () => self.logStreamClients.size + self.sandboxStreamClients.size < HttpApiServer.MAX_SSE_CONNECTIONS,
       middlewares: this.middlewares,
       middlewareChain: this.middlewareChain
     } as unknown as RouteContext;

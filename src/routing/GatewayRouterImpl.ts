@@ -1,7 +1,7 @@
-import { 
-  GatewayRouter, 
-  RouteRequest, 
-  RouteResponse, 
+import {
+  GatewayRouter,
+  RouteRequest,
+  RouteResponse,
   LoadBalancingStrategy,
   RoutingRule,
   RouteHandler,
@@ -14,6 +14,7 @@ import {
 } from '../types/index.js';
 import { EventEmitter } from 'events';
 import { RadixTree } from './RadixTree.js';
+import { CircularBuffer } from '../utils/CircularBuffer.js';
 
 export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
   private routingRules: RoutingRule[] = [];
@@ -24,12 +25,12 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
   private costMetrics = new Map<string, ServiceCostMetrics>();
   private contentAnalysis = new Map<string, ServiceContentAnalysis>();
   private rrCounter = 0;
-  private requestHistory: Array<{
+  private requestHistory = new CircularBuffer<{
     serviceId: string;
     timestamp: Date;
     responseTime: number;
     success: boolean;
-  }> = [];
+  }>(1000);
 
   constructor(
     private logger: Logger,
@@ -78,7 +79,7 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
     this.serviceMetrics.clear();
     this.costMetrics.clear();
     this.contentAnalysis.clear();
-    this.requestHistory.length = 0;
+    this.requestHistory.clear();
     this.logger.info('Router metrics have been reset');
     this.emit('metricsReset');
   }
@@ -744,18 +745,13 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
   private updateRequestMetrics(serviceId: string, request: RouteRequest): void {
     const timestamp = Date.now();
     
-    // Update request history
+    // Update request history (CircularBuffer auto-evicts oldest)
     this.requestHistory.push({
       serviceId,
       timestamp: new Date(),
-      responseTime: 0, // Will be updated when response is received
-      success: true // Will be updated based on actual response
+      responseTime: 0,
+      success: true
     });
-
-    // Keep only recent history (last 1000 requests)
-    if (this.requestHistory.length > 1000) {
-      this.requestHistory.splice(0, this.requestHistory.length - 1000);
-    }
 
     // Update service metrics
     const metrics = this.serviceMetrics.get(serviceId) || {
@@ -848,10 +844,10 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
 
   // Public methods for external metric updates
   updateRequestResult(serviceId: string, responseTime: number, success: boolean): void {
-    const recentRequest = [...this.requestHistory]
-      .reverse()
-      .find(r => r.serviceId === serviceId && r.responseTime === 0);
-    
+    const recentRequest = this.requestHistory.findLast(
+      r => r.serviceId === serviceId && r.responseTime === 0
+    );
+
     if (recentRequest) {
       recentRequest.responseTime = responseTime;
       recentRequest.success = success;
@@ -877,10 +873,9 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
 
   recordRequest(serviceId: string, responseTime: number, success: boolean): void {
     this.requestHistory.push({ serviceId, timestamp: new Date(), responseTime, success });
-    if (this.requestHistory.length > 1000) this.requestHistory.splice(0, this.requestHistory.length - 1000);
   }
 
   getRequestHistory(): Array<{ serviceId: string; timestamp: Date; responseTime: number; success: boolean; }> {
-    return [...this.requestHistory];
+    return this.requestHistory.toArray();
   }
 }

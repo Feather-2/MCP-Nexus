@@ -20,6 +20,7 @@ function makeCtx(server: FastifyInstance, overrides?: Partial<RouteContext>): Ro
     respondError: vi.fn((reply: any, status: number, message: string, opts?: any) => {
       reply.code(status).send({ error: message, ...opts });
     }),
+    canAcceptSseClient: vi.fn(() => true),
     ...overrides,
   } as RouteContext;
 }

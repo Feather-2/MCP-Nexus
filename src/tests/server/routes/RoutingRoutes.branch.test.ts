@@ -56,6 +56,7 @@ function makeCtx(server: FastifyInstance, overrides?: Record<string, any>) {
     respondError: vi.fn((reply: any, status: number, message: string, opts?: any) => {
       return reply.code(status).send({ error: message, ...opts });
     }),
+    canAcceptSseClient: vi.fn(() => true),
     ...overrides,
   } as any;
 }
