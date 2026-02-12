@@ -99,7 +99,7 @@ export class ServiceInstanceManager {
     );
   }
 
-  async setMetadata(serviceId: string, key: string, value: any): Promise<void> {
+  async setMetadata(serviceId: string, key: string, value: unknown): Promise<void> {
     const instance = this.instances.get(serviceId);
     if (!instance) {
       throw new Error(`Instance ${serviceId} not found`);
@@ -109,7 +109,7 @@ export class ServiceInstanceManager {
     this.logger.debug(`Metadata set for ${serviceId}: ${key} = ${value}`);
   }
 
-  async getMetadata(serviceId: string, key: string): Promise<any> {
+  async getMetadata(serviceId: string, key: string): Promise<unknown> {
     const instance = this.instances.get(serviceId);
     return instance?.metadata[key];
   }

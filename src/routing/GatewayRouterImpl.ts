@@ -419,7 +419,7 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
     return input as unknown as RoutingRule;
   }
 
-  private convertConditions(conds: any): any {
+  private convertConditions(conds: unknown): unknown {
     return conds || {};
   }
 
@@ -726,7 +726,7 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
   }
 
   private getAppliedRules(request: RouteRequest): string[] {
-    const cached = (request as any)._appliedRules as unknown;
+    const cached = (request as unknown as Record<string, unknown>)._appliedRules as unknown;
     if (Array.isArray(cached)) return [...cached];
 
     const appliedRules: string[] = [];

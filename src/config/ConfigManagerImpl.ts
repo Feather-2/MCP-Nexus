@@ -160,7 +160,7 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
   }
 
   // ConfigManager interface methods
-  async get<T = any>(key: string): Promise<T | null> {
+  async get<T = unknown>(key: string): Promise<T | null> {
     // Simple key-value access to current config
     const keys = key.split('.');
     let value: unknown = this.currentConfig;
@@ -177,7 +177,7 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
     return value as T;
   }
 
-  async set<T = any>(key: string, value: T): Promise<void> {
+  async set<T = unknown>(key: string, value: T): Promise<void> {
     // Simple key-value update to current config
     const keys = key.split('.');
     const lastKey = keys.pop();
