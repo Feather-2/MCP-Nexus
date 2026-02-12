@@ -1,6 +1,4 @@
 import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import cors from '@fastify/cors';
-import helmet from '@fastify/helmet';
 import fastifyStatic from '@fastify/static';
 import { trace, SpanStatusCode } from '@opentelemetry/api';
 import { fileURLToPath } from 'url';
@@ -20,8 +18,6 @@ import { ProtocolAdaptersImpl } from '../adapters/ProtocolAdaptersImpl.js';
 import type { OrchestratorStatus, OrchestratorManager } from '../orchestrator/OrchestratorManager.js';
 import { OrchestratorEngine } from '../orchestrator/OrchestratorEngine.js';
 import { SubagentLoader } from '../orchestrator/SubagentLoader.js';
-import { createTraceId, enterTrace } from '../observability/trace.js';
-import { parseAcceptLanguage, setLocale } from '../i18n/index.js';
 import {
   RouteContext,
   ServiceRoutes,
@@ -46,11 +42,12 @@ import {
   MiddlewareStageError
 } from '../middleware/chain.js';
 import { AuthMiddleware } from '../middleware/AuthMiddleware.js';
+import { RateLimitMiddleware } from '../middleware/RateLimitMiddleware.js';
+import { setupObservabilityHooks } from './ObservabilityHooks.js';
+import { setupMiddlewareWiring } from './MiddlewareWiring.js';
 
 // Fastify request/reply augmentation helpers (avoids per-line `as any`)
 type AugmentedRequest = FastifyRequest & Record<string, unknown>;
-type AugmentedReply = FastifyReply & { sent?: boolean; elapsedTime?: number };
-import { RateLimitMiddleware } from '../middleware/RateLimitMiddleware.js';
 
 export class HttpApiServer {
   private static readonly MAX_LOG_BUFFER_SIZE = 200;
@@ -97,7 +94,7 @@ export class HttpApiServer {
     this.configManager = configManager;
 
     this.setupApiVersioning();
-    this.setupObservability();
+    setupObservabilityHooks(this.server, this.logger, this.config);
 
     // Initialize core components
     this.protocolAdapters = components?.protocolAdapters || new ProtocolAdaptersImpl(logger, () => this.configManager.getConfig());
@@ -131,7 +128,14 @@ export class HttpApiServer {
     this.setupRoutes();
     this.registerApiVersionAliases();
     this.setupErrorHandlers();
-    this.setupMiddleware();
+    setupMiddlewareWiring(
+      this.server,
+      this.config,
+      this.logger,
+      this.middlewareChain,
+      this.respondError.bind(this),
+      this.mapMiddlewareError.bind(this)
+    );
 
     // Initialize log system
     this.initializeLogSystem();
@@ -266,107 +270,6 @@ export class HttpApiServer {
     }
   }
 
-  private setupObservability(): void {
-    // Trace id + API version headers
-    this.server.addHook('onRequest', (request, _reply, done) => {
-      const lang = request.headers['accept-language'];
-      setLocale(parseAcceptLanguage(typeof lang === 'string' ? lang : undefined));
-      done();
-    });
-
-    this.server.addHook('onRequest', (request, reply, done) => {
-      const incoming = (request.headers['x-trace-id'] || request.headers['x-request-id']) as string | string[] | undefined;
-      const clientTraceId = typeof incoming === 'string' && incoming.trim() ? incoming.trim() : undefined;
-
-      let span: ReturnType<ReturnType<typeof trace.getTracer>['startSpan']> | undefined;
-      let otelTraceId: string | undefined;
-      try {
-        const tracer = trace.getTracer('pb-mcpgateway');
-        span = tracer.startSpan(`HTTP ${request.method} ${request.url}`, {
-          attributes: {
-            'http.method': request.method,
-            'http.target': request.url,
-            'http.user_agent': String(request.headers['user-agent'] || ''),
-            'net.peer.ip': request.ip
-          }
-        });
-        const ctx = span?.spanContext?.();
-        const tid = ctx?.traceId;
-        if (typeof tid === 'string' && tid && !/^0+$/.test(tid)) {
-          otelTraceId = tid;
-        } else {
-          try { span?.end?.(); } catch {}
-          span = undefined;
-        }
-      } catch {
-        span = undefined;
-      }
-
-      const traceId = otelTraceId || clientTraceId || createTraceId();
-      (request as AugmentedRequest).traceId = traceId;
-      (request as AugmentedRequest).startedAtMs = Date.now();
-      if (span) {
-        (request as AugmentedRequest).otelSpan = span;
-        try {
-          span.setAttribute?.('pb.trace_id', traceId);
-          if (clientTraceId && clientTraceId !== traceId) {
-            span.setAttribute?.('pb.client_trace_id', clientTraceId);
-          }
-        } catch {}
-      }
-      try { reply.header('X-Trace-Id', traceId); } catch {}
-      enterTrace(traceId);
-      done();
-    });
-
-    this.server.addHook('onSend', (request, reply, payload, done) => {
-      try {
-        if (!reply.raw?.headersSent) {
-          reply.header('X-API-Version', HttpApiServer.API_VERSION);
-          const traceId = (request as AugmentedRequest).traceId;
-          if (traceId) reply.header('X-Trace-Id', traceId);
-        }
-      } catch {
-        // ignore
-      }
-      done(null, payload);
-    });
-
-    this.server.addHook('onResponse', (request, reply, done) => {
-      const startedAtMs = (request as AugmentedRequest).startedAtMs as number | undefined;
-      const durationMs = typeof startedAtMs === 'number' ? Date.now() - startedAtMs : undefined;
-
-      try {
-        this.logger.info('http.request', {
-          method: request.method,
-          url: request.url,
-          statusCode: reply.statusCode,
-          durationMs
-        });
-      } catch {
-        // ignore
-      }
-
-      const span = (request as AugmentedRequest).otelSpan as ReturnType<ReturnType<typeof trace.getTracer>['startSpan']> | undefined;
-      if (span) {
-        try {
-          span.setAttribute?.('http.status_code', reply.statusCode);
-          if (typeof durationMs === 'number') {
-            span.setAttribute?.('http.server_duration_ms', durationMs);
-          }
-          if (reply.statusCode >= 500) {
-            span.setStatus?.({ code: SpanStatusCode.ERROR });
-          } else {
-            span.setStatus?.({ code: SpanStatusCode.OK });
-          }
-        } catch {}
-        try { span.end?.(); } catch {}
-      }
-
-      done();
-    });
-  }
-
   private addLogEntry(level: string, message: string, service?: string, data?: unknown): void {
     const logEntry = {
       timestamp: new Date().toISOString(),
@@ -466,158 +369,6 @@ export class HttpApiServer {
       middlewares: this.middlewares,
       middlewareChain: this.middlewareChain
     } as unknown as RouteContext;
-  }
-
-  private setupMiddleware(): void {
-    // Business logic middleware chain bridge (auth / rate-limit live in chain).
-    this.server.addHook('preHandler', async (request: FastifyRequest, reply: FastifyReply) => {
-      const controller = new AbortController();
-      try {
-        request.raw.on('aborted', () => controller.abort(new Error('client aborted')));
-        request.raw.on('close', () => controller.abort(new Error('client closed')));
-      } catch {
-        // ignore
-      }
-
-      const traceId = (request as AugmentedRequest).traceId as string | undefined;
-      const startedAtMs2 = (request as AugmentedRequest).startedAtMs as number | undefined;
-      const mwCtx = {
-        requestId: traceId || `http-${Date.now()}`,
-        traceId,
-        startTime: typeof startedAtMs2 === 'number' ? startedAtMs2 : Date.now(),
-        metadata: {
-          method: request.method,
-          url: request.url,
-          ip: request.ip
-        },
-        http: { request, reply },
-        signal: controller.signal
-      };
-      const mwState: import('../middleware/types.js').State = {
-        stage: 'beforeAgent',
-        values: new Map<string, unknown>(),
-        aborted: false
-      };
-
-      (request as AugmentedRequest).__mwCtx = mwCtx;
-      (request as AugmentedRequest).__mwState = mwState;
-
-      try {
-        await this.middlewareChain.execute('beforeAgent', mwCtx, mwState);
-      } catch (error) {
-        if ((reply as AugmentedReply).sent || reply.raw?.headersSent) return;
-        const mapped = this.mapMiddlewareError(error);
-        return this.respondError(reply, mapped.status, mapped.message, {
-          code: mapped.code,
-          recoverable: mapped.recoverable,
-          meta: mapped.meta
-        });
-      }
-
-      if (mwState.aborted) {
-        if ((reply as AugmentedReply).sent || reply.raw?.headersSent) return;
-        const mapped = this.mapMiddlewareError(mwState.error || new Error('Request aborted'));
-        return this.respondError(reply, mapped.status, mapped.message, {
-          code: mapped.code,
-          recoverable: mapped.recoverable,
-          meta: mapped.meta
-        });
-      }
-    });
-
-    // Security headers via helmet (production-ready defaults)
-    this.server.register(helmet, {
-      contentSecurityPolicy: {
-        directives: {
-          defaultSrc: ["'self'"],
-          scriptSrc: ["'self'", "'unsafe-inline'"],
-          styleSrc: ["'self'", "'unsafe-inline'"],
-          imgSrc: ["'self'", 'data:'],
-          connectSrc: ["'self'"],
-          objectSrc: ["'none'"],
-          frameAncestors: ["'none'"]
-        }
-      },
-      frameguard: { action: 'deny' },
-      referrerPolicy: { policy: 'no-referrer' },
-      hsts: this.config.host === '127.0.0.1' || this.config.host === 'localhost' ? false : { maxAge: 31536000 }
-    } as Parameters<typeof helmet>[1]);
-
-    // CORS middleware
-    this.server.register(cors, {
-      origin: (origin, cb) => {
-        try {
-          // Always allow requests without origin (same-origin, non-browser, curl, etc.)
-          if (!origin) return cb(null, true);
-
-          // If CORS is disabled, only allow same-origin
-          if (!this.config.enableCors) {
-            const selfOrigin = `http://${this.config.host || '127.0.0.1'}:${this.config.port || 19233}`;
-            const isSameOrigin = origin === selfOrigin ||
-                                 origin === selfOrigin.replace('127.0.0.1', 'localhost') ||
-                                 origin === selfOrigin.replace('localhost', '127.0.0.1');
-            return cb(null, isSameOrigin);
-          }
-
-          // Check if origin is the server itself
-          const selfOrigin = `http://${this.config.host || '127.0.0.1'}:${this.config.port || 19233}`;
-          if (origin === selfOrigin ||
-              origin === selfOrigin.replace('127.0.0.1', 'localhost') ||
-              origin === selfOrigin.replace('localhost', '127.0.0.1')) {
-            return cb(null, true);
-          }
-
-          // Check configured origins
-          const allowed = new Set(this.config.corsOrigins || []);
-          if (allowed.has(origin)) return cb(null, true);
-
-          // Allow subpath variants without trailing slash issues
-          const o = origin.replace(/\/$/, '');
-          for (const a of allowed) {
-            if (o === a.replace(/\/$/, '')) return cb(null, true);
-          }
-
-          return cb(new Error('CORS origin not allowed'), false);
-        } catch (e) {
-          return cb(e as Error, false);
-        }
-      },
-      credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key']
-    });
-    // No extra auth / rate-limit hooks here (handled by middleware chain).
-
-    // Request logging
-    this.server.addHook('onRequest', async (request: FastifyRequest) => {
-      this.logger.debug(`${request.method} ${request.url}`, {
-        ip: request.ip,
-        userAgent: request.headers['user-agent']
-      });
-    });
-
-    // Response logging (helmet handles security headers)
-    this.server.addHook('onSend', (request: FastifyRequest, reply: FastifyReply, payload: unknown, done) => {
-      try {
-        const elapsed = (reply as AugmentedReply).elapsedTime ?? undefined;
-        this.logger.debug(`${request.method} ${request.url} - ${reply.statusCode}`, { responseTime: elapsed });
-      } catch {
-        // ignore
-      }
-      done(null, payload);
-    });
-
-    // Post-response stage for middleware chain (best-effort).
-    this.server.addHook('onResponse', async (request: FastifyRequest) => {
-      try {
-        const mwCtx = (request as AugmentedRequest).__mwCtx;
-        const mwState = (request as AugmentedRequest).__mwState;
-        if (!mwCtx || !mwState) return;
-        await this.middlewareChain.execute('afterAgent', mwCtx as import('../middleware/types.js').Context, mwState as import('../middleware/types.js').State);
-      } catch {
-        // ignore
-      }
-    });
   }
 
   // SSE headers helper to reflect CORS policy (used by tests and streaming routes)
