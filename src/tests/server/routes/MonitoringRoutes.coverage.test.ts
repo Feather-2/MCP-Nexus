@@ -7,7 +7,12 @@ const {
   ServiceRegistryImpl, AuthenticationLayerImpl, GatewayRouterImpl, ProtocolAdaptersImpl
 } = vi.hoisted(() => {
   const svcStub = {
-    getRegistryStats: vi.fn().mockResolvedValue({ templates: 2, instances: 1 }),
+    getRegistryStats: vi.fn().mockResolvedValue({
+      totalTemplates: 2,
+      totalInstances: 2,
+      healthyInstances: 1,
+      instancesByState: { running: 1, stopped: 1, error: 0 }
+    }),
     listServices: vi.fn().mockResolvedValue([
       { id: 's1', config: { name: 'svc-a' }, state: 'running', startedAt: new Date(), errorCount: 0 },
       { id: 's2', config: { name: 'svc-b' }, state: 'stopped', startedAt: new Date(), errorCount: 0 }
@@ -63,6 +68,20 @@ describe('MonitoringRoutes – extended coverage', () => {
     expect(body.services.total).toBe(2);
     expect(body.services.running).toBe(1);
     expect(typeof body.metrics.totalRequests).toBe('number');
+  });
+
+  it('GET /metrics returns Prometheus metrics', async () => {
+    const res = await (server as any).server.inject({ method: 'GET', url: '/metrics' });
+    expect(res.statusCode).toBe(200);
+    expect(String(res.headers['content-type'])).toContain('text/plain; version=0.0.4');
+    expect(res.body).toContain('gateway_uptime_ms');
+    expect(res.body).toContain('gateway_requests_total');
+    expect(res.body).toContain('gateway_success_rate');
+    expect(res.body).toContain('gateway_response_time_ms');
+    expect(res.body).toContain('gateway_services_total');
+    expect(res.body).toContain('gateway_services_running');
+    expect(res.body).toContain('gateway_services_stopped');
+    expect(res.body).toContain('gateway_services_error');
   });
 
   it('GET /api/metrics/registry returns stats', async () => {
