@@ -1,10 +1,15 @@
 import { LRUDeduper } from './deduper.js';
+import { DEFAULT_EVENT_VERSION } from './types.js';
 import type { Event, EventHandler, EventType, SubscriptionOptions } from './types.js';
 
 export interface EventBusOptions {
   queueDepth?: number; // 队列深度，默认 64
   bufferSize?: number; // 每订阅者缓冲，默认 16
   dedupLimit?: number; // 去重窗口大小，默认 256
+}
+
+export interface EventLoggerLike {
+  log: (event: Event) => void | boolean | Promise<void | boolean>;
 }
 
 type SubscriptionEntry = {
@@ -38,6 +43,18 @@ function withTimeoutOrCancel(task: Promise<void>, timeoutMs: number, cancel: Pro
   return Promise.race(races).finally(() => {
     if (timer) clearTimeout(timer);
   });
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  if (typeof value !== 'object' || value === null) return false;
+  const then = (value as { then?: unknown }).then;
+  return typeof then === 'function';
+}
+
+function normalizeVersion(version: string | undefined): string {
+  if (!version) return DEFAULT_EVENT_VERSION;
+  const trimmed = version.trim();
+  return trimmed.length > 0 ? trimmed : DEFAULT_EVENT_VERSION;
 }
 
 function createSubscriptionEntry(
@@ -108,11 +125,13 @@ export class EventBus {
   private dispatchScheduled = false;
   private nextSubId = 1;
   private nextEventId = 1;
+  private readonly logger?: EventLoggerLike;
 
-  constructor(options?: EventBusOptions) {
+  constructor(options?: EventBusOptions, logger?: EventLoggerLike) {
     this.queueDepth = Math.max(1, options?.queueDepth ?? 64);
     this.bufferSize = Math.max(1, options?.bufferSize ?? 16);
     this.deduper = new LRUDeduper(Math.max(1, options?.dedupLimit ?? 256));
+    this.logger = logger;
   }
 
   publish(event: Event): void {
@@ -123,6 +142,7 @@ export class EventBus {
     const evt: Event = {
       ...event,
       id,
+      version: normalizeVersion(event.version),
       timestamp: event.timestamp ?? new Date()
     };
 
@@ -130,6 +150,16 @@ export class EventBus {
     if (this.queue.length >= this.queueDepth) return;
 
     this.queue.push(evt);
+    if (this.logger) {
+      try {
+        const maybePromise = this.logger.log(evt);
+        if (isPromiseLike(maybePromise)) {
+          void maybePromise.catch(() => {});
+        }
+      } catch {
+        // isolation: never let logger failures break publish
+      }
+    }
     this.ensureDispatchLoop();
   }
 

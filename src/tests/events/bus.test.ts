@@ -32,6 +32,7 @@ describe('EventBus', () => {
     expect(received).toHaveLength(2);
     expect(received.map((e) => e.payload)).toEqual([1, 2]);
     expect(received[0]?.id).toMatch(/^evt-\d+$/);
+    expect(received[0]?.version).toBe('1.0');
     expect(received[0]?.timestamp).toBeInstanceOf(Date);
     expect(received[0]?.timestamp?.getTime()).toBeGreaterThan(0);
 
