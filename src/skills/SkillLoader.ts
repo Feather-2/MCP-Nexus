@@ -12,6 +12,15 @@ export interface SkillLoaderOptions {
   logger?: Logger;
   maxDepth?: number;
   /**
+   * HMAC secret used to verify `signature` in SKILL.md frontmatter.
+   */
+  signatureSecret?: string;
+  /**
+   * Require every skill to provide a valid frontmatter `signature`.
+   * Defaults to true when a signatureSecret is configured.
+   */
+  enforceSignatures?: boolean;
+  /**
    * When true, reads text files under scripts/ and references/ into `skill.supportFiles`.
    * Binary files (assets) are skipped.
    */
@@ -101,6 +110,58 @@ function parseTags(value: unknown): Record<string, string> | undefined {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeHexSignature(value: string): string {
+  const trimmed = value.trim().replace(/^sha256[:=]/i, '').trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(trimmed)) {
+    throw new Error('Skill signature must be a 64-char SHA-256 hex string');
+  }
+  return trimmed;
+}
+
+function stripSignatureField(frontmatter: unknown): Record<string, unknown> {
+  if (!isPlainObject(frontmatter)) return {};
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(frontmatter)) {
+    if (key === 'signature') continue;
+    out[key] = value;
+  }
+  return out;
+}
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => canonicalize(item));
+  }
+  if (isPlainObject(value)) {
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(value).sort()) {
+      out[key] = canonicalize(value[key]);
+    }
+    return out;
+  }
+  return value;
+}
+
+function buildSignaturePayload(frontmatter: unknown, body: string): string {
+  return JSON.stringify({
+    frontmatter: canonicalize(stripSignatureField(frontmatter)),
+    body: body.replace(/\r\n/g, '\n')
+  });
+}
+
+function computeSkillSignature(frontmatter: unknown, body: string, secret: string): string {
+  return crypto.createHmac('sha256', secret).update(buildSignaturePayload(frontmatter, body), 'utf8').digest('hex');
+}
+
+function safeHexEqual(expected: string, actual: string): boolean {
+  if (expected.length !== actual.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(actual, 'hex'));
+  } catch (_e) {
+    return false;
+  }
 }
 
 function requireCapabilityKeys(raw: unknown, skillName: string): void {
@@ -262,6 +323,8 @@ async function readTextFile(p: string, maxBytes: number): Promise<string | null>
 export class SkillLoader {
   private readonly logger?: Logger;
   private readonly maxDepth: number;
+  private readonly signatureSecret?: string;
+  private readonly enforceSignatures: boolean;
   private readonly loadSupportFiles: boolean;
   private readonly maxSupportFileBytes: number;
   private readonly cache = new Map<string, CachedSkill>();
@@ -269,8 +332,14 @@ export class SkillLoader {
   constructor(options?: SkillLoaderOptions) {
     this.logger = options?.logger;
     this.maxDepth = options?.maxDepth ?? 5;
+    this.signatureSecret = options?.signatureSecret ?? process.env.SKILL_SIGNATURE_SECRET;
+    this.enforceSignatures = options?.enforceSignatures ?? Boolean(this.signatureSecret);
     this.loadSupportFiles = options?.loadSupportFiles ?? false;
     this.maxSupportFileBytes = options?.maxSupportFileBytes ?? 256 * 1024;
+  }
+
+  static computeSignature(frontmatter: unknown, body: string, secret: string): string {
+    return computeSkillSignature(frontmatter, body, secret);
   }
 
   getDefaultRoots(): string[] {
@@ -348,6 +417,7 @@ export class SkillLoader {
       }
 
       const { frontmatter, body } = this.parseSkillMarkdown(raw);
+      this.verifyFrontmatterSignature(frontmatter, body);
       const extracted = extractFrontmatterFields(frontmatter);
       const name = (extracted.name || path.basename(path.dirname(skillMdPath))).trim();
       const description = (extracted.description || extracted.shortDescription || '').trim();
@@ -424,6 +494,31 @@ export class SkillLoader {
     const rest = lines.slice(end + 1).join('\n');
     const frontmatter = yamlText.trim().length ? (parseYaml(yamlText) as unknown) : {};
     return { frontmatter, body: rest.trimStart() };
+  }
+
+  private verifyFrontmatterSignature(frontmatter: unknown, body: string): void {
+    const signatureRaw = isPlainObject(frontmatter) ? frontmatter['signature'] : undefined;
+    if (signatureRaw !== undefined && signatureRaw !== null && typeof signatureRaw !== 'string') {
+      throw new Error('Skill signature must be a string');
+    }
+    const hasSignature = typeof signatureRaw === 'string' && signatureRaw.trim().length > 0;
+
+    if (!hasSignature) {
+      if (this.enforceSignatures) {
+        throw new Error('Skill signature is required');
+      }
+      return;
+    }
+
+    if (!this.signatureSecret) {
+      throw new Error('Skill signature provided but SKILL_SIGNATURE_SECRET is not configured');
+    }
+
+    const provided = normalizeHexSignature(signatureRaw);
+    const expected = computeSkillSignature(frontmatter, body, this.signatureSecret);
+    if (!safeHexEqual(expected, provided)) {
+      throw new Error('Skill signature mismatch');
+    }
   }
 
   private async loadSupportFilesForSkill(skillDir: string): Promise<Map<string, string>> {

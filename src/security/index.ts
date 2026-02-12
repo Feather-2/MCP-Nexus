@@ -1,1 +1,2 @@
-// Security module barrel - exports consumed via direct imports from source files.
+export { AuditLogger } from './AuditLogger.js';
+export type { AuditLogInput, AuditLogEntry, AuditLoggerOptions } from './AuditLogger.js';

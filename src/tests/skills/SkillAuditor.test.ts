@@ -107,6 +107,63 @@ describe('SkillAuditor', () => {
       expect(result.warnings.some(w => w.includes('trustLevel=untrusted'))).toBe(true);
     });
 
+    it('warns when untrusted skill lacks container sandbox enforcement', async () => {
+      const templates: TemplateProvider = { getTemplate: vi.fn().mockResolvedValue(null) };
+      const logger = { warn: vi.fn() };
+      const auditor = new SkillAuditor({
+        getGatewayConfig: () => makeGatewayConfig(),
+        templates,
+        logger: logger as any
+      });
+
+      const skill = makeSkill({
+        metadata: {
+          name: 'untrusted-skill',
+          description: '',
+          path: '',
+          scope: 'repo',
+          keywords: [],
+          keywordsAll: [],
+          priority: 0,
+          tags: { trustLevel: 'untrusted' }
+        }
+      });
+      const result = await auditor.auditSkill(skill);
+
+      expect(result.warnings.some(w => w.includes('container sandbox is not enforced'))).toBe(true);
+      expect(logger.warn).toHaveBeenCalledWith(
+        'Skill isolation configuration is insufficient',
+        expect.objectContaining({
+          skill: 'untrusted-skill',
+          trustLevel: 'untrusted'
+        })
+      );
+    });
+
+    it('does not warn untrusted skill when container sandbox is enforced', async () => {
+      const templates: TemplateProvider = { getTemplate: vi.fn().mockResolvedValue(null) };
+      const auditor = new SkillAuditor({
+        getGatewayConfig: () => makeGatewayConfig({ sandbox: { container: { requiredForUntrusted: true } } } as any),
+        templates
+      });
+
+      const skill = makeSkill({
+        metadata: {
+          name: 'untrusted-skill',
+          description: '',
+          path: '',
+          scope: 'repo',
+          keywords: [],
+          keywordsAll: [],
+          priority: 0,
+          tags: { trustLevel: 'untrusted' }
+        }
+      });
+      const result = await auditor.auditSkill(skill);
+
+      expect(result.warnings.some(w => w.includes('container sandbox is not enforced'))).toBe(false);
+    });
+
     it('handles sandbox policy violations', async () => {
       // Create a template that will trigger sandbox policy error
       const template = makeTemplate('bad-tool', {

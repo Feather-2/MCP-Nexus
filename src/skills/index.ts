@@ -8,3 +8,5 @@ export { SkillAuthorization } from './SkillAuthorization.js';
 export type { AuthorizationState } from './SkillAuthorization.js';
 export { SkillLocalizer } from './SkillLocalizer.js';
 export type { Platform, LocalizedSkill, PlatformAdapter, PlatformDirectoryConfig } from './SkillLocalizer.js';
+export { SkillExecutor } from './SkillExecutor.js';
+export type { SkillToolRequest, SkillExecutorOptions } from './SkillExecutor.js';

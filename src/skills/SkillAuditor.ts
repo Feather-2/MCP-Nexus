@@ -29,12 +29,37 @@ export interface SkillAuditorOptions {
   auditRouter?: AuditSkillRouter;
 }
 
+type TrustLevel = 'trusted' | 'partner' | 'untrusted';
+
 function parseAllowedTools(spec?: string): string[] {
   if (!spec) return [];
   return spec
     .split(/[, \n\r\t]+/g)
     .map((t) => t.trim())
     .filter(Boolean);
+}
+
+function normalizeTrustLevel(value: unknown): TrustLevel | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'trusted' || normalized === 'partner' || normalized === 'untrusted') {
+    return normalized;
+  }
+  return null;
+}
+
+function inferSkillTrustLevel(skill: Skill): TrustLevel {
+  const tags = skill.metadata.tags || {};
+  const explicit =
+    normalizeTrustLevel(tags['trustLevel']) ??
+    normalizeTrustLevel(tags['trust-level']) ??
+    normalizeTrustLevel(tags['trust']) ??
+    normalizeTrustLevel(tags['security.trustLevel']);
+  if (explicit) return explicit;
+  if ((skill.metadata.traits || []).map((t) => String(t).toLowerCase()).includes('untrusted')) {
+    return 'untrusted';
+  }
+  return 'trusted';
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
@@ -74,6 +99,8 @@ export class SkillAuditor {
     const warnings: string[] = [];
 
     const gatewayConfig = this.opts.getGatewayConfig();
+    this.auditIsolation(skill, gatewayConfig, warnings);
+
     const tools = parseAllowedTools(skill.metadata.allowedTools);
     const skills = (gatewayConfig as Record<string, unknown>)?.skills as Record<string, unknown> | undefined;
     const whitelist: string[] | undefined = Array.isArray(skills?.allowedTools)
@@ -186,5 +213,24 @@ export class SkillAuditor {
 
     result.dryRunResults = dryRunResults;
     return result;
+  }
+
+  private auditIsolation(skill: Skill, gatewayConfig: GatewayConfig, warnings: string[]): void {
+    const trustLevel = inferSkillTrustLevel(skill);
+    if (trustLevel !== 'untrusted') return;
+
+    const sandboxCfg = ((gatewayConfig as Record<string, unknown>)?.sandbox || {}) as Record<string, unknown>;
+    const containerCfg = (sandboxCfg?.container || {}) as Record<string, unknown>;
+    const enforced = sandboxCfg?.profile === 'locked-down' || containerCfg?.requiredForUntrusted === true;
+    if (enforced) return;
+
+    const warning = `Skill '${skill.metadata.name}' trustLevel=untrusted but container sandbox is not enforced`;
+    warnings.push(warning);
+    this.opts.logger?.warn?.('Skill isolation configuration is insufficient', {
+      skill: skill.metadata.name,
+      trustLevel,
+      sandboxProfile: sandboxCfg?.profile,
+      requiredForUntrusted: containerCfg?.requiredForUntrusted
+    });
   }
 }
