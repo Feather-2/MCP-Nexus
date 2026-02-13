@@ -35,7 +35,8 @@ export interface SkillModificationDetectionResult {
     | 'missing_secret'
     | 'invalid_signature'
     | 'signature_valid'
-    | 'signature_mismatch';
+    | 'signature_mismatch'
+    | 'risk_threshold_exceeded';
   fileHash?: string;
   skillName?: string;
   diff?: SkillContentDiff;

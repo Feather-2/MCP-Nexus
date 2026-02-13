@@ -10,6 +10,7 @@ import type { Skill, SkillMetadata, SkillScope } from './types.js';
 import { SkillVersionTracker } from './SkillVersionTracker.js';
 import { SkillDiffAnalyzer } from './SkillDiffAnalyzer.js';
 import { SkillRiskAccumulator } from './SkillRiskAccumulator.js';
+import type { SkillModificationApprover } from './SkillModificationApprover.js';
 
 export interface SkillLoaderOptions {
   logger?: Logger;
@@ -40,6 +41,10 @@ export interface SkillLoaderOptions {
    * Storage root for version history (default: process.cwd()).
    */
   versionStorageRoot?: string;
+  /**
+   * Optional approver for skill modifications that exceed risk thresholds.
+   */
+  approver?: SkillModificationApprover;
 }
 
 type CachedSkill = { hash: string; skill: Skill };
@@ -342,6 +347,7 @@ export class SkillLoader {
   private readonly versionTracker?: SkillVersionTracker;
   private readonly diffAnalyzer?: SkillDiffAnalyzer;
   private readonly riskAccumulator?: SkillRiskAccumulator;
+  private readonly approver?: SkillModificationApprover;
 
   constructor(options?: SkillLoaderOptions) {
     this.logger = options?.logger;
@@ -350,6 +356,7 @@ export class SkillLoader {
     this.enforceSignatures = options?.enforceSignatures ?? Boolean(this.signatureSecret);
     this.loadSupportFiles = options?.loadSupportFiles ?? false;
     this.maxSupportFileBytes = options?.maxSupportFileBytes ?? 256 * 1024;
+    this.approver = options?.approver;
 
     if (options?.enableVersionTracking) {
       this.versionTracker = new SkillVersionTracker({
@@ -504,6 +511,28 @@ export class SkillLoader {
                 highCount: accumulated.highFlags.length,
                 escalationCount: accumulated.escalationCount
               });
+
+              if (this.approver) {
+                try {
+                  await this.approver.createPendingRecord({
+                    skillMdPath,
+                    skillName: name,
+                    detection: {
+                      isModified: true,
+                      skillMdPath,
+                      reason: 'risk_threshold_exceeded',
+                      fileHash: sha256(raw),
+                      skillName: name
+                    }
+                  });
+                  this.logger?.info?.('Created pending approval record for skill modification', { skillId });
+                } catch (error) {
+                  this.logger?.error?.('Failed to create pending approval record', {
+                    skillId,
+                    error: error instanceof Error ? error.message : String(error)
+                  });
+                }
+              }
             }
           }
         }
