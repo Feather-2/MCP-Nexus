@@ -1,0 +1,37 @@
+{
+  "id": "thread-cabae2b8",
+  "name": "MCP-Nexus 工程质量优化与依赖升级",
+  "createdAt": "2026-02-09T14:00:00+08:00",
+  "updatedAt": "2026-02-11T22:00:00+08:00",
+  "checkpointEnabled": true,
+  "autoSave": false,
+  "sessions": [
+    {
+      "id": "session-origin",
+      "name": "测试覆盖率 81% → 90%",
+      "startedAt": "2026-02-08T23:00:00+08:00",
+      "active": false,
+      "contextSizeAtEnd": "~95%",
+      "archivedAt": "2026-02-10T12:50:00+08:00",
+      "file": null
+    },
+    {
+      "id": "f0a599b7-c7a9-4eb7-a9d8-775682df2c5a",
+      "name": "Branch coverage 80% → 85%+",
+      "startedAt": "2026-02-10T12:50:00+08:00",
+      "active": false,
+      "contextSizeAtEnd": "~95%",
+      "archivedAt": "2026-02-13T00:00:00+08:00",
+      "file": null
+    },
+    {
+      "id": "146d2cd5-ee7c-41ad-b11e-57f3e0e68977",
+      "name": "Skill 版本管理与风险标记系统",
+      "startedAt": "2026-02-11T22:00:00+08:00",
+      "active": false,
+      "contextSizeAtEnd": "~60%",
+      "archivedAt": "2026-02-13T00:00:00+08:00",
+      "file": null
+    }
+  ]
+}
