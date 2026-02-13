@@ -334,10 +334,19 @@ export class HttpApiServer {
       if (this.demoLogTimer) clearInterval(this.demoLogTimer);
       if (this.sseCleanupTimer) clearInterval(this.sseCleanupTimer);
 
-      await this.server.close();
+      // 30秒超时保护
+      const timeout = new Promise<void>((_, reject) => {
+        setTimeout(() => reject(new Error('Server shutdown timeout after 30s')), 30000);
+      });
+
+      await Promise.race([this.server.close(), timeout]);
       this.logger.info('HTTP API server stopped');
     } catch (error) {
-      this.logger.error('Error stopping HTTP API server:', error);
+      if (error instanceof Error && error.message.includes('timeout')) {
+        this.logger.warn('Server shutdown timeout, forcing close');
+      } else {
+        this.logger.error('Error stopping HTTP API server:', error);
+      }
       throw error;
     }
   }

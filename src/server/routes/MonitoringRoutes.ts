@@ -1,6 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { Counter, Gauge, Registry } from 'prom-client';
 import { BaseRouteHandler, RouteContext } from './RouteContext.js';
+import { AlertManager } from '../../observability/AlertManager.js';
 
 type RouterMetricsSnapshot = ReturnType<RouteContext['router']['getMetrics']>;
 type RegistryStatsSnapshot = Awaited<ReturnType<RouteContext['serviceRegistry']['getRegistryStats']>>;
@@ -21,9 +22,11 @@ export class MonitoringRoutes extends BaseRouteHandler {
   private readonly gatewayServicesStoppedGauge: Gauge;
   private readonly gatewayServicesErrorGauge: Gauge;
   private lastObservedTotalRequests = 0;
+  private readonly alertManager: AlertManager;
 
   constructor(ctx: RouteContext) {
     super(ctx);
+    this.alertManager = new AlertManager(ctx.logger);
     this.metricsRegistry = new Registry();
     this.gatewayUptimeGauge = new Gauge({
       name: 'gateway_uptime_ms',
@@ -199,6 +202,34 @@ export class MonitoringRoutes extends BaseRouteHandler {
       );
 
       reply.send({ serviceMetrics });
+    });
+
+    // Alert management endpoints
+    server.get('/api/alerts/rules', async (_request: FastifyRequest, reply: FastifyReply) => {
+      const rules = this.alertManager.getRules();
+      reply.send({ rules });
+    });
+
+    server.post('/api/alerts/check', async (_request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const routerMetrics = this.ctx.router.getMetrics();
+        const registryStats = await this.ctx.serviceRegistry.getRegistryStats();
+        const memUsage = process.memoryUsage();
+
+        const alertMetrics = {
+          successRate: this.sanitizeNumber(routerMetrics.successRate),
+          averageResponseTime: this.sanitizeNumber(routerMetrics.averageResponseTime),
+          totalRequests: this.sanitizeNumber(routerMetrics.totalRequests),
+          memoryUsageMB: memUsage.heapUsed / 1024 / 1024,
+          servicesError: this.sanitizeNumber(this.getStateCountMap(registryStats).error),
+          servicesTotal: this.getServicesTotal(registryStats)
+        };
+
+        await this.alertManager.checkAndAlert(alertMetrics);
+        reply.send({ status: 'checked', metrics: alertMetrics });
+      } catch (error) {
+        reply.code(500).send({ error: (error as Error).message });
+      }
     });
   }
 
