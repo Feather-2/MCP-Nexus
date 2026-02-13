@@ -1,6 +1,30 @@
 import { LRUDeduper } from './deduper.js';
-import { DEFAULT_EVENT_VERSION } from './types.js';
-import type { Event, EventHandler, EventType, SubscriptionOptions } from './types.js';
+import { DEFAULT_EVENT_VERSION, EventBusEvents } from './types.js';
+import type {
+  Event,
+  EventHandler,
+  EventType,
+  SubscriptionOptions,
+  BackpressureDropPayload,
+  BufferDropPayload,
+  HandlerErrorPayload,
+  HandlerTimeoutPayload,
+  LoggerErrorPayload
+} from './types.js';
+
+// 重新导出以便测试和外部使用
+export { EventBusEvents } from './types.js';
+export type {
+  Event,
+  EventHandler,
+  EventType,
+  SubscriptionOptions,
+  BackpressureDropPayload,
+  BufferDropPayload,
+  HandlerErrorPayload,
+  HandlerTimeoutPayload,
+  LoggerErrorPayload
+} from './types.js';
 
 export interface EventBusOptions {
   queueDepth?: number; // 队列深度，默认 64
@@ -62,7 +86,9 @@ function createSubscriptionEntry(
   type: EventType,
   handler: EventHandler,
   options: SubscriptionOptions | undefined,
-  bufferSize: number
+  bufferSize: number,
+  onHandlerError: (subscriberId: number, evt: Event, error: Error) => void,
+  onHandlerTimeout: (subscriberId: number, evt: Event, timeoutMs: number) => void
 ): SubscriptionEntry {
   const timeoutMs = Math.max(0, options?.timeout ?? 0);
   const queue: Event[] = [];
@@ -97,11 +123,32 @@ function createSubscriptionEntry(
         try {
           while (!entry.closed && entry.queue.length > 0) {
             const next = entry.queue.shift()!;
+            let handlerError: Error | undefined;
+            let timedOut = false;
+
             const task = Promise.resolve()
               .then(() => entry.handler(next))
               .then(() => {})
-              .catch(() => {});
-            await withTimeoutOrCancel(task, entry.timeoutMs, entry.closeSignal);
+              .catch((err) => {
+                handlerError = err instanceof Error ? err : new Error(String(err));
+              });
+
+            const timeoutPromise = timeoutMs > 0
+              ? new Promise<void>((resolve) => {
+                  setTimeout(() => {
+                    timedOut = true;
+                    resolve();
+                  }, timeoutMs);
+                })
+              : Promise.race([]);
+
+            await Promise.race([task, timeoutPromise, entry.closeSignal]);
+
+            if (timedOut && !handlerError) {
+              onHandlerTimeout(id, next, timeoutMs);
+            } else if (handlerError) {
+              onHandlerError(id, next, handlerError);
+            }
           }
         } finally {
           entry.running = false;
@@ -111,6 +158,15 @@ function createSubscriptionEntry(
   };
 
   return entry;
+}
+
+export interface EventBusStats {
+  published: number;
+  dropped: number;
+  deduplicated: number;
+  handlerErrors: number;
+  handlerTimeouts: number;
+  bufferDrops: number;
 }
 
 export class EventBus {
@@ -126,6 +182,16 @@ export class EventBus {
   private nextSubId = 1;
   private nextEventId = 1;
   private readonly logger?: EventLoggerLike;
+
+  // 统计指标
+  private stats: EventBusStats = {
+    published: 0,
+    dropped: 0,
+    deduplicated: 0,
+    handlerErrors: 0,
+    handlerTimeouts: 0,
+    bufferDrops: 0
+  };
 
   constructor(options?: EventBusOptions, logger?: EventLoggerLike) {
     this.queueDepth = Math.max(1, options?.queueDepth ?? 64);
@@ -146,9 +212,23 @@ export class EventBus {
       timestamp: event.timestamp ?? new Date()
     };
 
-    if (!this.deduper.allow(id)) return;
-    if (this.queue.length >= this.queueDepth) return;
+    if (!this.deduper.allow(id)) {
+      this.stats.deduplicated++;
+      return;
+    }
+    if (this.queue.length >= this.queueDepth) {
+      this.stats.dropped++;
+      // 发射背压丢弃事件
+      this.emitGovernanceEvent<BackpressureDropPayload>(EventBusEvents.BACKPRESSURE_DROP, {
+        droppedEventId: id,
+        droppedEventType: evt.type,
+        queueDepth: this.queueDepth,
+        reason: 'queue_full'
+      });
+      return;
+    }
 
+    this.stats.published++;
     this.queue.push(evt);
     if (this.logger) {
       try {
@@ -168,7 +248,35 @@ export class EventBus {
     if (!type) throw new Error('events: missing type');
 
     const id = this.nextSubId++;
-    const entry = createSubscriptionEntry(id, type, handler, options, this.bufferSize);
+    const entry = createSubscriptionEntry(
+      id,
+      type,
+      handler,
+      options,
+      this.bufferSize,
+      (subscriberId, evt, error) => {
+        this.stats.handlerErrors++;
+        this.emitGovernanceEvent<HandlerErrorPayload>(EventBusEvents.HANDLER_ERROR, {
+          subscriberId,
+          eventId: evt.id || 'unknown',
+          eventType: evt.type,
+          error: {
+            name: error.name,
+            message: error.message,
+            stack: error.stack
+          }
+        });
+      },
+      (subscriberId, evt, timeoutMs) => {
+        this.stats.handlerTimeouts++;
+        this.emitGovernanceEvent<HandlerTimeoutPayload>(EventBusEvents.HANDLER_TIMEOUT, {
+          subscriberId,
+          eventId: evt.id || 'unknown',
+          eventType: evt.type,
+          timeoutMs
+        });
+      }
+    );
 
     let removed = false;
     const unsubscribe = () => {
@@ -190,6 +298,21 @@ export class EventBus {
     bucket.set(id, entry);
 
     return unsubscribe;
+  }
+
+  getStats(): Readonly<EventBusStats> {
+    return { ...this.stats };
+  }
+
+  resetStats(): void {
+    this.stats = {
+      published: 0,
+      dropped: 0,
+      deduplicated: 0,
+      handlerErrors: 0,
+      handlerTimeouts: 0,
+      bufferDrops: 0
+    };
   }
 
   close(): void {
@@ -231,9 +354,71 @@ export class EventBus {
     const subscribers = [...bucket.values()];
     for (const sub of subscribers) {
       try {
+        // 检查缓冲区是否已满
+        if (!sub.closed && sub.queue.length >= sub.bufferSize) {
+          this.stats.bufferDrops++;
+          this.emitGovernanceEvent<BufferDropPayload>(EventBusEvents.BUFFER_DROP, {
+            droppedEventId: evt.id || 'unknown',
+            droppedEventType: evt.type,
+            subscriberId: sub.id,
+            bufferSize: sub.bufferSize,
+            reason: 'buffer_full'
+          });
+        }
         sub.enqueue(evt);
       } catch (_e) {
         // isolation: never let one subscriber break dispatch
+      }
+    }
+  }
+
+  private emitGovernanceEvent<T>(type: string, payload: T): void {
+    // 治理事件直接发射，不经过队列（避免递归）
+    const evt: Event = {
+      id: `evt-${this.nextEventId++}`,
+      type,
+      version: DEFAULT_EVENT_VERSION,
+      timestamp: new Date(),
+      component: 'EventBus',
+      payload
+    };
+
+    if (this.logger) {
+      try {
+        const maybePromise = this.logger.log(evt);
+        if (isPromiseLike(maybePromise)) {
+          void maybePromise.catch(() => {});
+        }
+      } catch {
+        // isolation: never let logger failures break governance events
+      }
+    }
+
+    // 直接分发给订阅者（不入队）
+    const bucket = this.subs.get(type);
+    if (!bucket || bucket.size === 0) return;
+
+    const subscribers = [...bucket.values()];
+    for (const sub of subscribers) {
+      if (!sub.closed && sub.queue.length < sub.bufferSize) {
+        sub.queue.push(evt);
+        if (!sub.running) {
+          sub.running = true;
+          void (async () => {
+            try {
+              while (!sub.closed && sub.queue.length > 0) {
+                const next = sub.queue.shift()!;
+                const task = Promise.resolve()
+                  .then(() => sub.handler(next))
+                  .then(() => {})
+                  .catch(() => {});
+                await withTimeoutOrCancel(task, sub.timeoutMs, sub.closeSignal);
+              }
+            } finally {
+              sub.running = false;
+            }
+          })();
+        }
       }
     }
   }
