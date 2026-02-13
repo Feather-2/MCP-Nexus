@@ -7,6 +7,9 @@ import { parse as parseYaml } from 'yaml';
 import type { Logger } from '../types/index.js';
 import { mergeWithDefaults, validateCapabilities, type SkillCapabilities } from '../security/CapabilityManifest.js';
 import type { Skill, SkillMetadata, SkillScope } from './types.js';
+import { SkillVersionTracker } from './SkillVersionTracker.js';
+import { SkillDiffAnalyzer } from './SkillDiffAnalyzer.js';
+import { SkillRiskAccumulator } from './SkillRiskAccumulator.js';
 
 export interface SkillLoaderOptions {
   logger?: Logger;
@@ -29,6 +32,14 @@ export interface SkillLoaderOptions {
    * Maximum bytes per support file (default: 256KB).
    */
   maxSupportFileBytes?: number;
+  /**
+   * Enable version tracking and risk analysis for skills.
+   */
+  enableVersionTracking?: boolean;
+  /**
+   * Storage root for version history (default: process.cwd()).
+   */
+  versionStorageRoot?: string;
 }
 
 type CachedSkill = { hash: string; skill: Skill };
@@ -328,6 +339,9 @@ export class SkillLoader {
   private readonly loadSupportFiles: boolean;
   private readonly maxSupportFileBytes: number;
   private readonly cache = new Map<string, CachedSkill>();
+  private readonly versionTracker?: SkillVersionTracker;
+  private readonly diffAnalyzer?: SkillDiffAnalyzer;
+  private readonly riskAccumulator?: SkillRiskAccumulator;
 
   constructor(options?: SkillLoaderOptions) {
     this.logger = options?.logger;
@@ -336,6 +350,15 @@ export class SkillLoader {
     this.enforceSignatures = options?.enforceSignatures ?? Boolean(this.signatureSecret);
     this.loadSupportFiles = options?.loadSupportFiles ?? false;
     this.maxSupportFileBytes = options?.maxSupportFileBytes ?? 256 * 1024;
+
+    if (options?.enableVersionTracking) {
+      this.versionTracker = new SkillVersionTracker({
+        storageRoot: options.versionStorageRoot,
+        logger: this.logger
+      });
+      this.diffAnalyzer = new SkillDiffAnalyzer();
+      this.riskAccumulator = new SkillRiskAccumulator();
+    }
   }
 
   static computeSignature(frontmatter: unknown, body: string, secret: string): string {
@@ -459,6 +482,31 @@ export class SkillLoader {
       const skill: Skill = { metadata, body, capabilities };
       if (this.loadSupportFiles) {
         skill.supportFiles = await this.loadSupportFilesForSkill(path.dirname(skillMdPath));
+      }
+
+      if (this.versionTracker && this.diffAnalyzer && this.riskAccumulator) {
+        const skillId = name;
+        const history = this.versionTracker.getVersionHistory(skillId);
+        const previousVersion = history.length > 0 ? history[history.length - 1] : null;
+
+        this.versionTracker.recordVersion(skillId, raw);
+
+        if (previousVersion && previousVersion.content !== raw) {
+          const riskFlags = this.diffAnalyzer.analyzeDiff(previousVersion.content, raw);
+          if (riskFlags.length > 0) {
+            const accumulated = this.riskAccumulator.accumulateRisk(skillId, riskFlags, Date.now());
+            const threshold = this.riskAccumulator.checkThreshold(skillId);
+            if (threshold.exceedsThreshold) {
+              this.logger?.warn?.('Skill version change exceeds risk threshold', {
+                skillId,
+                reasons: threshold.reasons,
+                criticalCount: accumulated.criticalFlags.length,
+                highCount: accumulated.highFlags.length,
+                escalationCount: accumulated.escalationCount
+              });
+            }
+          }
+        }
       }
 
       this.cache.set(skillMdPath, { hash, skill });
