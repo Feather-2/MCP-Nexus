@@ -32,7 +32,8 @@ import {
   LocalMcpProxyRoutes,
   SandboxRoutes,
   ToolRoutes,
-  SkillRoutes
+  SkillRoutes,
+  SkillApprovalRoutes
 } from './routes/index.js';
 import { Middleware } from '../middleware/types.js';
 import {
@@ -502,6 +503,9 @@ export class HttpApiServer {
 
     // Skills API endpoints（动态技能加载/匹配/审核）
     new SkillRoutes(routeContext).setupRoutes();
+
+    // Skill approval workflow endpoints
+    new SkillApprovalRoutes(routeContext).setupRoutes();
   }
 
   // Unified error response helper
