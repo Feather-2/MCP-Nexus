@@ -1,17 +1,19 @@
-import { 
-  ConfigManager, 
-  GatewayConfig, 
-  McpServiceConfig, 
+import {
+  ConfigManager,
+  GatewayConfig,
+  McpServiceConfig,
   Logger,
-  ServiceTemplate,
-  AuthMode,
-  LoadBalancingStrategy
+  ServiceTemplate
 } from '../types/index.js';
-import { readFile, writeFile, mkdir, access, watch as watchAsync, readdir, stat, unlink } from 'fs/promises';
+import { readFile, writeFile, mkdir, access } from 'fs/promises';
 import { join, dirname } from 'path';
 import { EventEmitter } from 'events';
 import { constants } from 'fs';
-import type { FileChangeInfo } from 'fs/promises';
+import { ConfigValidator } from './ConfigValidator.js';
+import { TemplateManager } from './TemplateManager.js';
+import { ConfigWatcher } from './ConfigWatcher.js';
+import { ConfigMerger } from './ConfigMerger.js';
+import { ConfigBackup } from './ConfigBackup.js';
 
 type ErrnoExceptionLike = { code?: unknown };
 
@@ -25,15 +27,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object';
 }
 
-type FsPromiseWatcher = AsyncIterable<FileChangeInfo<string>> & { close?: () => void };
-
 export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
   private configPath: string;
   private templatesPath: string;
   private currentConfig: GatewayConfig;
-  private templates: Map<string, ServiceTemplate> = new Map();
-  private watchEnabled = false;
   private logger: Logger;
+  private templateManager: TemplateManager;
+  private configWatcher: ConfigWatcher;
+  private configBackup: ConfigBackup;
 
   constructor(
     configPathOrLogger: string | Logger,
@@ -57,11 +58,20 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
     }
 
     this.logger = logger;
-
     this.configPath = configPath;
     this.templatesPath = join(dirname(configPath), 'templates');
-    
-    this.currentConfig = this.createDefaultConfig();
+
+    // Initialize modules
+    this.templateManager = new TemplateManager(this.templatesPath, logger);
+    this.configWatcher = new ConfigWatcher(logger);
+    this.configBackup = new ConfigBackup(configPath, logger);
+
+    // Forward template manager events
+    this.templateManager.on('templatesLoaded', (templates) => this.emit('templatesLoaded', templates));
+    this.templateManager.on('templateSaved', (template) => this.emit('templateSaved', template));
+    this.templateManager.on('templateRemoved', (name) => this.emit('templateRemoved', name));
+
+    this.currentConfig = ConfigMerger.createDefaultConfig();
     if (defaultConfig) {
       this.currentConfig = { ...this.currentConfig, ...defaultConfig };
     }
@@ -71,9 +81,9 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
     try {
       // Check if config file exists
       await access(this.configPath, constants.F_OK);
-      
+
       const configData = await readFile(this.configPath, 'utf-8');
-      
+
       // Handle empty (or unexpectedly non-string) config file
       if (typeof configData !== 'string' || !configData.trim()) {
         this.logger.info('Configuration file is empty, creating default config', {
@@ -82,20 +92,20 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
         await this.saveConfig(this.currentConfig, true); // Skip additional logging
         return this.currentConfig;
       }
-      
+
       const loadedConfig = JSON.parse(configData) as unknown;
-      
+
       // Validate and merge with defaults
-      this.currentConfig = this.validateAndMergeConfig(loadedConfig);
-      
-      this.logger.info('Configuration loaded successfully', { 
+      this.currentConfig = ConfigValidator.validateAndMerge(loadedConfig);
+
+      this.logger.info('Configuration loaded successfully', {
         configPath: this.configPath,
         authMode: this.currentConfig.authMode,
         port: this.currentConfig.port
       });
-      
+
       this.emit('configLoaded', this.currentConfig);
-      
+
       return this.currentConfig;
     } catch (error) {
       if (getErrnoCode(error) === 'ENOENT') {
@@ -103,11 +113,11 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
         this.logger.info('Created default configuration file', {
           configPath: this.configPath
         });
-        
+
         await this.saveConfig(this.currentConfig, true); // Skip additional logging
         return this.currentConfig;
       }
-      
+
       this.logger.error('Failed to load configuration:', error);
       throw new Error(`Failed to load configuration: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
@@ -116,8 +126,8 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
   async saveConfig(config: GatewayConfig, skipLogging = false): Promise<void> {
     try {
       // Validate config before saving
-      this.validateConfigStrict(config);
-      
+      ConfigValidator.validateStrict(config);
+
       // Ensure config directory exists
       try {
         await mkdir(dirname(this.configPath), { recursive: true });
@@ -126,19 +136,19 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
           throw e;
         }
       }
-      
+
       // Save config with pretty formatting
       const configJson = JSON.stringify(config, null, 2);
       await writeFile(this.configPath, configJson);
-      
+
       this.currentConfig = config;
-      
+
       if (!skipLogging) {
-        this.logger.info('Configuration saved successfully', { 
-          configPath: this.configPath 
+        this.logger.info('Configuration saved successfully', {
+          configPath: this.configPath
         });
       }
-      
+
       this.emit('configSaved', config);
     } catch (error) {
       this.logger.error('Failed to save configuration:', error);
@@ -242,158 +252,41 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
   }
 
   async clear(): Promise<void> {
-    this.currentConfig = this.createDefaultConfig();
+    this.currentConfig = ConfigMerger.createDefaultConfig();
     await this.saveConfig(this.currentConfig);
   }
 
   async saveTemplates(): Promise<void> {
-    // Save all templates to individual files
-    await mkdir(this.templatesPath, { recursive: true });
-    
-    for (const [name, template] of this.templates) {
-      const safeName = this.sanitizeFilename(name);
-      const templatePath = join(this.templatesPath, `${safeName}.json`);
-      const templateJson = JSON.stringify(template, null, 2);
-      await writeFile(templatePath, templateJson);
-    }
-    
-    this.logger.info(`Saved ${this.templates.size} templates to filesystem`);
+    return this.templateManager.saveTemplates();
   }
 
   async loadTemplates(): Promise<void> {
-    try {
-      // Ensure templates directory exists
-      await mkdir(this.templatesPath, { recursive: true });
-      
-      // Load built-in templates first
-      this.loadBuiltInTemplates();
-      
-      // Load custom templates from templates directory (.json files)
-      const count = await this.loadTemplatesFromDirectory(this.templatesPath);
-      
-      const templates = Array.from(this.templates.values());
-      
-      this.logger.info(`Loaded ${templates.length} service templates (${count} from disk, ${templates.length - count} built-in or previously loaded)`);
-      this.emit('templatesLoaded', templates);
-    } catch (error) {
-      this.logger.error('Failed to load templates:', error);
-      throw new Error(`Failed to load templates: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
+    return this.templateManager.loadTemplates();
   }
 
-  // Helper method to get loaded templates
   getLoadedTemplates(): ServiceTemplate[] {
-    return Array.from(this.templates.values());
+    return this.templateManager.getLoadedTemplates();
   }
 
   async saveTemplate(template: ServiceTemplate): Promise<void> {
-    try {
-      // Validate template
-      this.validateTemplate(template);
-      
-      this.templates.set(template.name, template);
-      
-      // Save to file system
-      const safeName = this.sanitizeFilename(template.name);
-      const templatePath = join(this.templatesPath, `${safeName}.json`);
-      const templateJson = JSON.stringify(template, null, 2);
-      await writeFile(templatePath, templateJson);
-      
-      this.logger.info(`Template saved: ${template.name}`, { 
-        templatePath 
-      });
-      
-      this.emit('templateSaved', template);
-    } catch (error) {
-      this.logger.error('Failed to save template:', error);
-      throw new Error(`Failed to save template: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
+    return this.templateManager.saveTemplate(template);
   }
 
   getTemplate(name: string): ServiceTemplate | undefined {
-    return this.templates.get(name);
+    return this.templateManager.getTemplate(name);
   }
 
   listTemplates(): ServiceTemplate[] {
-    return Array.from(this.templates.values());
+    return this.templateManager.listTemplates();
   }
 
   async removeTemplate(name: string): Promise<boolean> {
-    if (!this.templates.has(name)) {
-      return false;
-    }
-    
-    this.templates.delete(name);
-    
-    // Remove from file system
-    try {
-      const safeName = this.sanitizeFilename(name);
-      const templatePath = join(this.templatesPath, `${safeName}.json`);
-      await unlink(templatePath);
-      this.logger.debug(`Template file removed: ${templatePath}`);
-    } catch (e) {
-      if (getErrnoCode(e) !== 'ENOENT') {
-        this.logger.warn('Failed to remove template file from filesystem', { name, error: e });
-      }
-    }
-    
-    this.logger.info(`Template removed: ${name}`);
-    this.emit('templateRemoved', name);
-    
-    return true;
-  }
-
-  private validateConfigStrict(config: Partial<GatewayConfig>): void {
-    const errors: string[] = [];
-    
-    // Validate port
-    if (config.port !== undefined) {
-      if (!Number.isInteger(config.port) || config.port < 1 || config.port > 65535) {
-        errors.push('Port must be an integer between 1 and 65535');
-      }
-    }
-    
-    // Validate host
-    if (config.host !== undefined) {
-      if (typeof config.host !== 'string' || config.host.trim().length === 0) {
-        errors.push('Host must be a non-empty string');
-      }
-    }
-    
-    // Validate auth mode
-    if (config.authMode !== undefined) {
-      const validAuthModes: AuthMode[] = ['local-trusted', 'external-secure', 'dual'];
-      if (!validAuthModes.includes(config.authMode)) {
-        errors.push(`Auth mode must be one of: ${validAuthModes.join(', ')}`);
-      }
-    }
-    
-    // Validate load balancing strategy
-    if (config.loadBalancingStrategy !== undefined) {
-      const validStrategies: LoadBalancingStrategy[] = [
-        'round-robin', 'performance-based', 'cost-optimized', 'content-aware'
-      ];
-      if (!validStrategies.includes(config.loadBalancingStrategy)) {
-        errors.push(`Load balancing strategy must be one of: ${validStrategies.join(', ')}`);
-      }
-    }
-    
-    // Validate log level
-    if (config.logLevel !== undefined) {
-      const validLogLevels = ['error', 'warn', 'info', 'debug', 'trace'];
-      if (!validLogLevels.includes(config.logLevel)) {
-        errors.push(`Log level must be one of: ${validLogLevels.join(', ')}`);
-      }
-    }
-    
-    if (errors.length > 0) {
-      throw new Error(`Configuration validation failed: ${errors.join(', ')}`);
-    }
+    return this.templateManager.removeTemplate(name);
   }
 
   validateConfig(config: Partial<GatewayConfig>): boolean {
     try {
-      this.validateConfigStrict(config);
+      ConfigValidator.validateStrict(config);
       return true;
     } catch (error) {
       this.logger.warn('Configuration validation failed:', (error as Error).message);
@@ -401,197 +294,42 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
     }
   }
 
-  private _watcher?: FsPromiseWatcher;
-  private _templatesWatcher?: FsPromiseWatcher;
-  // Configuration watching using fs/promises.watch async iterator
   async watchConfig(onChange?: () => void): Promise<void> {
-    try {
-      const watcher = watchAsync(this.configPath, { persistent: false }) as FsPromiseWatcher;
-      this._watcher = watcher;
-      this.watchEnabled = true;
-      this.logger.debug('Started watching configuration file', { path: this.configPath });
-      (async () => {
-        try {
-          for await (const event of watcher) {
-            if (event.eventType === 'change') {
-              try {
-                await this.loadConfig();
-                onChange?.();
-              } catch (e) {
-                this.logger.warn('Failed to watch configuration file:', e);
-              }
-            }
-          }
-        } catch (e) {
-          this.logger.warn('Failed to watch configuration file:', e);
-        }
-      })();
-    } catch (e) {
-      this.logger.warn('Failed to watch configuration file:', e);
-    }
-  }
-  
-  // Backup and restore functionality
-  async createBackup(): Promise<string> {
-    try {
-      const backupData = await this.exportConfig();
-      const backupPath = `${this.configPath}.backup.${Date.now()}.json`;
-      await writeFile(backupPath, backupData);
-      
-      this.logger.info('Configuration backup created', { backupPath });
-      return backupPath;
-    } catch (error) {
-      this.logger.error('Failed to create backup:', error);
-      throw new Error(`Failed to create backup: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
-  
-  async restoreFromBackup(backupPath?: string): Promise<void> {
-    try {
-      // Verify current config (consume first mocked read in tests if present)
-      try { await readFile(this.configPath, 'utf-8'); } catch (e) { this.logger.warn('Config file read check failed', { error: (e as Error).message }); }
-
-      const candidate = backupPath || `${this.configPath}.backup`;
-      let backupData: string;
+    await this.configWatcher.watchConfigFile(this.configPath, async () => {
       try {
-        backupData = await readFile(candidate, 'utf-8');
+        await this.loadConfig();
+        onChange?.();
       } catch (e) {
-        if (getErrnoCode(e) === 'ENOENT') {
-          throw new Error('Backup file not found');
-        }
-        throw e;
+        this.logger.warn('Failed to reload config on file change:', e);
       }
-
-      // Accept both raw GatewayConfig JSON and wrapped { config, templates }
-      let parsed: unknown;
-      try { parsed = JSON.parse(backupData) as unknown; } catch (e) { this.logger.warn('Backup JSON parse failed', { error: (e as Error).message }); parsed = null; }
-      if (isRecord(parsed) && parsed.config) {
-        await this.saveConfig(parsed.config as GatewayConfig);
-        if (Array.isArray(parsed.templates)) {
-          for (const t of parsed.templates) {
-            await this.saveTemplate(t as ServiceTemplate);
-          }
-        }
-      } else if (parsed) {
-        await this.saveConfig(parsed as GatewayConfig);
-      } else {
-        // fallback: treat as raw config json string
-        await this.saveConfig(JSON.parse(backupData));
-      }
-      this.logger.info('Configuration restored from backup', { backupPath: candidate });
-      this.emit('configRestored', { backupPath: candidate });
-    } catch (error) {
-      this.logger.error('Failed to restore from backup:', error);
-      if (error instanceof Error && error.message === 'Backup file not found') {
-        throw error;
-      }
-      throw new Error(`Failed to restore from backup: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
-  
-  // Environment variable integration
-  async loadConfigWithEnvOverrides(): Promise<GatewayConfig> {
-    const config = await this.loadConfig();
-    
-    // Apply environment variable overrides
-    const overrides: Partial<GatewayConfig> = {};
-    
-    // Support both PBMCP_* and PB_GATEWAY_* env names
-    const envHost = process.env.PBMCP_HOST || process.env.PB_GATEWAY_HOST;
-    if (envHost) {
-      overrides.host = envHost;
-    }
-    
-    const envPort = process.env.PBMCP_PORT || process.env.PB_GATEWAY_PORT;
-    if (envPort) {
-      const port = parseInt(envPort, 10);
-      if (!Number.isNaN(port) && this.isValidPort(port)) {
-        overrides.port = port;
-      }
-    }
-    
-    const envAuth = process.env.PBMCP_AUTH_MODE || process.env.PB_GATEWAY_AUTH_MODE;
-    if (envAuth) {
-      const authMode = envAuth as AuthMode;
-      if (['local-trusted', 'external-secure', 'dual'].includes(authMode)) {
-        overrides.authMode = authMode;
-      }
-    }
-    
-    const envLevel = process.env.PBMCP_LOG_LEVEL || process.env.PB_GATEWAY_LOG_LEVEL;
-    if (envLevel && this.isValidLogLevel(envLevel)) {
-      overrides.logLevel = envLevel;
-    }
-    
-    if (Object.keys(overrides).length > 0) {
-      this.logger.info('Applying environment variable overrides', overrides);
-      return await this.updateConfig(overrides);
-    }
-    
-    return config;
+    });
   }
 
   startConfigWatch(): void {
-    if (this.watchEnabled) {
+    if (this.configWatcher.isWatching()) {
       return;
     }
 
-    // Start config file watcher using existing helper
-    this.watchEnabled = true;
+    // Start config file watcher
     this.watchConfig(() => {
       this.emit('configChanged', this.currentConfig);
     }).catch(e => this.logger.warn('Failed to start config file watcher', e));
 
     // Start templates directory watcher
-    try {
-      const startTemplatesWatcher = async () => {
-        try {
-          const watcher = watchAsync(this.templatesPath, { persistent: false }) as FsPromiseWatcher;
-          this._templatesWatcher = watcher;
-          this.logger.debug('Started watching templates directory', { path: this.templatesPath });
-          (async () => {
-            try {
-              for await (const event of watcher) {
-                const filename = typeof event.filename === 'string' ? event.filename : undefined;
-                const eventType = event.eventType;
-                if (!filename || !filename.endsWith('.json')) {
-                  continue;
-                }
-                const fullPath = join(this.templatesPath, filename);
-                try {
-                  const st = await stat(fullPath).catch(() => null);
-                  if (st && st.isFile()) {
-                    const loaded = await this.loadTemplateFile(fullPath);
-                    if (loaded) {
-                      this.logger.info(`Template ${loaded.name} ${eventType === 'rename' ? 'updated/added' : 'changed'} from disk`);
-                      this.emit('templateSaved', loaded);
-                    }
-                  } else {
-                    // File deleted
-                    const name = filename.replace(/\.json$/i, '');
-                    if (this.templates.has(name)) {
-                      this.templates.delete(name);
-                      this.logger.info(`Template deleted from disk: ${name}`);
-                      this.emit('templateRemoved', name);
-                    }
-                  }
-                } catch (e) {
-                  this.logger.warn('Templates watcher processing failed', { filename, error: e });
-                }
-              }
-            } catch (e) {
-              this.logger.warn('Failed to watch templates directory:', e);
-            }
-          })();
-        } catch (e) {
-          this.logger.warn('Unable to start templates directory watcher', e);
+    this.configWatcher.watchTemplatesDirectory(
+      this.templatesPath,
+      async (filePath: string, eventType: string) => {
+        const loaded = await this.templateManager.loadTemplateFile(filePath);
+        if (loaded) {
+          this.logger.info(`Template ${loaded.name} ${eventType === 'rename' ? 'updated/added' : 'changed'} from disk`);
+          this.emit('templateSaved', loaded);
         }
-      };
-      // Ensure directory exists before watching
-      mkdir(this.templatesPath, { recursive: true }).then(startTemplatesWatcher).catch(() => startTemplatesWatcher());
-    } catch (e) {
-      this.logger.warn('Failed to initialize templates watcher', e);
-    }
+      },
+      (name: string) => {
+        this.logger.info(`Template deleted from disk: ${name}`);
+        this.emit('templateRemoved', name);
+      }
+    ).catch(e => this.logger.warn('Failed to start templates watcher', e));
 
     this.logger.info('Configuration watching started');
     this.emit('watchStarted');
@@ -602,295 +340,85 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
   }
 
   stopConfigWatch(): void {
-    if (!this.watchEnabled) {
-      return;
-    }
-    
-    this.watchEnabled = false;
-    try { this._watcher?.close?.(); } catch (e) { this.logger.warn('Failed to close config watcher', { error: (e as Error).message }); }
-    this._watcher = undefined;
-    try { this._templatesWatcher?.close?.(); } catch (e) { this.logger.warn('Failed to close templates watcher', { error: (e as Error).message }); }
-    this._templatesWatcher = undefined;
+    this.configWatcher.stopWatching();
     this.logger.debug('Stopped watching configuration file');
     this.emit('watchStopped');
   }
 
-  private createDefaultConfig(): GatewayConfig {
-    return {
-      host: '127.0.0.1',
-      port: 19233,
-      authMode: 'local-trusted',
-      routingStrategy: 'performance',
-      loadBalancingStrategy: 'performance-based',
-      maxConcurrentServices: 50,
-      logLevel: 'info',
-      enableHealthChecks: true,
-      healthCheckInterval: 30000,
-      requestTimeout: 30000,
-      maxRetries: 3,
-      enableMetrics: true,
-      metricsRetentionDays: 7,
-      enableCors: true,
-      corsOrigins: ['http://localhost:3000'],
-      maxRequestSize: 10 * 1024 * 1024, // 10MB
-      rateLimiting: {
-        enabled: false,
-        maxRequests: 100,
-        windowMs: 60000, // 1 minute
-        store: 'memory'
-      },
-      sandbox: {
-        profile: 'default',
-        container: { requiredForUntrusted: false, prefer: false }
+  async createBackup(): Promise<string> {
+    return this.configBackup.createBackup(this.currentConfig, this.templateManager.listTemplates());
+  }
+
+  async restoreFromBackup(backupPath?: string): Promise<void> {
+    const restored = await this.configBackup.restoreFromBackup(backupPath);
+
+    if (restored.config) {
+      await this.saveConfig(restored.config);
+    }
+
+    if (restored.templates) {
+      for (const t of restored.templates) {
+        await this.templateManager.saveTemplate(t);
       }
-    };
+    }
+
+    this.emit('configRestored', { backupPath: backupPath || `${this.configPath}.backup` });
   }
 
-  private validateAndMergeConfig(loadedConfig: unknown): GatewayConfig {
-    // 保持读取文件的配置不被默认值“填充”以匹配单测期望（默认结构在文件不存在时生成）
-    if (!isRecord(loadedConfig)) {
-      throw new Error('Configuration must be an object');
-    }
-    this.validateConfigStrict(loadedConfig as Partial<GatewayConfig>);
-    return { ...loadedConfig } as GatewayConfig;
-  }
-
-  private validateTemplate(template: ServiceTemplate): void {
-    const errors: string[] = [];
-    
-    if (!template.name || typeof template.name !== 'string') {
-      errors.push('Template name is required and must be a string');
-    }
-    
-    if (!template.version || typeof template.version !== 'string') {
-      errors.push('Template version is required and must be a string');
-    }
-    
-    if (!template.transport) {
-      errors.push('Template transport is required');
-    }
-    
-    if (template.transport === 'stdio' && !template.command) {
-      errors.push('Command is required for stdio transport');
-    }
-    
-    if (errors.length > 0) {
-      throw new Error(`Template validation failed: ${errors.join(', ')}`);
-    }
-  }
-
-  private sanitizeFilename(name: string): string {
-    return String(name)
-      .replace(/[^a-zA-Z0-9._-]/g, '')
-      .replace(/\.+/g, '.')
-      .replace(/\.\.+/g, '.')
-      .slice(0, 200);
-  }
-
-  private loadBuiltInTemplates(): void {
-    // Load built-in service templates
-    const builtInTemplates: ServiceTemplate[] = [
-      {
-        name: 'filesystem',
-        version: '2024-11-26',
-        transport: 'stdio',
-        command: 'npx',
-        args: ['@modelcontextprotocol/server-filesystem', '${ALLOWED_DIRECTORY}'],
-        env: {
-          ALLOWED_DIRECTORY: '/tmp'
-        },
-        timeout: 30000,
-        retries: 3,
-        description: 'File system access MCP server',
-        capabilities: ['read_files', 'write_files', 'list_directories'],
-        tags: ['filesystem', 'files', 'local']
-      },
-      {
-        name: 'brave-search',
-        version: '2024-11-26',
-        transport: 'stdio',
-        command: 'npx',
-        args: ['@modelcontextprotocol/server-brave-search'],
-        env: {
-          BRAVE_API_KEY: '${BRAVE_API_KEY}'
-        },
-        timeout: 45000,
-        retries: 2,
-        description: 'Brave Search API integration',
-        capabilities: ['web_search', 'search_results'],
-        tags: ['search', 'web', 'api']
-      },
-      {
-        name: 'github',
-        version: '2024-11-26',
-        transport: 'stdio',
-        command: 'npx',
-        args: ['@modelcontextprotocol/server-github'],
-        env: {
-          GITHUB_PERSONAL_ACCESS_TOKEN: '${GITHUB_TOKEN}'
-        },
-        timeout: 60000,
-        retries: 3,
-        description: 'GitHub API integration',
-        capabilities: ['repository_access', 'issue_management', 'code_search'],
-        tags: ['github', 'git', 'api', 'repository']
-      },
-      {
-        name: 'sqlite',
-        version: '2024-11-26',
-        transport: 'stdio',
-        command: 'npx',
-        args: ['@modelcontextprotocol/server-sqlite', '${DATABASE_PATH}'],
-        env: {
-          DATABASE_PATH: 'database.db'
-        },
-        timeout: 30000,
-        retries: 3,
-        description: 'SQLite database access',
-        capabilities: ['database_query', 'database_write', 'schema_access'],
-        tags: ['database', 'sqlite', 'sql']
-      },
-      {
-        name: 'memory',
-        version: '2024-11-26',
-        transport: 'stdio',
-        command: 'npx',
-        args: ['@modelcontextprotocol/server-memory'],
-        timeout: 15000,
-        retries: 2,
-        description: 'In-memory storage for conversations',
-        capabilities: ['memory_storage', 'context_retention'],
-        tags: ['memory', 'storage', 'context']
-      }
-    ];
-
-    for (const template of builtInTemplates) {
-      this.templates.set(template.name, template);
-    }
-    
-    this.logger.debug(`Loaded ${builtInTemplates.length} built-in templates`);
-  }
-
-  // Utility methods for configuration management
   async exportConfig(): Promise<string> {
-    const exportData = {
-      config: this.currentConfig,
-      templates: Array.from(this.templates.values()),
-      exportedAt: new Date().toISOString(),
-      version: '1.0.0'
-    };
-    
-    return JSON.stringify(exportData, null, 2);
+    return this.configBackup.exportConfig(this.currentConfig, this.templateManager.listTemplates());
   }
 
   async importConfig(configData: string): Promise<void> {
-    try {
-      const importData = JSON.parse(configData);
-      
-      if (importData.config) {
-        await this.saveConfig(importData.config);
-      }
-      
-      if (importData.templates && Array.isArray(importData.templates)) {
-        for (const template of importData.templates) {
-          await this.saveTemplate(template);
-        }
-      }
-      
-      this.logger.info('Configuration imported successfully');
-      this.emit('configImported', importData);
-    } catch (error) {
-      this.logger.error('Failed to import configuration:', error);
-      throw new Error(`Failed to import configuration: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    const imported = await this.configBackup.importConfig(configData);
+
+    if (imported.config) {
+      await this.saveConfig(imported.config);
     }
+
+    if (imported.templates) {
+      for (const template of imported.templates) {
+        await this.templateManager.saveTemplate(template);
+      }
+    }
+
+    this.emit('configImported', imported);
   }
 
   async resetToDefaults(): Promise<GatewayConfig> {
-    const defaultConfig = this.createDefaultConfig();
+    const defaultConfig = ConfigMerger.createDefaultConfig();
     await this.saveConfig(defaultConfig);
-    
+
     this.logger.info('Configuration reset to defaults');
     this.emit('configReset', defaultConfig);
-    
+
     return defaultConfig;
   }
 
-  // Environment variable substitution
-  resolveEnvironmentVariables(config: McpServiceConfig): McpServiceConfig {
-    const resolved = { ...config };
-    
-    if (resolved.env) {
-      const resolvedEnv: Record<string, string> = {};
-      
-      for (const [key, value] of Object.entries(resolved.env)) {
-        if (typeof value === 'string' && value.startsWith('${') && value.endsWith('}')) {
-          const envVar = value.slice(2, -1);
-          resolvedEnv[key] = process.env[envVar] || value;
-        } else {
-          resolvedEnv[key] = value as string;
-        }
-      }
-      
-      resolved.env = resolvedEnv;
+  async loadConfigWithEnvOverrides(): Promise<GatewayConfig> {
+    const config = await this.loadConfig();
+    const configWithOverrides = ConfigMerger.applyEnvOverrides(config, this.logger);
+
+    if (configWithOverrides !== config) {
+      return await this.updateConfig(configWithOverrides);
     }
-    
-    if (resolved.args) {
-      resolved.args = resolved.args.map(arg => {
-        if (typeof arg === 'string' && arg.startsWith('${') && arg.endsWith('}')) {
-          const envVar = arg.slice(2, -1);
-          return process.env[envVar] || arg;
-        }
-        return arg;
-      });
-    }
-    
-    return resolved;
+
+    return config;
   }
 
-  // Configuration validation helpers
+  resolveEnvironmentVariables(config: McpServiceConfig): McpServiceConfig {
+    return ConfigMerger.resolveEnvironmentVariables(config);
+  }
+
   isValidPort(port: number): boolean {
-    return Number.isInteger(port) && port >= 1 && port <= 65535;
+    return ConfigValidator.isValidPort(port);
   }
 
   isValidHost(host: string): boolean {
-    return typeof host === 'string' && host.trim().length > 0;
+    return ConfigValidator.isValidHost(host);
   }
 
   isValidLogLevel(level: string): level is GatewayConfig['logLevel'] {
-    return ['error', 'warn', 'info', 'debug', 'trace'].includes(level);
-  }
-
-  // ===== Private helpers =====
-  private async loadTemplatesFromDirectory(dir: string): Promise<number> {
-    try {
-      const entries = await readdir(dir, { withFileTypes: true });
-      let loaded = 0;
-      for (const ent of entries) {
-        if (ent.isFile() && ent.name.endsWith('.json')) {
-          const filePath = join(dir, ent.name);
-          const t = await this.loadTemplateFile(filePath);
-          if (t) loaded++;
-        }
-      }
-      return loaded;
-    } catch (e) {
-      this.logger.warn('Failed to scan templates directory', { dir, error: e });
-      return 0;
-    }
-  }
-
-  private async loadTemplateFile(filePath: string): Promise<ServiceTemplate | null> {
-    try {
-      const data = await readFile(filePath, 'utf-8');
-      const parsed = JSON.parse(data) as ServiceTemplate;
-      this.validateTemplate(parsed);
-      const exists = this.templates.has(parsed.name);
-      this.templates.set(parsed.name, parsed);
-      this.logger.debug(`${exists ? 'Updated' : 'Loaded'} template from file`, { name: parsed.name, filePath });
-      return parsed;
-    } catch (e) {
-      this.logger.warn('Failed to load template file', { filePath, error: e });
-      return null;
-    }
+    return ConfigValidator.isValidLogLevel(level);
   }
 }
