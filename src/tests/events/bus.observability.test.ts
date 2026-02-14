@@ -42,7 +42,7 @@ describe('EventBus Observability', () => {
     });
 
     it('should track handler errors', async () => {
-      const errorHandler = vi.fn(() => {
+      const errorHandler = vi.fn((): void => {
         throw new Error('Handler error');
       });
 
@@ -57,7 +57,7 @@ describe('EventBus Observability', () => {
 
     it('should track handler timeouts', async () => {
       const slowHandler = vi.fn(
-        () => new Promise((resolve) => setTimeout(resolve, 200))
+        (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 200))
       );
 
       bus.subscribe('test:event', slowHandler, { timeout: 50 });
@@ -175,7 +175,7 @@ describe('EventBus Observability', () => {
       });
 
       const slowHandler = vi.fn(
-        () => new Promise((resolve) => setTimeout(resolve, 200))
+        (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 200))
       );
 
       bus.subscribe('test:event', slowHandler, { timeout: 50 });

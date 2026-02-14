@@ -1,5 +1,7 @@
 import type { Logger } from '../types/index.js';
 import type { OrchestratorStep } from './types.js';
+import { toErrorEnvelope, propagateError, type ErrorEnvelope } from '../types/errors.js';
+import type { EventBus } from '../events/bus.js';
 
 export interface SchedulerConcurrency {
   global: number;
@@ -16,6 +18,10 @@ export interface SchedulerOptions {
    * Stop scheduling new work after overall timeout.
    */
   overallTimeoutMs: number;
+  /**
+   * Optional EventBus for emitting observability events
+   */
+  eventBus?: EventBus;
 }
 
 export interface StepResult {
@@ -23,6 +29,7 @@ export interface StepResult {
   ok: boolean;
   response?: unknown;
   error?: string;
+  errorEnvelope?: ErrorEnvelope; // 结构化错误信息
   durationMs: number;
 }
 
@@ -30,7 +37,11 @@ class AsyncSemaphore {
   private inUse = 0;
   private readonly waiters: Array<(release: () => void) => void> = [];
 
-  constructor(private readonly capacity: number) {}
+  constructor(
+    private readonly capacity: number,
+    private readonly eventBus?: EventBus,
+    private readonly semaphoreId?: string
+  ) {}
 
   async acquire(): Promise<() => void> {
     if (this.capacity <= 0) {
@@ -38,8 +49,11 @@ class AsyncSemaphore {
     }
     if (this.inUse < this.capacity) {
       this.inUse += 1;
+      this.emitAcquireEvent();
       return () => this.release();
     }
+
+    this.emitWaitEvent();
     return new Promise<() => void>((resolve) => {
       this.waiters.push(resolve);
     });
@@ -53,6 +67,52 @@ class AsyncSemaphore {
       return;
     }
     this.inUse = Math.max(0, this.inUse - 1);
+    this.emitReleaseEvent();
+  }
+
+  private emitAcquireEvent(): void {
+    if (!this.eventBus) return;
+    this.eventBus.publish({
+      type: 'orchestrator:semaphore:acquire',
+      component: 'AsyncSemaphore',
+      stage: 'orchestrator',
+      payload: {
+        semaphoreId: this.semaphoreId || 'unknown',
+        inUse: this.inUse,
+        capacity: this.capacity,
+        waiters: this.waiters.length
+      }
+    });
+  }
+
+  private emitWaitEvent(): void {
+    if (!this.eventBus) return;
+    this.eventBus.publish({
+      type: 'orchestrator:semaphore:wait',
+      component: 'AsyncSemaphore',
+      stage: 'orchestrator',
+      payload: {
+        semaphoreId: this.semaphoreId || 'unknown',
+        inUse: this.inUse,
+        capacity: this.capacity,
+        waiters: this.waiters.length + 1
+      }
+    });
+  }
+
+  private emitReleaseEvent(): void {
+    if (!this.eventBus) return;
+    this.eventBus.publish({
+      type: 'orchestrator:semaphore:release',
+      component: 'AsyncSemaphore',
+      stage: 'orchestrator',
+      payload: {
+        semaphoreId: this.semaphoreId || 'unknown',
+        inUse: this.inUse,
+        capacity: this.capacity,
+        waiters: this.waiters.length
+      }
+    });
   }
 }
 
@@ -78,13 +138,15 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
 export class SubagentScheduler {
   private readonly globalSem: AsyncSemaphore;
   private readonly perSem = new Map<string, AsyncSemaphore>();
+  private readonly eventBus?: EventBus;
 
   constructor(private readonly logger: Logger, private readonly opts: SchedulerOptions) {
     const global = Math.max(1, Math.floor(opts.concurrency.global || 1));
     const per = Math.max(1, Math.floor(opts.concurrency.perSubagent || 1));
-    this.globalSem = new AsyncSemaphore(global);
+    this.eventBus = opts.eventBus;
+    this.globalSem = new AsyncSemaphore(global, this.eventBus, 'global');
     // Per-subagent semaphores are created lazily; default capacity is `per`.
-    this.perSem.set('__default__', new AsyncSemaphore(per));
+    this.perSem.set('__default__', new AsyncSemaphore(per, this.eventBus, '__default__'));
   }
 
   async run(
@@ -99,7 +161,24 @@ export class SubagentScheduler {
       const results: StepResult[] = [];
       for (const step of steps) {
         if (Date.now() - startedAt > this.opts.overallTimeoutMs) {
-          results.push({ step, ok: false, error: 'time budget exceeded', durationMs: 0 });
+          const stepId = step.subagent || step.template || 'unknown';
+          const envelope = toErrorEnvelope(
+            new Error('time budget exceeded'),
+            {
+              runId: stepId,
+              stage: 'orchestrator',
+              component: 'SubagentScheduler',
+              operation: 'run',
+              boundary: 'main'
+            },
+            {
+              code: 'TIMEOUT_BUDGET_EXCEEDED',
+              category: 'timeout',
+              severity: 'high',
+              recoverable: false
+            }
+          );
+          results.push({ step, ok: false, error: 'time budget exceeded', errorEnvelope: envelope, durationMs: 0 });
           break;
         }
         results.push(await this.runOne(step, runner, startedAt));
@@ -117,8 +196,26 @@ export class SubagentScheduler {
     runner: (step: OrchestratorStep) => Promise<unknown>,
     startedAt: number
   ): Promise<StepResult> {
+    const stepId = step.subagent || step.template || 'unknown';
+
     if (Date.now() - startedAt > this.opts.overallTimeoutMs) {
-      return { step, ok: false, error: 'time budget exceeded', durationMs: 0 };
+      const envelope = toErrorEnvelope(
+        new Error('time budget exceeded'),
+        {
+          runId: stepId,
+          stage: 'orchestrator',
+          component: 'SubagentScheduler',
+          operation: 'runOne',
+          boundary: 'main'
+        },
+        {
+          code: 'TIMEOUT_BUDGET_EXCEEDED',
+          category: 'timeout',
+          severity: 'high',
+          recoverable: false
+        }
+      );
+      return { step, ok: false, error: 'time budget exceeded', errorEnvelope: envelope, durationMs: 0 };
     }
 
     const subagentKey = (step.subagent || step.template || '__default__').toString();
@@ -140,14 +237,50 @@ export class SubagentScheduler {
           return { step, ok: true, response: value, durationMs: Date.now() - t0 };
         } catch (e: any) {
           const msg = e?.message || String(e);
+
+          // 创建错误 envelope
+          const envelope = toErrorEnvelope(
+            e,
+            {
+              runId: stepId,
+              stage: 'orchestrator',
+              component: 'SubagentScheduler',
+              operation: 'runOne',
+              serviceId: subagentKey,
+              boundary: 'main',
+              metadata: {
+                attempt: attempt + 1,
+                maxRetries: retries,
+                timeoutMs
+              }
+            }
+          );
+
           if (attempt >= retries) {
-            return { step, ok: false, error: msg, durationMs: Date.now() - t0 };
+            return { step, ok: false, error: msg, errorEnvelope: envelope, durationMs: Date.now() - t0 };
           }
-          try { this.logger.warn('Step failed, retrying', { subagent: subagentKey, attempt: attempt + 1, error: msg }); } catch {}
+          try { this.logger.warn('Step failed, retrying', { subagent: subagentKey, attempt: attempt + 1, error: msg, fingerprint: envelope.fingerprint }); } catch {}
         }
       }
 
-      return { step, ok: false, error: 'unknown failure', durationMs: Date.now() - t0 };
+      const envelope = toErrorEnvelope(
+        new Error('unknown failure'),
+        {
+          runId: stepId,
+          stage: 'orchestrator',
+          component: 'SubagentScheduler',
+          operation: 'runOne',
+          serviceId: subagentKey,
+          boundary: 'main'
+        },
+        {
+          code: 'UNKNOWN_FAILURE',
+          category: 'internal',
+          severity: 'high',
+          recoverable: false
+        }
+      );
+      return { step, ok: false, error: 'unknown failure', errorEnvelope: envelope, durationMs: Date.now() - t0 };
     } finally {
       try { releaseGlobal(); } catch {}
       try { releasePer(); } catch {}
@@ -158,7 +291,7 @@ export class SubagentScheduler {
     const existing = this.perSem.get(key);
     if (existing) return existing;
     const per = Math.max(1, Math.floor(this.opts.concurrency.perSubagent || 1));
-    const sem = new AsyncSemaphore(per);
+    const sem = new AsyncSemaphore(per, this.eventBus, key);
     this.perSem.set(key, sem);
     return sem;
   }
