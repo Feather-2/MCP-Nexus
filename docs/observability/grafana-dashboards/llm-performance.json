@@ -1,0 +1,60 @@
+{
+  "dashboard": {
+    "title": "LLM Performance",
+    "tags": ["mcp-nexus", "llm"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "调用成功率",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 8, "x": 0, "y": 0},
+        "targets": [{
+          "expr": "sum(rate(llm_call_success_total[5m])) / sum(rate(llm_call_total[5m]))",
+          "legendFormat": "成功率"
+        }]
+      },
+      {
+        "id": 2,
+        "title": "平均延迟",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 8, "x": 8, "y": 0},
+        "targets": [{
+          "expr": "histogram_quantile(0.50, rate(llm_call_duration_ms_bucket[5m]))",
+          "legendFormat": "P50"
+        }]
+      },
+      {
+        "id": 3,
+        "title": "Token 使用",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 8, "x": 16, "y": 0},
+        "targets": [{
+          "expr": "sum(llm_tokens_used_total)",
+          "legendFormat": "总 Token"
+        }]
+      },
+      {
+        "id": 4,
+        "title": "延迟分布 (P50/P95/P99)",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 4},
+        "targets": [
+          {"expr": "histogram_quantile(0.50, rate(llm_call_duration_ms_bucket[5m]))", "legendFormat": "P50"},
+          {"expr": "histogram_quantile(0.95, rate(llm_call_duration_ms_bucket[5m]))", "legendFormat": "P95"},
+          {"expr": "histogram_quantile(0.99, rate(llm_call_duration_ms_bucket[5m]))", "legendFormat": "P99"}
+        ]
+      },
+      {
+        "id": 5,
+        "title": "模型使用分布",
+        "type": "bargauge",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 12},
+        "targets": [{
+          "expr": "sum by (model) (llm_call_total)",
+          "legendFormat": "{{model}}"
+        }]
+      }
+    ]
+  }
+}

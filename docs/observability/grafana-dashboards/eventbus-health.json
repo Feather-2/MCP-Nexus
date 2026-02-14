@@ -1,0 +1,51 @@
+{
+  "dashboard": {
+    "title": "EventBus Health",
+    "tags": ["mcp-nexus", "eventbus"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "事件吞吐量",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 8, "x": 0, "y": 0},
+        "targets": [{
+          "expr": "rate(eventbus_published_total[1m])",
+          "legendFormat": "events/sec"
+        }]
+      },
+      {
+        "id": 2,
+        "title": "背压丢弃率",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 8, "x": 8, "y": 0},
+        "targets": [{
+          "expr": "rate(eventbus_backpressure_drops_total[5m])",
+          "legendFormat": "丢弃率"
+        }]
+      },
+      {
+        "id": 3,
+        "title": "处理器错误率",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 8, "x": 16, "y": 0},
+        "targets": [{
+          "expr": "rate(eventbus_handler_errors_total[5m])",
+          "legendFormat": "错误率"
+        }]
+      },
+      {
+        "id": 4,
+        "title": "治理事件分布",
+        "type": "piechart",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 4},
+        "targets": [
+          {"expr": "sum(eventbus_backpressure_drops_total)", "legendFormat": "backpressure"},
+          {"expr": "sum(eventbus_buffer_drops_total)", "legendFormat": "buffer"},
+          {"expr": "sum(eventbus_handler_errors_total)", "legendFormat": "handler"},
+          {"expr": "sum(eventbus_handler_timeouts_total)", "legendFormat": "timeout"}
+        ]
+      }
+    ]
+  }
+}

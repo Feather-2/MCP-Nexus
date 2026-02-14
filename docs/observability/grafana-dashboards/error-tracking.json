@@ -1,0 +1,59 @@
+{
+  "dashboard": {
+    "title": "Error Tracking",
+    "tags": ["mcp-nexus", "errors"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "错误发生率",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 8, "x": 0, "y": 0},
+        "targets": [{
+          "expr": "rate(errors_total[5m])",
+          "legendFormat": "错误/秒"
+        }]
+      },
+      {
+        "id": 2,
+        "title": "严重错误数",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 8, "x": 8, "y": 0},
+        "targets": [{
+          "expr": "sum(errors_total{severity=\"critical\"})",
+          "legendFormat": "严重错误"
+        }]
+      },
+      {
+        "id": 3,
+        "title": "可恢复比例",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 8, "x": 16, "y": 0},
+        "targets": [{
+          "expr": "sum(errors_total{recoverable=\"true\"}) / sum(errors_total)",
+          "legendFormat": "可恢复%"
+        }]
+      },
+      {
+        "id": 4,
+        "title": "错误分类分布",
+        "type": "piechart",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+        "targets": [{
+          "expr": "sum by (category) (errors_total)",
+          "legendFormat": "{{category}}"
+        }]
+      },
+      {
+        "id": 5,
+        "title": "Top 10 错误指纹",
+        "type": "table",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+        "targets": [{
+          "expr": "topk(10, sum by (fingerprint) (errors_total))",
+          "legendFormat": "{{fingerprint}}"
+        }]
+      }
+    ]
+  }
+}
