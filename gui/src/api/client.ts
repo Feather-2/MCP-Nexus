@@ -447,6 +447,11 @@ class ApiClient {
     return this.request(`/api/config/${key}`);
   }
 
+  // Prometheus metrics API
+  async getMetrics(): Promise<ApiResponse<string>> {
+    return this.request<string>('/metrics');
+  }
+
   // Real-time logs API
   async getLogs(limit: number = 50): Promise<ApiResponse<any[]>> {
     return this.request(`/api/logs?limit=${limit}`);

@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  # Jaeger - 分布式追踪后端
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: mcp-nexus-jaeger
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "4318:4318"    # OTLP HTTP receiver
+    networks:
+      - observability
+
+  # Tempo - Grafana 分布式追踪后端
+  tempo:
+    image: grafana/tempo:latest
+    container_name: mcp-nexus-tempo
+    command: [ "-config.file=/etc/tempo.yaml" ]
+    volumes:
+      - ./tempo.yaml:/etc/tempo.yaml
+      - tempo-data:/tmp/tempo
+    ports:
+      - "3200:3200"   # Tempo HTTP
+      - "4319:4318"   # OTLP HTTP receiver (alternative port)
+    networks:
+      - observability
+
+  # Prometheus - 指标收集与存储
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: mcp-nexus-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - observability
+
+  # Grafana - 可视化 Dashboard
+  grafana:
+    image: grafana/grafana:latest
+    container_name: mcp-nexus-grafana
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana-provisioning:/etc/grafana/provisioning
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+      - tempo
+    networks:
+      - observability
+
+networks:
+  observability:
+    driver: bridge
+
+volumes:
+  tempo-data:
+  prometheus-data:
+  grafana-data:

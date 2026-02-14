@@ -21,6 +21,32 @@ import {
   Wifi
 } from 'lucide-react';
 
+interface PrometheusMetrics {
+  orchestrator: {
+    executeTotal: number;
+    executeSuccess: number;
+    executeDuration: number;
+    concurrentExecutions: number;
+    stepErrors: number;
+  };
+  eventbus: {
+    published: number;
+    backpressureDrops: number;
+    bufferDrops: number;
+    handlerErrors: number;
+    handlerTimeouts: number;
+  };
+  llm: {
+    callTotal: number;
+    callSuccess: number;
+    callDuration: number;
+    tokensUsed: number;
+  };
+  errors: {
+    total: number;
+  };
+}
+
 const Monitoring: React.FC = () => {
   const { t } = useI18n();
   const [healthStatus, setHealthStatus] = useState<HealthStatus | null>(null);
@@ -32,6 +58,59 @@ const Monitoring: React.FC = () => {
   const [agg, setAgg] = useState<{ global?: any; perService?: any[] }>({});
   const [svcMetrics, setSvcMetrics] = useState<Array<{ serviceId: string; serviceName: string; health: any; uptime: number }>>([]);
   const [exporting, setExporting] = useState(false)
+  const [promMetrics, setPromMetrics] = useState<PrometheusMetrics | null>(null)
+
+  const parsePrometheusMetrics = (text: string): PrometheusMetrics => {
+    const lines = text.split('\n');
+    const metrics: Record<string, number> = {};
+
+    for (const line of lines) {
+      if (line.startsWith('#') || !line.trim()) continue;
+      const match = line.match(/^([a-z_]+)(?:\{[^}]*\})?\s+([\d.]+)/);
+      if (match) {
+        const [, name, value] = match;
+        metrics[name] = parseFloat(value);
+      }
+    }
+
+    return {
+      orchestrator: {
+        executeTotal: metrics.orchestrator_execute_total || 0,
+        executeSuccess: metrics.orchestrator_execute_success_total || 0,
+        executeDuration: metrics.orchestrator_execute_duration_ms || 0,
+        concurrentExecutions: metrics.orchestrator_concurrent_executions || 0,
+        stepErrors: metrics.orchestrator_step_error_total || 0,
+      },
+      eventbus: {
+        published: metrics.eventbus_published_total || 0,
+        backpressureDrops: metrics.eventbus_backpressure_drops_total || 0,
+        bufferDrops: metrics.eventbus_buffer_drops_total || 0,
+        handlerErrors: metrics.eventbus_handler_errors_total || 0,
+        handlerTimeouts: metrics.eventbus_handler_timeouts_total || 0,
+      },
+      llm: {
+        callTotal: metrics.llm_call_total || 0,
+        callSuccess: metrics.llm_call_success_total || 0,
+        callDuration: metrics.llm_call_duration_ms || 0,
+        tokensUsed: metrics.llm_tokens_used_total || 0,
+      },
+      errors: {
+        total: metrics.errors_total || 0,
+      },
+    };
+  };
+
+  const loadPrometheusMetrics = async () => {
+    try {
+      const result = await apiClient.getMetrics();
+      if (result.ok && result.data) {
+        const parsed = parsePrometheusMetrics(result.data);
+        setPromMetrics(parsed);
+      }
+    } catch (err) {
+      console.error('Failed to load Prometheus metrics:', err);
+    }
+  };
 
   const loadHealthData = async () => {
     try {
@@ -148,14 +227,16 @@ const Monitoring: React.FC = () => {
   useEffect(() => {
     loadHealthData();
     loadInitialLogs();
+    loadPrometheusMetrics();
 
-    const interval = setInterval(loadHealthData, 5000); // Refresh every 5 seconds
+    const healthInterval = setInterval(loadHealthData, 5000);
+    const metricsInterval = setInterval(loadPrometheusMetrics, 5000);
 
-    // Start log streaming
     startLogStream();
 
     return () => {
-      clearInterval(interval);
+      clearInterval(healthInterval);
+      clearInterval(metricsInterval);
       stopLogStream();
     };
   }, []);
@@ -217,6 +298,95 @@ const Monitoring: React.FC = () => {
           </div>
         ))}
       </div>
+
+      {/* Observability Metrics */}
+      {promMetrics && (
+        <section className="space-y-6 pt-10 border-t border-border/30">
+          <h3 className="text-sm font-bold uppercase tracking-widest text-muted-foreground/40">Observability Metrics</h3>
+
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+            {/* Orchestrator */}
+            <div className="space-y-3">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60">Orchestrator</div>
+              <div className="space-y-2 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Executions</span>
+                  <span className="font-mono">{formatNumber(promMetrics.orchestrator.executeTotal)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Success Rate</span>
+                  <span className="font-mono">{promMetrics.orchestrator.executeTotal > 0 ? formatPercentage(promMetrics.orchestrator.executeSuccess / promMetrics.orchestrator.executeTotal) : '-'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Concurrent</span>
+                  <span className="font-mono">{formatNumber(promMetrics.orchestrator.concurrentExecutions)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Step Errors</span>
+                  <span className="font-mono text-red-500">{formatNumber(promMetrics.orchestrator.stepErrors)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* EventBus */}
+            <div className="space-y-3">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60">EventBus</div>
+              <div className="space-y-2 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Published</span>
+                  <span className="font-mono">{formatNumber(promMetrics.eventbus.published)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Backpressure</span>
+                  <span className="font-mono text-amber-500">{formatNumber(promMetrics.eventbus.backpressureDrops)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Buffer Drops</span>
+                  <span className="font-mono text-amber-500">{formatNumber(promMetrics.eventbus.bufferDrops)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Handler Errors</span>
+                  <span className="font-mono text-red-500">{formatNumber(promMetrics.eventbus.handlerErrors)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* LLM */}
+            <div className="space-y-3">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60">LLM</div>
+              <div className="space-y-2 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Calls</span>
+                  <span className="font-mono">{formatNumber(promMetrics.llm.callTotal)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Success Rate</span>
+                  <span className="font-mono">{promMetrics.llm.callTotal > 0 ? formatPercentage(promMetrics.llm.callSuccess / promMetrics.llm.callTotal) : '-'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Tokens Used</span>
+                  <span className="font-mono">{formatNumber(promMetrics.llm.tokensUsed)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Avg Duration</span>
+                  <span className="font-mono">{promMetrics.llm.callTotal > 0 ? formatTime(promMetrics.llm.callDuration / promMetrics.llm.callTotal) : '-'}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Errors */}
+            <div className="space-y-3">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60">Errors</div>
+              <div className="space-y-2 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Total Errors</span>
+                  <span className="font-mono text-red-500">{formatNumber(promMetrics.errors.total)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
 
       <div className="grid gap-10 lg:grid-cols-2">
         {/* Gateway & Services Table */}
