@@ -4,3 +4,4 @@ export * from './otel.js';
 export * from './EventReplayer.js';
 export * from './ErrorTracker.js';
 export * from './PerformanceAnalyzer.js';
+export * from './PrometheusExporter.js';

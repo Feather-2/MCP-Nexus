@@ -2,6 +2,7 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import { Counter, Gauge, Registry } from 'prom-client';
 import { BaseRouteHandler, RouteContext } from './RouteContext.js';
 import { AlertManager } from '../../observability/AlertManager.js';
+import { PrometheusExporter } from '../../observability/PrometheusExporter.js';
 
 type RouterMetricsSnapshot = ReturnType<RouteContext['router']['getMetrics']>;
 type RegistryStatsSnapshot = Awaited<ReturnType<RouteContext['serviceRegistry']['getRegistryStats']>>;
@@ -23,10 +24,13 @@ export class MonitoringRoutes extends BaseRouteHandler {
   private readonly gatewayServicesErrorGauge: Gauge;
   private lastObservedTotalRequests = 0;
   private readonly alertManager: AlertManager;
+  private readonly prometheusExporter: PrometheusExporter;
 
   constructor(ctx: RouteContext) {
     super(ctx);
     this.alertManager = new AlertManager(ctx.logger);
+    this.prometheusExporter = new PrometheusExporter();
+    this.prometheusExporter.attachToEventBus(ctx.eventBus);
     this.metricsRegistry = new Registry();
     this.gatewayUptimeGauge = new Gauge({
       name: 'gateway_uptime_ms',
@@ -79,10 +83,13 @@ export class MonitoringRoutes extends BaseRouteHandler {
         const routerMetrics = this.ctx.router.getMetrics();
         const registryStats = await this.ctx.serviceRegistry.getRegistryStats();
         this.updatePrometheusMetrics(routerMetrics, registryStats);
-        const metrics = await this.metricsRegistry.metrics();
+
+        const gatewayMetrics = await this.metricsRegistry.metrics();
+        const observabilityMetrics = await this.prometheusExporter.getMetrics();
+        const combinedMetrics = gatewayMetrics + '\n' + observabilityMetrics;
 
         reply.header('Content-Type', PROMETHEUS_CONTENT_TYPE);
-        return reply.send(metrics);
+        return reply.send(combinedMetrics);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to collect metrics';
         this.ctx.logger.error('Failed to collect Prometheus metrics', { message });
