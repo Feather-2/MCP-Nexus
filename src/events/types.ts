@@ -78,3 +78,14 @@ export interface LoggerErrorPayload {
     message: string;
   };
 }
+
+// 持久化失败事件 payload
+export interface PersistenceErrorPayload {
+  eventId: string;
+  eventType: string;
+  operation: 'insert' | 'query';
+  error: {
+    name: string;
+    message: string;
+  };
+}

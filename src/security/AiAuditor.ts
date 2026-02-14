@@ -80,6 +80,17 @@ export interface AiAuditorOptions {
   model?: string;
   temperature?: number;
   maxTokens?: number;
+  onLlmCall?: (event: LlmCallEvent) => void;
+}
+
+// LLM 调用可观测性事件
+export interface LlmCallEvent {
+  operation: string;
+  model?: string;
+  maxTokens: number;
+  durationMs: number;
+  success: boolean;
+  error?: string;
 }
 
 const DEFAULT_SYSTEM_PROMPT =
@@ -266,6 +277,7 @@ export class AiAuditor {
   private readonly model?: string;
   private readonly temperature: number;
   private readonly maxTokens: number;
+  private readonly onLlmCall?: (event: LlmCallEvent) => void;
 
   constructor(
     private readonly client: AiAuditorClient,
@@ -275,6 +287,7 @@ export class AiAuditor {
     this.model = options.model;
     this.temperature = options.temperature ?? 0.1;
     this.maxTokens = options.maxTokens ?? 900;
+    this.onLlmCall = options.onLlmCall;
   }
 
   async auditSkill(skill: Skill): Promise<AiAuditResult> {
@@ -289,11 +302,27 @@ export class AiAuditor {
       maxTokens: this.maxTokens
     };
 
+    const t0 = Date.now();
     try {
       const result = await this.client.generate(request, this.channelId);
+      this.onLlmCall?.({
+        operation: 'auditSkill',
+        model: this.model,
+        maxTokens: this.maxTokens,
+        durationMs: Date.now() - t0,
+        success: true
+      });
       return parseAiAuditResult(result.text);
     } catch (e: any) {
       const message = e?.message ? String(e.message) : String(e);
+      this.onLlmCall?.({
+        operation: 'auditSkill',
+        model: this.model,
+        maxTokens: this.maxTokens,
+        durationMs: Date.now() - t0,
+        success: false,
+        error: message
+      });
       return fallbackResult(`AI audit failed: ${message}`);
     }
   }
