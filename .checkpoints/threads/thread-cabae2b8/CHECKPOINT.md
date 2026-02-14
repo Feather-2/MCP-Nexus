@@ -1,9 +1,9 @@
 # Checkpoint: MCP-Nexus 架构优化
 
 **Thread ID**: thread-cabae2b8
-**Saved**: 2026-02-14T13:05:00+08:00
+**Saved**: 2026-02-14T20:45:00+08:00
 **Branch**: main
-**Last Commit**: `42c0b8d` - feat: add P2 developer tools for observability
+**Last Commit**: `cee76ab` - feat: add Grafana dashboard templates for observability
 **Session History**: 10 sessions in thread
 
 ## Current Task
@@ -25,6 +25,7 @@
 **P2 - 文档与工具** ✅:
 - `046b45e` 可观测性文档（事件字典、OpenTelemetry 集成、Dashboard 指标）
 - `42c0b8d` 开发者工具（EventReplayer、ErrorTracker、PerformanceAnalyzer）+ 14 个测试
+- `cee76ab` Grafana Dashboard 模板（Overview、EventBus Health、LLM Performance、Error Tracking）
 
 ### Session #009 - 探索与规划阶段
 
@@ -141,10 +142,10 @@ ESLint: 0 errors, 1477 warnings
 
 ## Next Steps
 
-可观测性架构优化已全部完成（P0/P1/P2）。后续可考虑：
+可观测性架构优化已全部完成（P0/P1/P2），Grafana Dashboard 模板已创建。后续可考虑：
 - 集成到实际 OpenTelemetry 后端（Jaeger/Tempo）
-- 创建 Grafana Dashboard 模板
 - 实现实时性能监控 UI
+- 实现 Prometheus Exporter 端点
 
 ## Acceptance Criteria
 
@@ -212,5 +213,6 @@ ESLint: 0 errors, 1477 warnings
 - AiAuditor LLM 调用可观测性
 - 完整的可观测性文档（事件字典、OpenTelemetry 集成、Dashboard 指标）
 - 开发者工具（EventReplayer、ErrorTracker、PerformanceAnalyzer）
+- Grafana Dashboard 模板（4 个预配置 Dashboard JSON）
 
 所有验收标准已达成，测试覆盖率保持在 92.59%，1984 个测试全部通过。
