@@ -1,9 +1,9 @@
 # Checkpoint: MCP-Nexus 架构优化
 
 **Thread ID**: thread-cabae2b8
-**Saved**: 2026-02-14T11:10:00+08:00
+**Saved**: 2026-02-14T13:05:00+08:00
 **Branch**: main
-**Last Commit**: `046b45e` - docs: add P2 observability documentation
+**Last Commit**: `42c0b8d` - feat: add P2 developer tools for observability
 **Session History**: 10 sessions in thread
 
 ## Current Task
@@ -23,9 +23,8 @@
 - `d3f1c72` P1 可观测性测试（8 个新测试，1970 测试全部通过）
 
 **P2 - 文档与工具** ✅:
-- `docs/observability/EVENT_DICTIONARY.md` - 事件字典与 schema 版本管理
-- `docs/observability/OPENTELEMETRY_INTEGRATION.md` - OpenTelemetry 集成最佳实践
-- `docs/observability/DASHBOARD_METRICS.md` - Dashboard 指标定义与告警规则
+- `046b45e` 可观测性文档（事件字典、OpenTelemetry 集成、Dashboard 指标）
+- `42c0b8d` 开发者工具（EventReplayer、ErrorTracker、PerformanceAnalyzer）+ 14 个测试
 
 ### Session #009 - 探索与规划阶段
 
@@ -76,9 +75,9 @@ Untracked files:
 ## Test State
 
 ```
-149 test files, 1970 tests, all passed
+149 test files, 1984 tests, all passed
 Coverage: 92.59% lines / 85.32% branches / 96.28% functions
-Duration: 53.38s
+Duration: ~54s
 TypeScript: 0 errors
 ESLint: 0 errors, 1477 warnings
 ```
@@ -135,17 +134,17 @@ ESLint: 0 errors, 1477 warnings
    - ✅ OpenTelemetry 集成最佳实践 (`docs/observability/OPENTELEMETRY_INTEGRATION.md`)
    - ✅ Dashboard 指标定义 (`docs/observability/DASHBOARD_METRICS.md`)
 
-2. **开发者工具**
-   - ⏸️ 事件回放与调试工具（未实现，可作为未来增强）
-   - ⏸️ 错误追踪与关联查询（未实现，可作为未来增强）
-   - ⏸️ 性能分析与瓶颈识别（未实现，可作为未来增强）
+2. **开发者工具** - `42c0b8d`
+   - ✅ EventReplayer: 事件回放与调试（支持 runId/type/sessionId/时间范围过滤）
+   - ✅ ErrorTracker: 错误追踪与关联查询（runId/fingerprint 追踪、cause 链提取）
+   - ✅ PerformanceAnalyzer: 性能分析与瓶颈识别（步骤耗时、LLM 调用、瓶颈检测）
 
 ## Next Steps
 
-可观测性架构优化已完成。后续可考虑：
-- 实现开发者工具（事件回放、错误追踪、性能分析）
+可观测性架构优化已全部完成（P0/P1/P2）。后续可考虑：
 - 集成到实际 OpenTelemetry 后端（Jaeger/Tempo）
 - 创建 Grafana Dashboard 模板
+- 实现实时性能监控 UI
 
 ## Acceptance Criteria
 
@@ -212,5 +211,6 @@ ESLint: 0 errors, 1477 warnings
 - OrchestratorEngine 生命周期事件
 - AiAuditor LLM 调用可观测性
 - 完整的可观测性文档（事件字典、OpenTelemetry 集成、Dashboard 指标）
+- 开发者工具（EventReplayer、ErrorTracker、PerformanceAnalyzer）
 
-所有验收标准已达成，测试覆盖率保持在 92.59%，1970 个测试全部通过。
+所有验收标准已达成，测试覆盖率保持在 92.59%，1984 个测试全部通过。
