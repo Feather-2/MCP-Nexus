@@ -1,6 +1,5 @@
-import { promises as fs } from 'fs';
-import * as path from 'path';
 import type { Logger } from '../types/index.js';
+import { dirSize, SandboxPaths } from '../utils/SandboxUtils.js';
 
 /**
  * DeploymentPolicy enforces resource limits and user confirmation gates
@@ -77,8 +76,6 @@ const DEFAULT_LIMITS: DeploymentLimits = {
   ],
   allowedScopes: null, // null = all scopes allowed
 };
-
-const SANDBOX_BASE = path.resolve(process.cwd(), '../mcp-sandbox');
 
 export class DeploymentPolicy {
   private limits: DeploymentLimits;
@@ -197,26 +194,9 @@ export class DeploymentPolicy {
    */
   private async getSandboxDiskUsage(): Promise<number> {
     try {
-      return await this.dirSize(SANDBOX_BASE);
+      return await dirSize(SandboxPaths.base);
     } catch {
       return 0;
     }
-  }
-
-  private async dirSize(dir: string): Promise<number> {
-    let total = 0;
-    try {
-      const entries = await fs.readdir(dir, { withFileTypes: true });
-      for (const entry of entries) {
-        const fullPath = path.join(dir, entry.name);
-        if (entry.isDirectory()) {
-          total += await this.dirSize(fullPath);
-        } else if (entry.isFile()) {
-          const stat = await fs.stat(fullPath);
-          total += stat.size;
-        }
-      }
-    } catch { /* dir doesn't exist or permission denied */ }
-    return total;
   }
 }

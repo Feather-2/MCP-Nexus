@@ -1,9 +1,9 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
-import { execFile } from 'child_process';
 import type { Logger } from '../types/index.js';
 import { SandboxPackageInstaller } from './SandboxPackageInstaller.js';
 import { DeploymentPolicy, type DeploymentRequest } from '../security/DeploymentPolicy.js';
+import { SandboxPaths, dirSize, resolveNpm, execInSandbox } from '../utils/SandboxUtils.js';
 
 export interface ResolvedPackage {
   name: string;
@@ -15,8 +15,6 @@ export interface ResolvedPackage {
   source: 'github' | 'npm';
   installDir: string;
 }
-
-const CLONE_BASE = path.resolve(process.cwd(), '../mcp-sandbox/repos');
 
 export class GitHubPackageResolver {
   private readonly installer: SandboxPackageInstaller;
@@ -57,7 +55,7 @@ export class GitHubPackageResolver {
     }
 
     const limits = this.policy?.getLimits();
-    const cloneDir = path.join(CLONE_BASE, owner, repo);
+    const cloneDir = path.join(SandboxPaths.repos, owner, repo);
     const url = `https://github.com/${owner}/${repo}.git`;
     const cloneDepth = limits?.maxCloneDepth ?? 1;
     const cloneTimeout = limits?.cloneTimeoutMs ?? 120_000;
@@ -70,18 +68,18 @@ export class GitHubPackageResolver {
     try {
       await fs.access(path.join(cloneDir, '.git'));
       this.logger.info('repo exists, pulling latest', { cloneDir });
-      await this.exec('git', ['pull', '--ff-only'], cloneDir, cloneTimeout);
+      await execInSandbox('git', ['pull', '--ff-only'], cloneDir, cloneTimeout);
     } catch {
       this.logger.info('cloning repository', { url, cloneDir });
       await fs.mkdir(path.dirname(cloneDir), { recursive: true });
       const cloneArgs = ['clone', '--depth', String(cloneDepth), url, cloneDir];
       if (ref) cloneArgs.splice(3, 0, '--branch', ref);
-      await this.exec('git', cloneArgs, process.cwd(), cloneTimeout);
+      await execInSandbox('git', cloneArgs, process.cwd(), cloneTimeout);
     }
 
     // Verify repo size against policy
     if (this.policy) {
-      const repoSize = await this.dirSize(cloneDir);
+      const repoSize = await dirSize(cloneDir);
       const maxRepoSize = limits?.maxRepoSizeBytes ?? 500 * 1024 * 1024;
       if (repoSize > maxRepoSize) {
         const sizeMB = Math.round(repoSize / 1024 / 1024);
@@ -97,17 +95,17 @@ export class GitHubPackageResolver {
     const templateName = pkgJson?.name?.replace(/[\/@ ]/g, '-').replace(/^-+|-+$/g, '') || repo;
 
     // Install dependencies
-    const { nodeBin, npmArgs } = await this.resolveNpm();
+    const { nodeBin, npmArgs } = await resolveNpm();
     const installArgs = [...npmArgs, 'install', '--production', '--no-audit', '--no-fund'];
     this.logger.info('installing dependencies', { cloneDir });
-    await this.exec(nodeBin, installArgs, cloneDir, installTimeout);
+    await execInSandbox(nodeBin, installArgs, cloneDir, installTimeout);
 
     // Build if build script exists
     if (pkgJson?.scripts?.build) {
       this.logger.info('running build', { cloneDir });
       const buildArgs = [...npmArgs, 'run', 'build'];
       try {
-        await this.exec(nodeBin, buildArgs, cloneDir, buildTimeout);
+        await execInSandbox(nodeBin, buildArgs, cloneDir, buildTimeout);
       } catch (err) {
         this.logger.warn('build failed, trying without build step', { err });
       }
@@ -206,52 +204,5 @@ export class GitHubPackageResolver {
     } catch {
       return null;
     }
-  }
-
-  private async resolveNpm(): Promise<{ nodeBin: string; npmArgs: string[] }> {
-    const platform = process.platform;
-    const nodeDir = path.join(path.resolve(process.cwd(), '../mcp-sandbox/runtimes'), 'nodejs');
-    const nodeBin = platform === 'win32'
-      ? path.join(nodeDir, 'node.exe')
-      : path.join(nodeDir, 'bin', 'node');
-
-    try { await fs.access(nodeBin); } catch {
-      // Fall back to system node
-      return { nodeBin: 'node', npmArgs: [path.join(process.execPath, '..', 'npm')] };
-    }
-
-    const npmScript = platform === 'win32'
-      ? path.join(nodeDir, 'npm.cmd')
-      : path.join(nodeDir, 'bin', 'npm');
-
-    try {
-      await fs.access(npmScript);
-      return { nodeBin: npmScript, npmArgs: [] };
-    } catch {
-      const npmCliJs = path.join(nodeDir, 'node_modules', 'npm', 'bin', 'npm-cli.js');
-      return { nodeBin, npmArgs: [npmCliJs] };
-    }
-  }
-
-  private exec(cmd: string, args: string[], cwd: string, timeout: number): Promise<string> {
-    return new Promise((resolve, reject) => {
-      execFile(cmd, args, { cwd, timeout, env: { ...process.env, NODE_ENV: 'production' } }, (err, stdout, stderr) => {
-        if (err) reject(new Error(`${cmd} ${args.join(' ')}: ${err.message}\n${stderr}`, { cause: err }));
-        else resolve(stdout + stderr);
-      });
-    });
-  }
-
-  private async dirSize(dir: string): Promise<number> {
-    let total = 0;
-    try {
-      const entries = await fs.readdir(dir, { withFileTypes: true });
-      for (const entry of entries) {
-        const full = path.join(dir, entry.name);
-        if (entry.isDirectory()) total += await this.dirSize(full);
-        else if (entry.isFile()) total += (await fs.stat(full)).size;
-      }
-    } catch { /* ignore */ }
-    return total;
   }
 }

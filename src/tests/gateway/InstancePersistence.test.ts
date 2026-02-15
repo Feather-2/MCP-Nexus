@@ -7,7 +7,6 @@ import type { Logger } from '../../types/index.js';
 
 const mockLogger: Logger = {
   trace: vi.fn(), debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(),
-  child: () => mockLogger, level: 'info',
 };
 
 describe('InstancePersistence', () => {

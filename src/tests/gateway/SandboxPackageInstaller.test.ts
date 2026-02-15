@@ -9,7 +9,6 @@ vi.spyOn(fs, 'readdir').mockResolvedValue([] as any);
 
 const mockLogger: Logger = {
   trace: vi.fn(), debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(),
-  child: () => mockLogger, level: 'info',
 };
 
 // Only test the policy gate logic — actual npm install requires sandbox runtime

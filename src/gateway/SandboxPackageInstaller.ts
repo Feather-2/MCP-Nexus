@@ -1,8 +1,8 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
-import { execFile } from 'child_process';
 import type { Logger } from '../types/index.js';
 import { DeploymentPolicy, type DeploymentRequest } from '../security/DeploymentPolicy.js';
+import { SandboxPaths, resolveNpm, execInSandbox } from '../utils/SandboxUtils.js';
 
 export interface PackageInstallResult {
   success: boolean;
@@ -10,10 +10,6 @@ export interface PackageInstallResult {
   installDir: string;
   error?: string;
 }
-
-const SANDBOX_BASE = path.resolve(process.cwd(), '../mcp-sandbox');
-const RUNTIMES_DIR = path.join(SANDBOX_BASE, 'runtimes');
-const PACKAGES_DIR = path.join(SANDBOX_BASE, 'packages');
 
 export class SandboxPackageInstaller {
   constructor(
@@ -39,11 +35,11 @@ export class SandboxPackageInstaller {
 
     const limits = this.policy?.getLimits();
     const timeout = opts?.timeout ?? limits?.installTimeoutMs ?? 120_000;
-    const installDir = opts?.cwd ?? PACKAGES_DIR;
+    const installDir = opts?.cwd ?? SandboxPaths.packages;
 
     this.logger.info('installing package in sandbox', { packageSpec, installDir });
 
-    const { nodeBin, npmArgs } = await this.resolveNpm();
+    const { nodeBin, npmArgs } = await resolveNpm();
 
     await fs.mkdir(installDir, { recursive: true });
 
@@ -58,7 +54,7 @@ export class SandboxPackageInstaller {
     const args = [...npmArgs, 'install', '--no-audit', '--no-fund', '--save', packageSpec];
 
     try {
-      const output = await this.exec(nodeBin, args, installDir, timeout);
+      const output = await execInSandbox(nodeBin, args, installDir, timeout);
       this.logger.info('package installed successfully', { packageSpec });
 
       // Detect the installed package directory
@@ -107,38 +103,10 @@ export class SandboxPackageInstaller {
 
   async isInstalled(packageName: string): Promise<boolean> {
     try {
-      await fs.access(path.join(PACKAGES_DIR, 'node_modules', packageName));
+      await fs.access(path.join(SandboxPaths.packages, 'node_modules', packageName));
       return true;
     } catch {
       return false;
-    }
-  }
-
-  private async resolveNpm(): Promise<{ nodeBin: string; npmArgs: string[] }> {
-    const platform = process.platform;
-    const nodeDir = path.join(RUNTIMES_DIR, 'nodejs');
-    const nodeBin = platform === 'win32'
-      ? path.join(nodeDir, 'node.exe')
-      : path.join(nodeDir, 'bin', 'node');
-
-    try {
-      await fs.access(nodeBin);
-    } catch {
-      throw new Error('sandbox Node.js runtime not installed, run sandbox install first');
-    }
-
-    // Try npm script first, fall back to npm-cli.js
-    const npmScript = platform === 'win32'
-      ? path.join(nodeDir, 'npm.cmd')
-      : path.join(nodeDir, 'bin', 'npm');
-
-    try {
-      await fs.access(npmScript);
-      // Use npm directly (it's a script, so we need node to execute it on some platforms)
-      return { nodeBin: npmScript, npmArgs: [] };
-    } catch {
-      const npmCliJs = path.join(nodeDir, 'node_modules', 'npm', 'bin', 'npm-cli.js');
-      return { nodeBin, npmArgs: [npmCliJs] };
     }
   }
 
@@ -155,17 +123,5 @@ export class SandboxPackageInstaller {
       if (secondAt > 0) return spec.slice(0, secondAt);
     }
     return spec;
-  }
-
-  private exec(cmd: string, args: string[], cwd: string, timeout: number): Promise<string> {
-    return new Promise((resolve, reject) => {
-      execFile(cmd, args, { cwd, timeout, env: { ...process.env, NODE_ENV: 'production' } }, (err, stdout, stderr) => {
-        if (err) {
-          reject(new Error(`${err.message}\nstderr: ${stderr}`, { cause: err }));
-        } else {
-          resolve(stdout + stderr);
-        }
-      });
-    });
   }
 }
