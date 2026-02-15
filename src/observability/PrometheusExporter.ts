@@ -1,6 +1,5 @@
 import { Registry, Counter, Histogram, Gauge } from 'prom-client';
 import type { EventBus } from '../events/bus.js';
-import type { OrchestratorEvents } from '../types/orchestrator.js';
 
 export class PrometheusExporter {
   private registry: Registry;

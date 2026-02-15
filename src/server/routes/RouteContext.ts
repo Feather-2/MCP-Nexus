@@ -8,6 +8,7 @@ import { ConfigManagerImpl } from '../../config/ConfigManagerImpl.js';
 import type { OrchestratorManager, OrchestratorStatus } from '../../orchestrator/OrchestratorManager.js';
 import type { OrchestratorEngine } from '../../orchestrator/OrchestratorEngine.js';
 import type { SubagentLoader } from '../../orchestrator/SubagentLoader.js';
+import type { EventBus } from '../../events/bus.js';
 import type { Middleware } from '../../middleware/types.js';
 import { MiddlewareChain } from '../../middleware/chain.js';
 
@@ -30,6 +31,7 @@ export interface RouteContext {
   getSubagentLoader?: () => SubagentLoader | undefined;
   middlewares?: Middleware[];
   middlewareChain?: MiddlewareChain;
+  eventBus?: EventBus;
 
   // Shared state
   logBuffer: Array<{ timestamp: string; level: string; message: string; service?: string; data?: unknown }>;

@@ -30,7 +30,9 @@ export class MonitoringRoutes extends BaseRouteHandler {
     super(ctx);
     this.alertManager = new AlertManager(ctx.logger);
     this.prometheusExporter = new PrometheusExporter();
-    this.prometheusExporter.attachToEventBus(ctx.eventBus);
+    if (ctx.eventBus) {
+      this.prometheusExporter.attachToEventBus(ctx.eventBus);
+    }
     this.metricsRegistry = new Registry();
     this.gatewayUptimeGauge = new Gauge({
       name: 'gateway_uptime_ms',
