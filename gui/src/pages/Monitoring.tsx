@@ -21,11 +21,23 @@ import {
   Wifi
 } from 'lucide-react';
 
+interface ErrorBreakdown {
+  category: string;
+  severity: string;
+  recoverable: string;
+  count: number;
+}
+
+interface LlmModelBreakdown {
+  model: string;
+  count: number;
+}
+
 interface PrometheusMetrics {
   orchestrator: {
     executeTotal: number;
     executeSuccess: number;
-    executeDuration: number;
+    executeDurationAvg: number;
     concurrentExecutions: number;
     stepErrors: number;
   };
@@ -39,11 +51,13 @@ interface PrometheusMetrics {
   llm: {
     callTotal: number;
     callSuccess: number;
-    callDuration: number;
+    callDurationAvg: number;
     tokensUsed: number;
+    byModel: LlmModelBreakdown[];
   };
   errors: {
     total: number;
+    breakdown: ErrorBreakdown[];
   };
 }
 
@@ -59,43 +73,100 @@ const Monitoring: React.FC = () => {
   const [svcMetrics, setSvcMetrics] = useState<Array<{ serviceId: string; serviceName: string; health: any; uptime: number }>>([]);
   const [exporting, setExporting] = useState(false)
   const [promMetrics, setPromMetrics] = useState<PrometheusMetrics | null>(null)
+  const metricsHistoryRef = useRef<Array<{ ts: number; m: PrometheusMetrics }>>([]);
+  const MAX_HISTORY = 30; // 30 samples × 5s = 2.5 min window
+
+  const parseLabels = (raw: string): Record<string, string> => {
+    const result: Record<string, string> = {};
+    const re = /(\w+)="([^"]*)"/g;
+    let match;
+    while ((match = re.exec(raw)) !== null) {
+      result[match[1]] = match[2];
+    }
+    return result;
+  };
+
+  const getHistorySeries = (extract: (m: PrometheusMetrics) => number): number[] => {
+    return metricsHistoryRef.current.map(h => extract(h.m));
+  };
 
   const parsePrometheusMetrics = (text: string): PrometheusMetrics => {
     const lines = text.split('\n');
-    const metrics: Record<string, number> = {};
+    const plain: Record<string, number> = {};
+    const errorRows: ErrorBreakdown[] = [];
+    const llmModelMap = new Map<string, number>();
 
     for (const line of lines) {
       if (line.startsWith('#') || !line.trim()) continue;
-      const match = line.match(/^([a-z_]+)(?:\{[^}]*\})?\s+([\d.]+)/);
-      if (match) {
-        const [, name, value] = match;
-        metrics[name] = parseFloat(value);
+      const m = line.match(/^([a-z_]+)(?:\{([^}]*)\})?\s+([\d.e+\-]+)/);
+      if (!m) continue;
+      const [, name, labels, rawVal] = m;
+      const val = parseFloat(rawVal);
+
+      // Labeled errors_total: accumulate per label combo
+      if (name === 'errors_total' && labels) {
+        const lbl = parseLabels(labels);
+        errorRows.push({ category: lbl.category || 'unknown', severity: lbl.severity || 'unknown', recoverable: lbl.recoverable || 'false', count: val });
+        continue;
+      }
+
+      // Labeled llm_call_total: accumulate per model
+      if (name === 'llm_call_total' && labels) {
+        const lbl = parseLabels(labels);
+        const model = lbl.model || 'unknown';
+        llmModelMap.set(model, (llmModelMap.get(model) || 0) + val);
+      }
+
+      // For plain (unlabeled) or accumulate: last value wins for same name
+      // For histogram _sum/_count, we want the unlabeled value
+      if (!labels) {
+        plain[name] = val;
+      } else if (!(name in plain)) {
+        // labeled counter without plain entry: accumulate
+        plain[name] = (plain[name] || 0) + val;
       }
     }
 
+    // Histogram avg = _sum / _count
+    const execDurationSum = plain.orchestrator_execute_duration_ms_sum || 0;
+    const execDurationCount = plain.orchestrator_execute_duration_ms_count || 0;
+    const llmDurationSum = plain.llm_call_duration_ms_sum || 0;
+    const llmDurationCount = plain.llm_call_duration_ms_count || 0;
+
+    const byModel: LlmModelBreakdown[] = [];
+    llmModelMap.forEach((count, model) => byModel.push({ model, count }));
+    byModel.sort((a, b) => b.count - a.count);
+
+    // Aggregate error total from breakdown rows
+    const errTotal = errorRows.length > 0
+      ? errorRows.reduce((s, r) => s + r.count, 0)
+      : plain.errors_total || 0;
+
     return {
       orchestrator: {
-        executeTotal: metrics.orchestrator_execute_total || 0,
-        executeSuccess: metrics.orchestrator_execute_success_total || 0,
-        executeDuration: metrics.orchestrator_execute_duration_ms || 0,
-        concurrentExecutions: metrics.orchestrator_concurrent_executions || 0,
-        stepErrors: metrics.orchestrator_step_error_total || 0,
+        executeTotal: plain.orchestrator_execute_total || 0,
+        executeSuccess: plain.orchestrator_execute_success_total || 0,
+        executeDurationAvg: execDurationCount > 0 ? execDurationSum / execDurationCount : 0,
+        concurrentExecutions: plain.orchestrator_concurrent_executions || 0,
+        stepErrors: plain.orchestrator_step_error_total || 0,
       },
       eventbus: {
-        published: metrics.eventbus_published_total || 0,
-        backpressureDrops: metrics.eventbus_backpressure_drops_total || 0,
-        bufferDrops: metrics.eventbus_buffer_drops_total || 0,
-        handlerErrors: metrics.eventbus_handler_errors_total || 0,
-        handlerTimeouts: metrics.eventbus_handler_timeouts_total || 0,
+        published: plain.eventbus_published_total || 0,
+        backpressureDrops: plain.eventbus_backpressure_drops_total || 0,
+        bufferDrops: plain.eventbus_buffer_drops_total || 0,
+        handlerErrors: plain.eventbus_handler_errors_total || 0,
+        handlerTimeouts: plain.eventbus_handler_timeouts_total || 0,
       },
       llm: {
-        callTotal: metrics.llm_call_total || 0,
-        callSuccess: metrics.llm_call_success_total || 0,
-        callDuration: metrics.llm_call_duration_ms || 0,
-        tokensUsed: metrics.llm_tokens_used_total || 0,
+        callTotal: plain.llm_call_total || 0,
+        callSuccess: plain.llm_call_success_total || 0,
+        callDurationAvg: llmDurationCount > 0 ? llmDurationSum / llmDurationCount : 0,
+        tokensUsed: plain.llm_tokens_used_total || 0,
+        byModel,
       },
       errors: {
-        total: metrics.errors_total || 0,
+        total: errTotal,
+        breakdown: errorRows,
       },
     };
   };
@@ -106,6 +177,10 @@ const Monitoring: React.FC = () => {
       if (result.ok && result.data) {
         const parsed = parsePrometheusMetrics(result.data);
         setPromMetrics(parsed);
+        metricsHistoryRef.current = [
+          ...metricsHistoryRef.current.slice(-(MAX_HISTORY - 1)),
+          { ts: Date.now(), m: parsed },
+        ];
       }
     } catch (err) {
       console.error('Failed to load Prometheus metrics:', err);
@@ -309,13 +384,20 @@ const Monitoring: React.FC = () => {
             <div className="space-y-3">
               <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60">Orchestrator</div>
               <div className="space-y-2 text-xs">
-                <div className="flex justify-between">
+                <div className="flex justify-between items-center">
                   <span className="text-muted-foreground">Executions</span>
-                  <span className="font-mono">{formatNumber(promMetrics.orchestrator.executeTotal)}</span>
+                  <div className="flex items-center gap-2">
+                    <Sparkline data={getHistorySeries(m => m.orchestrator.executeTotal)} width={48} height={12} />
+                    <span className="font-mono">{formatNumber(promMetrics.orchestrator.executeTotal)}</span>
+                  </div>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Success Rate</span>
                   <span className="font-mono">{promMetrics.orchestrator.executeTotal > 0 ? formatPercentage(promMetrics.orchestrator.executeSuccess / promMetrics.orchestrator.executeTotal) : '-'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Avg Duration</span>
+                  <span className="font-mono">{promMetrics.orchestrator.executeDurationAvg > 0 ? formatTime(promMetrics.orchestrator.executeDurationAvg) : '-'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Concurrent</span>
@@ -332,9 +414,12 @@ const Monitoring: React.FC = () => {
             <div className="space-y-3">
               <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60">EventBus</div>
               <div className="space-y-2 text-xs">
-                <div className="flex justify-between">
+                <div className="flex justify-between items-center">
                   <span className="text-muted-foreground">Published</span>
-                  <span className="font-mono">{formatNumber(promMetrics.eventbus.published)}</span>
+                  <div className="flex items-center gap-2">
+                    <Sparkline data={getHistorySeries(m => m.eventbus.published)} width={48} height={12} />
+                    <span className="font-mono">{formatNumber(promMetrics.eventbus.published)}</span>
+                  </div>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Backpressure</span>
@@ -348,6 +433,10 @@ const Monitoring: React.FC = () => {
                   <span className="text-muted-foreground">Handler Errors</span>
                   <span className="font-mono text-red-500">{formatNumber(promMetrics.eventbus.handlerErrors)}</span>
                 </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Timeouts</span>
+                  <span className="font-mono text-amber-500">{formatNumber(promMetrics.eventbus.handlerTimeouts)}</span>
+                </div>
               </div>
             </div>
 
@@ -355,22 +444,38 @@ const Monitoring: React.FC = () => {
             <div className="space-y-3">
               <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60">LLM</div>
               <div className="space-y-2 text-xs">
-                <div className="flex justify-between">
+                <div className="flex justify-between items-center">
                   <span className="text-muted-foreground">Calls</span>
-                  <span className="font-mono">{formatNumber(promMetrics.llm.callTotal)}</span>
+                  <div className="flex items-center gap-2">
+                    <Sparkline data={getHistorySeries(m => m.llm.callTotal)} width={48} height={12} />
+                    <span className="font-mono">{formatNumber(promMetrics.llm.callTotal)}</span>
+                  </div>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Success Rate</span>
                   <span className="font-mono">{promMetrics.llm.callTotal > 0 ? formatPercentage(promMetrics.llm.callSuccess / promMetrics.llm.callTotal) : '-'}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Tokens Used</span>
-                  <span className="font-mono">{formatNumber(promMetrics.llm.tokensUsed)}</span>
-                </div>
-                <div className="flex justify-between">
                   <span className="text-muted-foreground">Avg Duration</span>
-                  <span className="font-mono">{promMetrics.llm.callTotal > 0 ? formatTime(promMetrics.llm.callDuration / promMetrics.llm.callTotal) : '-'}</span>
+                  <span className="font-mono">{promMetrics.llm.callDurationAvg > 0 ? formatTime(promMetrics.llm.callDurationAvg) : '-'}</span>
                 </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground">Tokens Used</span>
+                  <div className="flex items-center gap-2">
+                    <Sparkline data={getHistorySeries(m => m.llm.tokensUsed)} width={48} height={12} />
+                    <span className="font-mono">{formatNumber(promMetrics.llm.tokensUsed)}</span>
+                  </div>
+                </div>
+                {promMetrics.llm.byModel.length > 0 && (
+                  <div className="pt-1 border-t border-border/20 space-y-1">
+                    {promMetrics.llm.byModel.map(b => (
+                      <div key={b.model} className="flex justify-between">
+                        <span className="text-muted-foreground/70 truncate max-w-[120px]" title={b.model}>{b.model}</span>
+                        <span className="font-mono text-muted-foreground">{formatNumber(b.count)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -378,10 +483,26 @@ const Monitoring: React.FC = () => {
             <div className="space-y-3">
               <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60">Errors</div>
               <div className="space-y-2 text-xs">
-                <div className="flex justify-between">
+                <div className="flex justify-between items-center">
                   <span className="text-muted-foreground">Total Errors</span>
-                  <span className="font-mono text-red-500">{formatNumber(promMetrics.errors.total)}</span>
+                  <div className="flex items-center gap-2">
+                    <Sparkline data={getHistorySeries(m => m.errors.total)} width={48} height={12} />
+                    <span className="font-mono text-red-500">{formatNumber(promMetrics.errors.total)}</span>
+                  </div>
                 </div>
+                {promMetrics.errors.breakdown.length > 0 && (
+                  <div className="pt-1 border-t border-border/20 space-y-1">
+                    {promMetrics.errors.breakdown.map((e, i) => (
+                      <div key={i} className="flex justify-between items-center gap-1">
+                        <div className="flex items-center gap-1 min-w-0">
+                          <span className={`inline-block h-1.5 w-1.5 rounded-full shrink-0 ${e.severity === 'critical' ? 'bg-red-500' : e.severity === 'warning' ? 'bg-amber-500' : 'bg-blue-400'}`} />
+                          <span className="text-muted-foreground/70 truncate" title={`${e.category} (${e.recoverable === 'true' ? 'recoverable' : 'fatal'})`}>{e.category}</span>
+                        </div>
+                        <span className="font-mono text-red-500 shrink-0">{formatNumber(e.count)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>
