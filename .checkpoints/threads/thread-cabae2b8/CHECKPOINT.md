@@ -1,10 +1,10 @@
 # Checkpoint: MCP-Nexus 架构优化
 
 **Thread ID**: thread-cabae2b8
-**Saved**: 2026-02-15T10:30:00+08:00
+**Saved**: 2026-02-15T19:40:00+08:00
 **Branch**: main
-**Last Commit**: `cea8018` - feat: add real-time performance monitoring UI with Prometheus metrics
-**Session History**: 11 sessions in thread
+**Last Commit**: `8edb77f` - test: add deployment chain module tests (48 tests)
+**Session History**: 13 sessions in thread
 
 ## Current Task
 
@@ -90,17 +90,16 @@ Untracked files:
 ## Test State
 
 ```
-150 test files, 1991 tests, all passed
-Coverage: 92.59% lines / 85.32% branches / 96.28% functions
-Duration: ~55s
+158 test files, 2039 tests, all passed
+Duration: ~63s
 TypeScript: 0 errors
-ESLint: 0 errors, 1477 warnings
 ```
 
 ## Key Design Decisions
 
 | Decision | Rationale | Session |
 |----------|-----------|---------|
+| 部署链安全门控 | AI 可能部署无限制工作负载导致系统崩溃，需要 fail-closed 确认机制 | #012 |
 | 传递更多信息 > 认知卸载 | 现代 AI 模型能力足够强，应传递完整信息而非简化 | #009 |
 | MCP-Nexus 定位明确 | 核心价值在服务网格、企业安全、多租户管理，不追求"认知卸载" | #009 |
 | 可观测性优先 | SubagentScheduler 需要暴露更多中间状态、决策过程、错误上下文 | #009 |
@@ -156,12 +155,13 @@ ESLint: 0 errors, 1477 warnings
 
 ## Next Steps
 
-可观测性架构优化已全部完成（P0/P1/P2），包括 Grafana Dashboard 模板、Prometheus Exporter 和实时性能监控 UI。
+部署链（GitHub/npm → 沙箱 → 持久化 → 自动恢复）已实现并通过测试，含 DeploymentPolicy 安全门控。
 
 后续可考虑：
+- 部署链 API 路由（REST 端点暴露 resolve/install/persist 操作）
+- GUI 集成（前端添加 GitHub 导入/npm 安装界面）
 - 性能优化与负载测试
 - 多租户隔离增强
-- 更多 Dashboard 可视化
 
 ## Acceptance Criteria
 
@@ -203,6 +203,8 @@ ESLint: 0 errors, 1477 warnings
 | 009 | 架构探索与可观测性分析 | 2026-02-14 02:30 | ~75% |
 | 010 | 可观测性架构实施 (P0/P1/P2) | 2026-02-14 11:05 | ~70% |
 | 011 | 实时性能监控 UI 实现 | 2026-02-15 10:30 | ~65% |
+| 012 | 部署链模块 + DeploymentPolicy 安全门控 | 2026-02-15 17:00 | ~90% |
+| 013 | 类型错误修复 + 部署链测试 (48 tests) | 2026-02-15 19:40 | ~60% |
 
 ## Architecture Context
 
