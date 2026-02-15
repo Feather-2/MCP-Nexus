@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import { execFile } from 'child_process';
-import type { Logger } from 'pino';
+import type { Logger } from '../types/index.js';
 import { DeploymentPolicy, type DeploymentRequest } from '../security/DeploymentPolicy.js';
 
 export interface PackageInstallResult {
@@ -41,7 +41,7 @@ export class SandboxPackageInstaller {
     const timeout = opts?.timeout ?? limits?.installTimeoutMs ?? 120_000;
     const installDir = opts?.cwd ?? PACKAGES_DIR;
 
-    this.logger.info({ packageSpec, installDir }, 'installing package in sandbox');
+    this.logger.info('installing package in sandbox', { packageSpec, installDir });
 
     const { nodeBin, npmArgs } = await this.resolveNpm();
 
@@ -59,7 +59,7 @@ export class SandboxPackageInstaller {
 
     try {
       const output = await this.exec(nodeBin, args, installDir, timeout);
-      this.logger.info({ packageSpec, output: output.slice(0, 200) }, 'package installed successfully');
+      this.logger.info('package installed successfully', { packageSpec });
 
       // Detect the installed package directory
       const pkgName = this.extractPackageName(packageSpec);
@@ -68,7 +68,7 @@ export class SandboxPackageInstaller {
       return { success: true, packageName: pkgName, installDir: pkgDir };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      this.logger.error({ packageSpec, err }, 'package installation failed');
+      this.logger.error('package installation failed', { packageSpec, err });
       return { success: false, packageName: packageSpec, installDir, error: msg };
     }
   }

@@ -16,6 +16,9 @@ import { PinoLogger } from '../utils/PinoLogger.js';
 import { SecurityMiddleware } from '../middleware/SecurityMiddleware.js';
 import { OrchestratorManager, type OrchestratorStatus } from '../orchestrator/OrchestratorManager.js';
 import { startOpenTelemetry, shutdownOpenTelemetry } from '../observability/otel.js';
+import { InstancePersistence } from '../gateway/InstancePersistence.js';
+import { AutostartManager } from '../gateway/AutostartManager.js';
+import { DeploymentPolicy } from '../security/DeploymentPolicy.js';
 
 export type GatewayRuntime = {
   logger: Logger;
@@ -26,6 +29,8 @@ export type GatewayRuntime = {
   authLayer: AuthenticationLayerImpl;
   router: GatewayRouterImpl;
   httpServer: HttpApiServer;
+  instancePersistence: InstancePersistence;
+  deploymentPolicy: DeploymentPolicy;
 };
 
 export type GatewayBootstrapStartResult = {
@@ -104,7 +109,9 @@ export class GatewayBootstrapper {
       serviceRegistry: this.container.resolve<ServiceRegistryImpl>(TOKENS.serviceRegistry),
       authLayer: this.container.resolve<AuthenticationLayerImpl>(TOKENS.authLayer),
       router: this.container.resolve<GatewayRouterImpl>(TOKENS.router),
-      httpServer: this.container.resolve<HttpApiServer>(TOKENS.httpServer)
+      httpServer: this.container.resolve<HttpApiServer>(TOKENS.httpServer),
+      instancePersistence: new InstancePersistence(logger),
+      deploymentPolicy: new DeploymentPolicy(logger),
     };
 
     // Core wiring
@@ -175,6 +182,22 @@ export class GatewayBootstrapper {
       await runtime.serviceRegistry.registerTemplate(this.toMcpServiceConfig(template));
     }
 
+    // Load persisted instances and restore autostart services
+    await runtime.instancePersistence.load();
+    const autostartManager = new AutostartManager({
+      logger: runtime.logger,
+      persistence: runtime.instancePersistence,
+      createInstance: async (templateName, overrides) => {
+        const instance = await runtime.serviceRegistry.createInstance(templateName, overrides as Partial<McpServiceConfig>);
+        return { id: instance.id };
+      },
+      getTemplate: (name) => runtime.serviceRegistry.getTemplate(name),
+    });
+    const autostartResult = await autostartManager.restoreAll();
+    if (autostartResult.started.length > 0) {
+      runtime.logger.info('autostart instances restored', { started: autostartResult.started.length, failed: autostartResult.failed.length });
+    }
+
     // Start HTTP API server (skip in test environments)
     const isTestEnv =
       Boolean(process.env.VITEST) ||
@@ -205,6 +228,9 @@ export class GatewayBootstrapper {
     const runtime = this.bootstrap();
 
     runtime.logger.info('Stopping PB MCP Nexus...');
+
+    // Flush instance persistence before stopping
+    await runtime.instancePersistence.shutdown();
 
     runtime.configManager.stopConfigWatch();
 

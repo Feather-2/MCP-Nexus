@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import { execFile } from 'child_process';
-import type { Logger } from 'pino';
+import type { Logger } from '../types/index.js';
 import { SandboxPackageInstaller } from './SandboxPackageInstaller.js';
 import { DeploymentPolicy, type DeploymentRequest } from '../security/DeploymentPolicy.js';
 
@@ -64,15 +64,15 @@ export class GitHubPackageResolver {
     const installTimeout = limits?.installTimeoutMs ?? 180_000;
     const buildTimeout = limits?.buildTimeoutMs ?? 180_000;
 
-    this.logger.info({ owner, repo, ref, cloneDepth }, 'resolving GitHub package');
+    this.logger.info('resolving GitHub package', { owner, repo, ref, cloneDepth });
 
     // Clone or pull
     try {
       await fs.access(path.join(cloneDir, '.git'));
-      this.logger.info({ cloneDir }, 'repo exists, pulling latest');
+      this.logger.info('repo exists, pulling latest', { cloneDir });
       await this.exec('git', ['pull', '--ff-only'], cloneDir, cloneTimeout);
     } catch {
-      this.logger.info({ url, cloneDir }, 'cloning repository');
+      this.logger.info('cloning repository', { url, cloneDir });
       await fs.mkdir(path.dirname(cloneDir), { recursive: true });
       const cloneArgs = ['clone', '--depth', String(cloneDepth), url, cloneDir];
       if (ref) cloneArgs.splice(3, 0, '--branch', ref);
@@ -99,17 +99,17 @@ export class GitHubPackageResolver {
     // Install dependencies
     const { nodeBin, npmArgs } = await this.resolveNpm();
     const installArgs = [...npmArgs, 'install', '--production', '--no-audit', '--no-fund'];
-    this.logger.info({ cloneDir }, 'installing dependencies');
+    this.logger.info('installing dependencies', { cloneDir });
     await this.exec(nodeBin, installArgs, cloneDir, installTimeout);
 
     // Build if build script exists
     if (pkgJson?.scripts?.build) {
-      this.logger.info({ cloneDir }, 'running build');
+      this.logger.info('running build', { cloneDir });
       const buildArgs = [...npmArgs, 'run', 'build'];
       try {
         await this.exec(nodeBin, buildArgs, cloneDir, buildTimeout);
       } catch (err) {
-        this.logger.warn({ err }, 'build failed, trying without build step');
+        this.logger.warn('build failed, trying without build step', { err });
       }
     }
 
@@ -135,7 +135,7 @@ export class GitHubPackageResolver {
   }
 
   private async resolveFromNpm(packageSpec: string): Promise<ResolvedPackage> {
-    this.logger.info({ packageSpec }, 'resolving npm package');
+    this.logger.info('resolving npm package', { packageSpec });
 
     const result = await this.installer.install(packageSpec);
     if (!result.success) {

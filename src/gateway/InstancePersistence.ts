@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
-import type { Logger } from 'pino';
+import type { Logger } from '../types/index.js';
 
 export interface PersistedInstance {
   templateName: string;
@@ -36,13 +36,13 @@ export class InstancePersistence {
       const parsed = JSON.parse(raw) as InstancePersistenceData;
       if (parsed.version === 1 && parsed.instances) {
         this.data = parsed;
-        this.logger.info({ count: Object.keys(this.data.instances).length }, 'loaded persisted instances');
+        this.logger.info('loaded persisted instances', { count: Object.keys(this.data.instances).length });
       }
     } catch (err: unknown) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         this.logger.info('no persisted instances file, starting fresh');
       } else {
-        this.logger.warn({ err }, 'failed to load persisted instances');
+        this.logger.warn('failed to load persisted instances', { err });
       }
     }
   }
@@ -107,7 +107,7 @@ export class InstancePersistence {
       await fs.mkdir(dir, { recursive: true });
       await fs.writeFile(this.filePath, JSON.stringify(this.data, null, 2), 'utf-8');
     } catch (err) {
-      this.logger.error({ err }, 'failed to persist instances');
+      this.logger.error('failed to persist instances', { err });
     }
   }
 

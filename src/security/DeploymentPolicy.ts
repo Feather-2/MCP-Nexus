@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
-import type { Logger } from 'pino';
+import type { Logger } from '../types/index.js';
 
 /**
  * DeploymentPolicy enforces resource limits and user confirmation gates
@@ -120,7 +120,7 @@ export class DeploymentPolicy {
     const pkgName = request.packageName || request.source;
     for (const pattern of this.limits.blockedPackages) {
       if (new RegExp(pattern, 'i').test(pkgName)) {
-        this.logger.warn({ source: request.source, pattern }, 'deployment blocked by blocklist');
+        this.logger.warn('deployment blocked by blocklist', { source: request.source, pattern });
         return { ...base, allowed: false, reason: `package matches blocklist pattern: ${pattern}` };
       }
     }
@@ -161,16 +161,16 @@ export class DeploymentPolicy {
     if (!this.limits.requireUserConfirmation) return true;
 
     if (!this.confirmationCallback) {
-      this.logger.warn({ source: request.source }, 'deployment requires confirmation but no callback set, denying');
+      this.logger.warn('deployment requires confirmation but no callback set, denying', { source: request.source });
       return false;
     }
 
     try {
       const confirmed = await this.confirmationCallback(request);
-      this.logger.info({ source: request.source, confirmed }, 'user confirmation result');
+      this.logger.info('user confirmation result', { source: request.source, confirmed });
       return confirmed;
     } catch (err) {
-      this.logger.error({ err }, 'confirmation callback failed, denying');
+      this.logger.error('confirmation callback failed, denying', { err });
       return false;
     }
   }

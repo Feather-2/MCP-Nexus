@@ -1,4 +1,4 @@
-import type { Logger } from 'pino';
+import type { Logger } from '../types/index.js';
 import type { InstancePersistence } from './InstancePersistence.js';
 
 export interface AutostartDeps {
@@ -27,13 +27,13 @@ export class AutostartManager {
       return result;
     }
 
-    logger.info({ count: entries.length }, 'restoring autostart instances');
+    logger.info('restoring autostart instances', { count: entries.length });
 
     for (const entry of entries) {
       try {
         const template = await getTemplate(entry.templateName);
         if (!template) {
-          logger.warn({ templateName: entry.templateName }, 'template not found, skipping autostart');
+          logger.warn('template not found, skipping autostart', { templateName: entry.templateName });
           result.skipped.push(entry.templateName);
           continue;
         }
@@ -44,18 +44,17 @@ export class AutostartManager {
         );
         persistence.markStarted(instance.id);
         result.started.push(instance.id);
-        logger.info({ templateName: entry.templateName, serviceId: instance.id }, 'autostart instance restored');
+        logger.info('autostart instance restored', { templateName: entry.templateName, serviceId: instance.id });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         result.failed.push({ templateName: entry.templateName, error: msg });
-        logger.error({ templateName: entry.templateName, err }, 'failed to restore autostart instance');
+        logger.error('failed to restore autostart instance', { templateName: entry.templateName, err });
       }
     }
 
-    logger.info(
-      { started: result.started.length, failed: result.failed.length, skipped: result.skipped.length },
-      'autostart restore complete',
-    );
+    logger.info('autostart restore complete', {
+      started: result.started.length, failed: result.failed.length, skipped: result.skipped.length,
+    });
     return result;
   }
 }
