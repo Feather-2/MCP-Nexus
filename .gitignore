@@ -18,3 +18,8 @@ NEXUS_ARCHITECTURAL_REVIEW.md
 SKILLS_ENHANCEMENT_PLAN.md
 /.skills
 /skills
+/docs
+/config
+/data
+coverage-output.txt
+gui/REACT_BEST_PRACTICES_AUDIT.md
