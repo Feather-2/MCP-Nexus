@@ -1,10 +1,10 @@
 # Checkpoint: MCP-Nexus 架构优化
 
 **Thread ID**: thread-cabae2b8
-**Saved**: 2026-02-15T19:40:00+08:00
+**Saved**: 2026-02-16T00:00:00+08:00
 **Branch**: main
-**Last Commit**: `8edb77f` - test: add deployment chain module tests (48 tests)
-**Session History**: 13 sessions in thread
+**Last Commit**: `4dad2c7` - fix: add process slot RAII, API auth mode, and persistence wiring
+**Session History**: 14 sessions in thread
 
 ## Current Task
 
@@ -28,6 +28,18 @@
 - `cee76ab` Grafana Dashboard 模板（Overview、EventBus Health、LLM Performance、Error Tracking）
 - `8b81e99` Prometheus Exporter（集成到 /metrics 端点）+ 7 个测试
 - `cea8018` 实时性能监控 UI（Prometheus 指标展示、自动刷新、四大类指标）
+
+### Session #014 - 架构审计与修复
+
+**代码重复消除** ✅:
+- `b027ddf` 提取 `SandboxUtils.ts` 统一 `dirSize()`/`resolveNpm()`/`execInSandbox()`/`SandboxPaths`，净减 57 行
+
+**架构缺陷修复** ✅:
+- `4dad2c7` DeploymentPolicy: `withProcessSlot()` RAII 保证 finally 释放
+- `4dad2c7` DeploymentPolicy: `AuthorizationMode`（`'interactive'|'api'`）支持 API 场景自动授权
+- `4dad2c7` ServiceRegistryImpl + GatewayBootstrapper: InstancePersistence lifecycle wiring
+- GitHubPackageResolver/SandboxPackageInstaller: I/O 路径接入 `withProcessSlot()`
+- 新增 8 个测试覆盖 RAII 和授权模式，总测试数 2039 → 2047
 
 ### Session #011 - 实时性能监控 UI 实现
 
@@ -90,8 +102,8 @@ Untracked files:
 ## Test State
 
 ```
-158 test files, 2039 tests, all passed
-Duration: ~63s
+158 test files, 2047 tests, all passed
+Duration: ~57s
 TypeScript: 0 errors
 ```
 
@@ -156,6 +168,7 @@ TypeScript: 0 errors
 ## Next Steps
 
 部署链（GitHub/npm → 沙箱 → 持久化 → 自动恢复）已实现并通过测试，含 DeploymentPolicy 安全门控。
+架构审计修复完成：代码重复消除、进程 slot RAII、API 授权模式、persistence lifecycle wiring。
 
 后续可考虑：
 - 部署链 API 路由（REST 端点暴露 resolve/install/persist 操作）
@@ -205,6 +218,7 @@ TypeScript: 0 errors
 | 011 | 实时性能监控 UI 实现 | 2026-02-15 10:30 | ~65% |
 | 012 | 部署链模块 + DeploymentPolicy 安全门控 | 2026-02-15 17:00 | ~90% |
 | 013 | 类型错误修复 + 部署链测试 (48 tests) | 2026-02-15 19:40 | ~60% |
+| 014 | 架构审计修复: slot RAII + API auth + persistence wiring | 2026-02-16 00:00 | ~40% |
 
 ## Architecture Context
 
@@ -237,4 +251,4 @@ TypeScript: 0 errors
 - OpenTelemetry 后端集成配置（Jaeger/Tempo docker-compose 栈）
 - 实时性能监控 UI（Prometheus 指标展示、自动刷新、四大类指标）
 
-所有验收标准已达成，测试覆盖率保持在 92.59%，1991 个测试全部通过。
+所有验收标准已达成，测试覆盖率保持在 92.59%，2047 个测试全部通过。
