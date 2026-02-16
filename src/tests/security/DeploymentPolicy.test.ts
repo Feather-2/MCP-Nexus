@@ -147,6 +147,62 @@ describe('DeploymentPolicy', () => {
     });
   });
 
+  describe('withProcessSlot()', () => {
+    it('acquires and releases around successful work', async () => {
+      const limited = new DeploymentPolicy(mockLogger, { maxConcurrentProcesses: 1 });
+      const result = await limited.withProcessSlot(async () => {
+        expect(limited.getActiveProcessCount()).toBe(1);
+        return 42;
+      });
+      expect(result).toBe(42);
+      expect(limited.getActiveProcessCount()).toBe(0);
+    });
+
+    it('releases slot even when function throws', async () => {
+      const limited = new DeploymentPolicy(mockLogger, { maxConcurrentProcesses: 1 });
+      await expect(limited.withProcessSlot(async () => {
+        expect(limited.getActiveProcessCount()).toBe(1);
+        throw new Error('boom');
+      })).rejects.toThrow('boom');
+      expect(limited.getActiveProcessCount()).toBe(0);
+    });
+
+    it('throws when no slot available', async () => {
+      const limited = new DeploymentPolicy(mockLogger, { maxConcurrentProcesses: 0 });
+      await expect(limited.withProcessSlot(async () => 'nope'))
+        .rejects.toThrow('concurrent process limit');
+    });
+  });
+
+  describe('authorization mode', () => {
+    it('defaults to interactive mode', () => {
+      expect(policy.getAuthorizationMode()).toBe('interactive');
+    });
+
+    it('can be set to api mode via constructor', () => {
+      const apiPolicy = new DeploymentPolicy(mockLogger, undefined, 'api');
+      expect(apiPolicy.getAuthorizationMode()).toBe('api');
+    });
+
+    it('api mode auto-approves confirmation without callback', async () => {
+      const apiPolicy = new DeploymentPolicy(mockLogger, undefined, 'api');
+      const req: DeploymentRequest = { source: 'foo', type: 'npm' };
+      expect(await apiPolicy.requestConfirmation(req)).toBe(true);
+    });
+
+    it('interactive mode still requires callback', async () => {
+      const req: DeploymentRequest = { source: 'foo', type: 'npm' };
+      expect(await policy.requestConfirmation(req)).toBe(false);
+    });
+
+    it('setAuthorizationMode switches mode at runtime', async () => {
+      const req: DeploymentRequest = { source: 'foo', type: 'npm' };
+      expect(await policy.requestConfirmation(req)).toBe(false);
+      policy.setAuthorizationMode('api');
+      expect(await policy.requestConfirmation(req)).toBe(true);
+    });
+  });
+
   describe('getLimits()', () => {
     it('returns default limits', () => {
       const limits = policy.getLimits();

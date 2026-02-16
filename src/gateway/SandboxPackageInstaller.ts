@@ -39,34 +39,47 @@ export class SandboxPackageInstaller {
 
     this.logger.info('installing package in sandbox', { packageSpec, installDir });
 
-    const { nodeBin, npmArgs } = await resolveNpm();
+    const doInstall = async (): Promise<PackageInstallResult> => {
+      const { nodeBin, npmArgs } = await resolveNpm();
 
-    await fs.mkdir(installDir, { recursive: true });
+      await fs.mkdir(installDir, { recursive: true });
 
-    // Ensure package.json exists so npm install works
-    const pkgJsonPath = path.join(installDir, 'package.json');
-    try {
-      await fs.access(pkgJsonPath);
-    } catch {
-      await fs.writeFile(pkgJsonPath, JSON.stringify({ name: 'mcp-sandbox-packages', private: true }, null, 2));
+      // Ensure package.json exists so npm install works
+      const pkgJsonPath = path.join(installDir, 'package.json');
+      try {
+        await fs.access(pkgJsonPath);
+      } catch {
+        await fs.writeFile(pkgJsonPath, JSON.stringify({ name: 'mcp-sandbox-packages', private: true }, null, 2));
+      }
+
+      const args = [...npmArgs, 'install', '--no-audit', '--no-fund', '--save', packageSpec];
+
+      try {
+        const output = await execInSandbox(nodeBin, args, installDir, timeout);
+        this.logger.info('package installed successfully', { packageSpec });
+
+        // Detect the installed package directory
+        const pkgName = this.extractPackageName(packageSpec);
+        const pkgDir = path.join(installDir, 'node_modules', pkgName);
+
+        return { success: true, packageName: pkgName, installDir: pkgDir };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.error('package installation failed', { packageSpec, err });
+        return { success: false, packageName: packageSpec, installDir, error: msg };
+      }
+    };
+
+    // Wrap I/O in a process slot to guarantee release on error
+    if (this.policy) {
+      try {
+        return await this.policy.withProcessSlot(doInstall);
+      } catch (err) {
+        // withProcessSlot throws when no slot available
+        return { success: false, packageName: packageSpec, installDir: '', error: (err as Error).message };
+      }
     }
-
-    const args = [...npmArgs, 'install', '--no-audit', '--no-fund', '--save', packageSpec];
-
-    try {
-      const output = await execInSandbox(nodeBin, args, installDir, timeout);
-      this.logger.info('package installed successfully', { packageSpec });
-
-      // Detect the installed package directory
-      const pkgName = this.extractPackageName(packageSpec);
-      const pkgDir = path.join(installDir, 'node_modules', pkgName);
-
-      return { success: true, packageName: pkgName, installDir: pkgDir };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      this.logger.error('package installation failed', { packageSpec, err });
-      return { success: false, packageName: packageSpec, installDir, error: msg };
-    }
+    return doInstall();
   }
 
   async detectEntryPoint(pkgDir: string): Promise<{ command: string; args: string[] } | null> {

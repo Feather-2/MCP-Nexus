@@ -64,6 +64,8 @@ export class GitHubPackageResolver {
 
     this.logger.info('resolving GitHub package', { owner, repo, ref, cloneDepth });
 
+    // Wrap all I/O in a process slot to guarantee release on error
+    const doResolve = async (): Promise<ResolvedPackage> => {
     // Clone or pull
     try {
       await fs.access(path.join(cloneDir, '.git'));
@@ -130,6 +132,11 @@ export class GitHubPackageResolver {
       source: 'github',
       installDir: cloneDir,
     };
+    }; // end doResolve
+
+    return this.policy
+      ? this.policy.withProcessSlot(doResolve)
+      : doResolve();
   }
 
   private async resolveFromNpm(packageSpec: string): Promise<ResolvedPackage> {

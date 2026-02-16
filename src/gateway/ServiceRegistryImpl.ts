@@ -12,12 +12,14 @@ import { ServiceObservationStore } from './service-state.js';
 import { TemplateRegistry } from './TemplateRegistry.js';
 import { InstanceRegistry } from './InstanceRegistry.js';
 import { HealthRegistry } from './HealthRegistry.js';
+import type { InstancePersistence } from './InstancePersistence.js';
 
 export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry {
   private templateRegistry: TemplateRegistry;
   private instanceRegistry: InstanceRegistry;
   private healthRegistry: HealthRegistry;
   private store: ServiceObservationStore;
+  private persistence?: InstancePersistence;
 
   constructor(private logger: Logger) {
     super();
@@ -25,6 +27,10 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
     this.templateRegistry = new TemplateRegistry(logger, this.store);
     this.instanceRegistry = new InstanceRegistry(logger, this.store);
     this.healthRegistry = new HealthRegistry(logger, this.store);
+  }
+
+  setInstancePersistence(persistence: InstancePersistence): void {
+    this.persistence = persistence;
   }
 
   // Template Management
@@ -59,6 +65,11 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
       throw new Error(`Template ${templateName} not found`);
     }
     const instance = await this.instanceRegistry.create(templateName, template, overrides);
+
+    // Persist for autostart recovery
+    if (this.persistence) {
+      this.persistence.track(instance.id, templateName, overrides as Record<string, unknown> | undefined);
+    }
 
     // Start health checking for keep-alive; skip for managed
     const instanceMode = (overrides as Record<string, unknown> | undefined)?.instanceMode as ('keep-alive' | 'managed' | undefined);
@@ -103,6 +114,9 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
   async removeInstance(serviceId: string): Promise<void> {
     await this.healthRegistry.stopMonitoring(serviceId);
     await this.instanceRegistry.remove(serviceId);
+    if (this.persistence) {
+      this.persistence.untrack(serviceId);
+    }
   }
 
   // Health & Load Balancing

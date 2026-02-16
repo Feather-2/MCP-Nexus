@@ -115,6 +115,7 @@ export class GatewayBootstrapper {
     };
 
     // Core wiring
+    runtime.serviceRegistry.setInstancePersistence(runtime.instancePersistence);
     runtime.httpServer.setOrchestratorManager(runtime.orchestratorManager);
     runtime.httpServer.addMiddleware(new SecurityMiddleware());
 

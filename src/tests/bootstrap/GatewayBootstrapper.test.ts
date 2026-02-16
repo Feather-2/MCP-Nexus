@@ -75,7 +75,7 @@ describe('GatewayBootstrapper', () => {
     const configManager = { getConfig: vi.fn().mockReturnValue(config) } as any;
     const orchestratorManager = {} as any;
     const protocolAdapters = {} as any;
-    const serviceRegistry = { setHealthProbe: vi.fn() } as any;
+    const serviceRegistry = { setHealthProbe: vi.fn(), setInstancePersistence: vi.fn() } as any;
     const authLayer = {} as any;
     const router = {} as any;
     const httpServer = { setOrchestratorManager: vi.fn(), addMiddleware: vi.fn() } as any;
@@ -112,6 +112,7 @@ describe('GatewayBootstrapper', () => {
 
     const serviceRegistry = {
       setHealthProbe: vi.fn(),
+      setInstancePersistence: vi.fn(),
       getService: vi.fn(),
       setInstanceMetadata: vi.fn().mockResolvedValue(undefined)
     } as any;
@@ -168,7 +169,7 @@ describe('GatewayBootstrapper', () => {
         configManager: { getConfig: vi.fn().mockReturnValue(makeConfig({ enableMetrics: false })) } as any,
         orchestratorManager: {} as any,
         protocolAdapters: {} as any,
-        serviceRegistry: { setHealthProbe: vi.fn() } as any,
+        serviceRegistry: { setHealthProbe: vi.fn(), setInstancePersistence: vi.fn() } as any,
         authLayer: {} as any,
         router: {} as any,
         httpServer: { setOrchestratorManager: vi.fn(), addMiddleware: vi.fn() } as any
@@ -203,6 +204,7 @@ describe('GatewayBootstrapper', () => {
 
     const serviceRegistry = {
       setHealthProbe: vi.fn(),
+      setInstancePersistence: vi.fn(),
       registerTemplate: vi.fn().mockResolvedValue(undefined),
       listServices: vi.fn().mockResolvedValue([]),
       stopService: vi.fn().mockResolvedValue(true)
@@ -259,6 +261,7 @@ describe('GatewayBootstrapper', () => {
 
     const serviceRegistry = {
       setHealthProbe: vi.fn(),
+      setInstancePersistence: vi.fn(),
       listServices: vi.fn().mockResolvedValue([{ id: 's1' }, { id: 's2' }]),
       stopService: vi.fn().mockResolvedValue(true)
     } as any;
@@ -324,7 +327,7 @@ describe('GatewayBootstrapper', () => {
         logger,
         configManager,
         orchestratorManager,
-        serviceRegistry: { setHealthProbe: vi.fn(), registerTemplate: vi.fn(), listServices: vi.fn(), stopService: vi.fn() } as any,
+        serviceRegistry: { setHealthProbe: vi.fn(), setInstancePersistence: vi.fn(), registerTemplate: vi.fn(), listServices: vi.fn(), stopService: vi.fn() } as any,
         httpServer,
         protocolAdapters: {} as any,
         authLayer: {} as any,

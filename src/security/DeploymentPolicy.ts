@@ -59,6 +59,13 @@ export interface PolicyCheckResult {
 
 export type ConfirmationCallback = (request: DeploymentRequest) => Promise<boolean>;
 
+/**
+ * Authorization mode controls how deployment confirmation is handled:
+ * - 'interactive': requires a ConfirmationCallback (fail-closed if absent)
+ * - 'api': auto-approves after policy checks pass (for server-side API calls)
+ */
+export type AuthorizationMode = 'interactive' | 'api';
+
 const DEFAULT_LIMITS: DeploymentLimits = {
   maxSandboxDiskBytes: 2 * 1024 * 1024 * 1024, // 2 GB
   maxPackageSizeBytes: 200 * 1024 * 1024, // 200 MB
@@ -81,12 +88,15 @@ export class DeploymentPolicy {
   private limits: DeploymentLimits;
   private activeProcesses = 0;
   private confirmationCallback: ConfirmationCallback | null = null;
+  private authMode: AuthorizationMode;
 
   constructor(
     private readonly logger: Logger,
     overrides?: Partial<DeploymentLimits>,
+    authMode: AuthorizationMode = 'interactive',
   ) {
     this.limits = { ...DEFAULT_LIMITS, ...overrides };
+    this.authMode = authMode;
   }
 
   setConfirmationCallback(cb: ConfirmationCallback): void {
@@ -154,8 +164,22 @@ export class DeploymentPolicy {
    * Returns true if confirmed, false if denied.
    * If no callback is set and confirmation is required, returns false (fail-closed).
    */
+  setAuthorizationMode(mode: AuthorizationMode): void {
+    this.authMode = mode;
+  }
+
+  getAuthorizationMode(): AuthorizationMode {
+    return this.authMode;
+  }
+
   async requestConfirmation(request: DeploymentRequest): Promise<boolean> {
     if (!this.limits.requireUserConfirmation) return true;
+
+    // API mode: auto-approve after policy checks pass
+    if (this.authMode === 'api') {
+      this.logger.info('api mode: auto-approving deployment', { source: request.source });
+      return true;
+    }
 
     if (!this.confirmationCallback) {
       this.logger.warn('deployment requires confirmation but no callback set, denying', { source: request.source });
@@ -186,6 +210,21 @@ export class DeploymentPolicy {
 
   getActiveProcessCount(): number {
     return this.activeProcesses;
+  }
+
+  /**
+   * Execute a function within an acquired process slot.
+   * Guarantees the slot is released even if the function throws.
+   */
+  async withProcessSlot<T>(fn: () => Promise<T>): Promise<T> {
+    if (!this.acquireProcessSlot()) {
+      throw new Error(`concurrent process limit reached (${this.limits.maxConcurrentProcesses})`);
+    }
+    try {
+      return await fn();
+    } finally {
+      this.releaseProcessSlot();
+    }
   }
 
   /**
