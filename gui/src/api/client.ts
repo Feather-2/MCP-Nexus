@@ -558,6 +558,40 @@ class ApiClient {
     });
   }
 
+  // Deployment chain API
+  async resolvePackage(source: string): Promise<ApiResponse<{ success: boolean; package: any }>> {
+    return this.request('/api/deploy/resolve', {
+      method: 'POST',
+      body: JSON.stringify({ source })
+    });
+  }
+
+  async installPackage(packageSpec: string, timeout?: number): Promise<ApiResponse<{ success: boolean; result: any }>> {
+    return this.request('/api/deploy/install', {
+      method: 'POST',
+      body: JSON.stringify({ packageSpec, timeout })
+    });
+  }
+
+  async getDeployPolicy(): Promise<ApiResponse<{ limits: any; authorizationMode: string; activeProcesses: number }>> {
+    return this.request('/api/deploy/policy');
+  }
+
+  async getDeployStatus(): Promise<ApiResponse<{ diskUsageBytes: number; activeProcesses: number; limits: any }>> {
+    return this.request('/api/deploy/status');
+  }
+
+  async getPersistedInstances(): Promise<ApiResponse<{ instances: Record<string, any>; autostartCount: number }>> {
+    return this.request('/api/instances/persisted');
+  }
+
+  async setInstanceAutostart(id: string, autostart: boolean): Promise<ApiResponse<{ success: boolean }>> {
+    return this.request(`/api/instances/${encodeURIComponent(id)}/autostart`, {
+      method: 'PUT',
+      body: JSON.stringify({ autostart })
+    });
+  }
+
   // Convenience helpers
   buildInitializeMessage(protocolVersion: string = '2024-11-26', capabilities: Record<string, any> = {}) {
     return {

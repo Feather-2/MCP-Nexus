@@ -18,6 +18,8 @@ import { ProtocolAdaptersImpl } from '../adapters/ProtocolAdaptersImpl.js';
 import type { OrchestratorStatus, OrchestratorManager } from '../orchestrator/OrchestratorManager.js';
 import { OrchestratorEngine } from '../orchestrator/OrchestratorEngine.js';
 import { SubagentLoader } from '../orchestrator/SubagentLoader.js';
+import { InstancePersistence } from '../gateway/InstancePersistence.js';
+import { DeploymentPolicy } from '../security/DeploymentPolicy.js';
 import {
   RouteContext,
   ServiceRoutes,
@@ -31,6 +33,7 @@ import {
   OrchestratorRoutes,
   LocalMcpProxyRoutes,
   SandboxRoutes,
+  DeploymentRoutes,
   ToolRoutes,
   SkillRoutes,
   SkillApprovalRoutes
@@ -70,6 +73,8 @@ export class HttpApiServer {
   private orchestratorEngine?: OrchestratorEngine;
   private subagentLoader?: SubagentLoader;
   private sandboxStreamClients: Set<FastifyReply> = new Set();
+  private instancePersistence?: InstancePersistence;
+  private deploymentPolicy?: DeploymentPolicy;
   private middlewares: Middleware[] = [];
   private readonly middlewareChain: MiddlewareChain;
   // Demo 日志与 SSE 清理定时器
@@ -379,7 +384,9 @@ export class HttpApiServer {
       respondError: this.respondError.bind(this),
       canAcceptSseClient: () => self.logStreamClients.size + self.sandboxStreamClients.size < HttpApiServer.MAX_SSE_CONNECTIONS,
       middlewares: this.middlewares,
-      middlewareChain: this.middlewareChain
+      middlewareChain: this.middlewareChain,
+      get instancePersistence() { return self.instancePersistence; },
+      get deploymentPolicy() { return self.deploymentPolicy; }
     } as unknown as RouteContext;
   }
 
@@ -515,6 +522,9 @@ export class HttpApiServer {
 
     // Skill approval workflow endpoints
     new SkillApprovalRoutes(routeContext).setupRoutes();
+
+    // Deployment chain endpoints (resolve/install/policy/persistence)
+    new DeploymentRoutes(routeContext).setupRoutes();
   }
 
   // Unified error response helper
@@ -571,6 +581,11 @@ export class HttpApiServer {
 
   setOrchestratorManager(manager: OrchestratorManager): void {
     this.orchestratorManager = manager;
+  }
+
+  setDeploymentComponents(persistence: InstancePersistence, policy: DeploymentPolicy): void {
+    this.instancePersistence = persistence;
+    this.deploymentPolicy = policy;
   }
 
   updateOrchestratorStatus(status: OrchestratorStatus | null): void {

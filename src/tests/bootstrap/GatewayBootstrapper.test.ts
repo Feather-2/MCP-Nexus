@@ -78,7 +78,7 @@ describe('GatewayBootstrapper', () => {
     const serviceRegistry = { setHealthProbe: vi.fn(), setInstancePersistence: vi.fn() } as any;
     const authLayer = {} as any;
     const router = {} as any;
-    const httpServer = { setOrchestratorManager: vi.fn(), addMiddleware: vi.fn() } as any;
+    const httpServer = { setOrchestratorManager: vi.fn(), addMiddleware: vi.fn(), setDeploymentComponents: vi.fn() } as any;
 
     const bootstrapper = new GatewayBootstrapper({
       overrides: {
@@ -134,7 +134,7 @@ describe('GatewayBootstrapper', () => {
         serviceRegistry,
         authLayer: {} as any,
         router: {} as any,
-        httpServer: { setOrchestratorManager: vi.fn(), addMiddleware: vi.fn() } as any
+        httpServer: { setOrchestratorManager: vi.fn(), addMiddleware: vi.fn(), setDeploymentComponents: vi.fn() } as any
       }
     });
 
@@ -172,7 +172,7 @@ describe('GatewayBootstrapper', () => {
         serviceRegistry: { setHealthProbe: vi.fn(), setInstancePersistence: vi.fn() } as any,
         authLayer: {} as any,
         router: {} as any,
-        httpServer: { setOrchestratorManager: vi.fn(), addMiddleware: vi.fn() } as any
+        httpServer: { setOrchestratorManager: vi.fn(), addMiddleware: vi.fn(), setDeploymentComponents: vi.fn() } as any
       }
     });
 
@@ -213,6 +213,7 @@ describe('GatewayBootstrapper', () => {
     const httpServer = {
       setOrchestratorManager: vi.fn(),
       addMiddleware: vi.fn(),
+      setDeploymentComponents: vi.fn(),
       updateOrchestratorStatus: vi.fn(),
       start: vi.fn().mockResolvedValue(undefined),
       stop: vi.fn().mockResolvedValue(undefined)
@@ -269,6 +270,7 @@ describe('GatewayBootstrapper', () => {
     const httpServer = {
       setOrchestratorManager: vi.fn(),
       addMiddleware: vi.fn(),
+      setDeploymentComponents: vi.fn(),
       stop: vi.fn().mockResolvedValue(undefined)
     } as any;
 
@@ -317,6 +319,7 @@ describe('GatewayBootstrapper', () => {
     const httpServer = {
       setOrchestratorManager: vi.fn(),
       addMiddleware: vi.fn(),
+      setDeploymentComponents: vi.fn(),
       updateOrchestratorStatus: vi.fn(),
       start: vi.fn().mockResolvedValue(undefined),
       stop: vi.fn().mockResolvedValue(undefined)

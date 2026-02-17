@@ -11,6 +11,8 @@ import type { SubagentLoader } from '../../orchestrator/SubagentLoader.js';
 import type { EventBus } from '../../events/bus.js';
 import type { Middleware } from '../../middleware/types.js';
 import { MiddlewareChain } from '../../middleware/chain.js';
+import type { InstancePersistence } from '../../gateway/InstancePersistence.js';
+import type { DeploymentPolicy } from '../../security/DeploymentPolicy.js';
 
 /**
  * Context shared across all route handlers
@@ -32,6 +34,8 @@ export interface RouteContext {
   middlewares?: Middleware[];
   middlewareChain?: MiddlewareChain;
   eventBus?: EventBus;
+  instancePersistence?: InstancePersistence;
+  deploymentPolicy?: DeploymentPolicy;
 
   // Shared state
   logBuffer: Array<{ timestamp: string; level: string; message: string; service?: string; data?: unknown }>;

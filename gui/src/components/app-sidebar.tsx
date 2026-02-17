@@ -24,6 +24,7 @@ import {
   Home,
   KeySquare,
   LogIn as Logs,
+  Package,
   Plug,
   Wand2,
   Workflow
@@ -31,7 +32,7 @@ import {
 
 type Props = {
   onNavigate?: (
-    key: "dashboard" | "services" | "templates" | "auth" | "monitoring" | "catalog" | "console" | "integrations" | "generator" | "orchestrator" | "settings",
+    key: "dashboard" | "services" | "templates" | "auth" | "monitoring" | "catalog" | "console" | "integrations" | "generator" | "orchestrator" | "deployment" | "settings",
   ) => void
   active?: string
 }
@@ -49,6 +50,7 @@ export function AppSidebar({ onNavigate, active }: Props) {
     { key: "integrations", title: t('nav.integrations'), icon: Plug },
     { key: "generator", title: t('nav.generator'), icon: Wand2 },
     { key: "orchestrator", title: t('nav.orchestrator'), icon: Workflow },
+    { key: "deployment", title: t('nav.deployment'), icon: Package },
     { key: "settings", title: t('nav.settings'), icon: Cog },
   ] as const
 

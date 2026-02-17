@@ -13,6 +13,7 @@ export { ExternalImportRoutes } from './ExternalImportRoutes.js';
 export { OrchestratorRoutes } from './OrchestratorRoutes.js';
 export { LocalMcpProxyRoutes } from './LocalMcpProxyRoutes.js';
 export { SandboxRoutes } from './SandboxRoutes.js';
+export { DeploymentRoutes } from './DeploymentRoutes.js';
 export { ToolRoutes } from './ToolRoutes.js';
 export { SkillRoutes } from './SkillRoutes.js';
 export { SkillApprovalRoutes } from './SkillApprovalRoutes.js';

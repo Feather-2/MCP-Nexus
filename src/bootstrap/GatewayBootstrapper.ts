@@ -118,6 +118,7 @@ export class GatewayBootstrapper {
     runtime.serviceRegistry.setInstancePersistence(runtime.instancePersistence);
     runtime.httpServer.setOrchestratorManager(runtime.orchestratorManager);
     runtime.httpServer.addMiddleware(new SecurityMiddleware());
+    runtime.httpServer.setDeploymentComponents(runtime.instancePersistence, runtime.deploymentPolicy);
 
     this.registerDefaultHealthProbe(runtime);
 
@@ -386,4 +387,3 @@ export class GatewayBootstrapper {
     } catch {}
   }
 }
-
