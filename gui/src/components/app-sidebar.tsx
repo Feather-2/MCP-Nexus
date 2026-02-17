@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { useI18n } from "@/i18n"
 import {
+  Activity,
   ActivitySquare,
   Boxes,
   Cable,
@@ -32,7 +33,7 @@ import {
 
 type Props = {
   onNavigate?: (
-    key: "dashboard" | "services" | "templates" | "auth" | "monitoring" | "catalog" | "console" | "integrations" | "generator" | "orchestrator" | "deployment" | "settings",
+    key: "dashboard" | "services" | "templates" | "auth" | "monitoring" | "catalog" | "console" | "integrations" | "generator" | "orchestrator" | "deployment" | "performance" | "settings",
   ) => void
   active?: string
 }
@@ -51,6 +52,7 @@ export function AppSidebar({ onNavigate, active }: Props) {
     { key: "generator", title: t('nav.generator'), icon: Wand2 },
     { key: "orchestrator", title: t('nav.orchestrator'), icon: Workflow },
     { key: "deployment", title: t('nav.deployment'), icon: Package },
+    { key: "performance", title: t('nav.performance'), icon: Activity },
     { key: "settings", title: t('nav.settings'), icon: Cog },
   ] as const
 

@@ -120,4 +120,60 @@ describe('MonitoringRoutes – extended coverage', () => {
     const metrics = res.json().serviceMetrics;
     expect(metrics.some((m: any) => m.health.status === 'unhealthy')).toBe(true);
   });
+
+  it('GET /api/performance/stats returns defaults when components are not configured', async () => {
+    const res = await (server as any).server.inject({ method: 'GET', url: '/api/performance/stats' });
+    expect(res.statusCode).toBe(200);
+
+    const body = res.json();
+    expect(body.adapterPool).toEqual({ size: 0, maxSize: 0 });
+    expect(body.toolListCache).toEqual({ size: 0, hits: 0, misses: 0, hitRate: 0 });
+    expect(body.router).toBeDefined();
+    expect(typeof body.timestamp).toBe('number');
+  });
+
+  it('GET /api/performance/stats returns stats from configured components', async () => {
+    const mockCache = {
+      getStats: vi.fn().mockReturnValue({ size: 5, hits: 30, misses: 10, hitRate: 0.75 }),
+      clear: vi.fn()
+    };
+    const mockPool = {
+      getStats: vi.fn().mockReturnValue({ size: 3, maxSize: 50 })
+    };
+    server.setPerformanceComponents(mockCache as any, mockPool as any);
+
+    const res = await (server as any).server.inject({ method: 'GET', url: '/api/performance/stats' });
+    expect(res.statusCode).toBe(200);
+
+    const body = res.json();
+    expect(body.adapterPool).toEqual({ size: 3, maxSize: 50 });
+    expect(body.toolListCache).toEqual({ size: 5, hits: 30, misses: 10, hitRate: 0.75 });
+    expect(mockPool.getStats).toHaveBeenCalledTimes(1);
+    expect(mockCache.getStats).toHaveBeenCalledTimes(1);
+  });
+
+  it('POST /api/performance/cache/clear returns 503 when cache is not configured', async () => {
+    const res = await (server as any).server.inject({ method: 'POST', url: '/api/performance/cache/clear' });
+    expect(res.statusCode).toBe(503);
+
+    const body = res.json();
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe('NOT_CONFIGURED');
+  });
+
+  it('POST /api/performance/cache/clear clears configured cache', async () => {
+    const mockCache = {
+      getStats: vi.fn().mockReturnValue({ size: 5, hits: 30, misses: 10, hitRate: 0.75 }),
+      clear: vi.fn()
+    };
+    const mockPool = {
+      getStats: vi.fn().mockReturnValue({ size: 3, maxSize: 50 })
+    };
+    server.setPerformanceComponents(mockCache as any, mockPool as any);
+
+    const res = await (server as any).server.inject({ method: 'POST', url: '/api/performance/cache/clear' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ success: true, message: 'Tool list cache cleared' });
+    expect(mockCache.clear).toHaveBeenCalledTimes(1);
+  });
 });

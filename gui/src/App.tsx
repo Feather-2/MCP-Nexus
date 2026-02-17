@@ -22,6 +22,7 @@ import SettingsSection from './pages/Settings'
 import IntegrationsSection from './pages/Integrations'
 import OrchestratorSection from './pages/Orchestrator'
 import DeploymentSection from './pages/Deployment'
+import PerformanceSection from './pages/Performance'
 
 type PageKey =
   | "dashboard"
@@ -35,6 +36,7 @@ type PageKey =
   | "generator"
   | "orchestrator"
   | "deployment"
+  | "performance"
   | "settings"
 
 function App() {
@@ -64,6 +66,8 @@ function App() {
         return <OrchestratorSection />
       case "deployment":
         return <DeploymentSection />
+      case "performance":
+        return <PerformanceSection />
       case "settings":
         return <SettingsSection />
       default:

@@ -240,6 +240,28 @@ export class MonitoringRoutes extends BaseRouteHandler {
         reply.code(500).send({ error: (error as Error).message });
       }
     });
+
+    // Performance observability endpoints
+    server.get('/api/performance/stats', async (_request: FastifyRequest, reply: FastifyReply) => {
+      const poolStats = this.ctx.adapterPool?.getStats() ?? { size: 0, maxSize: 0 };
+      const cacheStats = this.ctx.toolListCache?.getStats() ?? { size: 0, hits: 0, misses: 0, hitRate: 0 };
+      const routerMetrics = this.ctx.router.getMetrics();
+
+      reply.send({
+        adapterPool: poolStats,
+        toolListCache: cacheStats,
+        router: routerMetrics,
+        timestamp: Date.now()
+      });
+    });
+
+    server.post('/api/performance/cache/clear', async (_request: FastifyRequest, reply: FastifyReply) => {
+      if (!this.ctx.toolListCache) {
+        return this.respondError(reply, 503, 'Tool list cache not configured', { code: 'NOT_CONFIGURED' });
+      }
+      this.ctx.toolListCache.clear();
+      reply.send({ success: true, message: 'Tool list cache cleared' });
+    });
   }
 
   private updatePrometheusMetrics(routerMetrics: RouterMetricsSnapshot, registryStats: RegistryStatsSnapshot): void {

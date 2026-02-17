@@ -592,6 +592,20 @@ class ApiClient {
     });
   }
 
+  // Performance observability API
+  async getPerformanceStats(): Promise<ApiResponse<{
+    adapterPool: { size: number; maxSize: number };
+    toolListCache: { size: number; hits: number; misses: number; hitRate: number };
+    router: any;
+    timestamp: number;
+  }>> {
+    return this.request('/api/performance/stats');
+  }
+
+  async clearToolListCache(): Promise<ApiResponse<{ success: boolean; message: string }>> {
+    return this.request('/api/performance/cache/clear', { method: 'POST' });
+  }
+
   // Convenience helpers
   buildInitializeMessage(protocolVersion: string = '2024-11-26', capabilities: Record<string, any> = {}) {
     return {
