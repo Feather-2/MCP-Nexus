@@ -15,6 +15,7 @@
     "demo": "tsx quick-start.js",
     "test": "vitest",
     "test:coverage": "vitest --coverage",
+    "loadtest": "tsx scripts/loadtest.ts",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
     "typecheck": "tsc --noEmit",
