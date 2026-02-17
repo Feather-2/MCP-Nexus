@@ -25,7 +25,7 @@ function makeEngine(eventBus: EventBus, opts?: { callResult?: any; failStep?: bo
     })
   };
 
-  const protocolAdapters = { createAdapter: vi.fn().mockResolvedValue(adapter) };
+  const protocolAdapters = { createAdapter: vi.fn().mockResolvedValue(adapter), releaseAdapter: vi.fn() };
   const registry = {
     listTemplates: vi.fn().mockResolvedValue([
       { name: 'brave-search', version: '2024-11-26', transport: 'http', timeout: 1000, retries: 0 }

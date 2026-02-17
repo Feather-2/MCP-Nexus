@@ -191,7 +191,7 @@ export class HttpApiServer {
             }
             return { healthy: ok, latency, timestamp: new Date() };
           } finally {
-            await adapter.disconnect();
+            this.protocolAdapters.releaseAdapter(service.config, adapter);
           }
         } catch (e: unknown) {
           const errMsg = (e as Error)?.message || 'probe failed';

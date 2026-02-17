@@ -26,7 +26,8 @@ const {
       send: vi.fn().mockResolvedValue({ jsonrpc: '2.0', id: 'x', result: { tools: [] } }),
       sendAndReceive: vi.fn().mockResolvedValue({ jsonrpc: '2.0', id: 'x', result: { tools: [] } }),
       isConnected: vi.fn().mockReturnValue(true)
-    })
+    }),
+    releaseAdapter: vi.fn()
   };
   return {
     mockStaticPlugin: vi.fn((_instance: any, _opts: any, done?: (err?: Error) => void) => done?.()),
@@ -160,7 +161,8 @@ describe('OrchestratorRoutes - execute', () => {
 
     const localAdapters = {
       ...adaptersStub,
-      createAdapter: vi.fn().mockResolvedValue(adapter)
+      createAdapter: vi.fn().mockResolvedValue(adapter),
+      releaseAdapter: vi.fn()
     };
 
     const orchestratorManagerStub = {

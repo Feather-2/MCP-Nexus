@@ -23,6 +23,8 @@ export class PrometheusExporter {
   private toolCacheSize: Gauge;
   private toolCacheHits: Counter;
   private toolCacheMisses: Counter;
+  private lastToolCacheHits = 0;
+  private lastToolCacheMisses = 0;
 
   constructor() {
     this.registry = new Registry();
@@ -207,10 +209,12 @@ export class PrometheusExporter {
     }
     if (stats.toolListCache) {
       this.toolCacheSize.set(stats.toolListCache.size);
-      this.toolCacheHits.reset();
-      this.toolCacheHits.inc(stats.toolListCache.hits);
-      this.toolCacheMisses.reset();
-      this.toolCacheMisses.inc(stats.toolListCache.misses);
+      const hitsDelta = stats.toolListCache.hits - this.lastToolCacheHits;
+      const missesDelta = stats.toolListCache.misses - this.lastToolCacheMisses;
+      if (hitsDelta > 0) this.toolCacheHits.inc(hitsDelta);
+      if (missesDelta > 0) this.toolCacheMisses.inc(missesDelta);
+      this.lastToolCacheHits = stats.toolListCache.hits;
+      this.lastToolCacheMisses = stats.toolListCache.misses;
     }
   }
 

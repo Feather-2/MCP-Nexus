@@ -220,7 +220,7 @@ export class RoutingRoutes extends BaseRouteHandler {
       }
 
       if (!MCP_ALLOWED_PREFIXES.some(p => mcpMessage.method.startsWith(p))) {
-        return this.respondError(reply, 403, 'MCP method not allowed: ' + mcpMessage.method, { code: 'METHOD_NOT_ALLOWED', recoverable: true });
+        return this.respondError(reply, 403, 'MCP method not allowed', { code: 'METHOD_NOT_ALLOWED', recoverable: true });
       }
 
       try {

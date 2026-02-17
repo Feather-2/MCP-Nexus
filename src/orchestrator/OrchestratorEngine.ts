@@ -171,7 +171,7 @@ export class OrchestratorEngine {
       const res = await this.sendAndReceive(adapter, msg);
       return (res as unknown as Record<string, unknown>)?.result ?? res;
     } finally {
-      await adapter.disconnect();
+      this.adapters.releaseAdapter(template as McpServiceConfig, adapter);
     }
   }
 

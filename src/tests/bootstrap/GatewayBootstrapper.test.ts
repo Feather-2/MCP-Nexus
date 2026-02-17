@@ -123,7 +123,7 @@ describe('GatewayBootstrapper', () => {
       sendAndReceive: vi.fn().mockResolvedValue({ jsonrpc: '2.0', id: 'x', result: { tools: [] } })
     };
 
-    const protocolAdapters = { createAdapter: vi.fn().mockResolvedValue(adapter) } as any;
+    const protocolAdapters = { createAdapter: vi.fn().mockResolvedValue(adapter), releaseAdapter: vi.fn() } as any;
 
     const bootstrapper = new GatewayBootstrapper({
       overrides: {
@@ -155,7 +155,7 @@ describe('GatewayBootstrapper', () => {
     await expect(probe('svc')).resolves.toMatchObject({ healthy: true });
     expect(protocolAdapters.createAdapter).toHaveBeenCalledTimes(1);
     expect(adapter.connect).toHaveBeenCalledTimes(1);
-    expect(adapter.disconnect).toHaveBeenCalledTimes(1);
+    expect(protocolAdapters.releaseAdapter).toHaveBeenCalledTimes(1);
   });
 
   it('logs a warning when templates dir env setup fails', () => {

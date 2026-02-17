@@ -29,7 +29,8 @@ function makeEngine(opts?: { tools?: string[]; callResult?: any }) {
   };
 
   const protocolAdapters = {
-    createAdapter: vi.fn().mockResolvedValue(adapter)
+    createAdapter: vi.fn().mockResolvedValue(adapter),
+    releaseAdapter: vi.fn()
   };
 
   const registry = {
@@ -71,7 +72,7 @@ function makeEngine(opts?: { tools?: string[]; callResult?: any }) {
 
 describe('OrchestratorEngine', () => {
   it('executes provided steps with tool resolution and returns results', async () => {
-    const { engine, adapter } = makeEngine({ tools: ['search'], callResult: { ok: true, data: 'x' } });
+    const { engine, adapter, protocolAdapters } = makeEngine({ tools: ['search'], callResult: { ok: true, data: 'x' } });
 
     const res = await engine.execute({
       steps: [{ template: 'brave-search', tool: 'search', params: { query: 'kittens' } }]
@@ -82,7 +83,7 @@ describe('OrchestratorEngine', () => {
     expect(res.results[0]?.ok).toBe(true);
     expect(res.results[0]?.response).toEqual({ ok: true, data: 'x' });
     expect(adapter.connect).toHaveBeenCalledTimes(1);
-    expect(adapter.disconnect).toHaveBeenCalledTimes(1);
+    expect(protocolAdapters.releaseAdapter).toHaveBeenCalledTimes(1);
 
     const calls = (adapter.sendAndReceive as any).mock.calls.map((c: any[]) => c[0]);
     expect(calls.some((m: any) => m?.method === 'tools/list')).toBe(true);
