@@ -129,6 +129,7 @@ export class GatewayBootstrapper {
     runtime.httpServer.setOrchestratorManager(runtime.orchestratorManager);
     runtime.httpServer.addMiddleware(new SecurityMiddleware());
     runtime.httpServer.setDeploymentComponents(runtime.instancePersistence, runtime.deploymentPolicy);
+    runtime.httpServer.setPerformanceComponents(runtime.toolListCache, runtime.adapterPool);
 
     this.registerDefaultHealthProbe(runtime);
 

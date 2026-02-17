@@ -210,6 +210,15 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
     try {
       const service = await this.findTargetService(serviceId);
       if (!service) return this.respondError(reply, 404, 'No suitable service', { code: 'NO_SERVICE', recoverable: true });
+
+      // Check tool list cache
+      const cached = this.ctx.toolListCache?.get(service.config.name);
+      if (cached) {
+        this.ctx.addLogEntry('info', 'mcp.local.tools_list (cached)', service.id);
+        reply.send({ success: true, tools: cached, requestId: `tools-list-${Date.now()}`, cached: true });
+        return;
+      }
+
       const adapter = await this.ctx.protocolAdapters.createAdapter(service.config);
       await adapter.connect();
       try {
@@ -218,10 +227,15 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
         const res = sr ? await sr(msg) : await adapter.send(msg);
         const r = res as Record<string, unknown> | undefined;
         const result = r?.result as Record<string, unknown> | undefined;
+
+        // Cache the result
+        const toolsResult = result?.tools ?? result ?? res;
+        this.ctx.toolListCache?.set(service.config.name, toolsResult as unknown[]);
+
         this.ctx.addLogEntry('info', 'mcp.local.tools_list', service.id);
-        reply.send({ success: true, tools: result?.tools ?? result ?? res, requestId: msg.id });
+        reply.send({ success: true, tools: toolsResult, requestId: msg.id });
       } finally {
-        await adapter.disconnect();
+        this.ctx.protocolAdapters.releaseAdapter(service.config, adapter);
       }
     } catch (error: unknown) {
       return this.respondError(reply, 500, (error as Error)?.message || 'Internal error', { code: 'INTERNAL_ERROR' });
@@ -262,7 +276,7 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
         this.ctx.addLogEntry('info', 'mcp.local.call', service.id, { tool });
         reply.send({ success: true, result: r?.result ?? res, requestId: msg.id });
       } finally {
-        await adapter.disconnect();
+        this.ctx.protocolAdapters.releaseAdapter(service.config, adapter);
       }
     } catch (error: unknown) {
       return this.respondError(reply, 500, (error as Error)?.message || 'Internal error', { code: 'INTERNAL_ERROR' });

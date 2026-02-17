@@ -342,6 +342,19 @@ export class ToolRoutes extends BaseRouteHandler {
     tools?: unknown[];
     toolCount: number;
   }> {
+    // Check cache first
+    const cached = this.ctx.toolListCache?.get(template.name);
+    if (cached) {
+      const tools = cached as Record<string, unknown>[];
+      const firstTool = tools[0];
+      return {
+        description: firstTool?.description as string | undefined,
+        inputSchema: firstTool?.inputSchema,
+        tools,
+        toolCount: tools.length
+      };
+    }
+
     try {
       const adapter = await this.ctx.protocolAdapters.createAdapter(template);
       await adapter.connect();
@@ -359,6 +372,10 @@ export class ToolRoutes extends BaseRouteHandler {
 
         const r = res as Record<string, unknown> | undefined;
         const tools = ((r?.result as Record<string, unknown>)?.tools as unknown[]) || [];
+
+        // Cache the result
+        this.ctx.toolListCache?.set(template.name, tools);
+
         const firstTool = tools[0] as Record<string, unknown> | undefined;
         return {
           description: firstTool?.description as string | undefined,
@@ -367,7 +384,7 @@ export class ToolRoutes extends BaseRouteHandler {
           toolCount: tools.length
         };
       } finally {
-        await adapter.disconnect();
+        this.ctx.protocolAdapters.releaseAdapter(template, adapter);
       }
     } catch {
       return { toolCount: 0 };
@@ -426,7 +443,7 @@ export class ToolRoutes extends BaseRouteHandler {
 
           return res?.result ?? res;
         } finally {
-          await adapter.disconnect();
+          this.ctx.protocolAdapters.releaseAdapter(template, adapter);
         }
       } catch (error) {
         lastError = error as Error;
@@ -449,4 +466,3 @@ export class ToolRoutes extends BaseRouteHandler {
     }
   }
 }
-

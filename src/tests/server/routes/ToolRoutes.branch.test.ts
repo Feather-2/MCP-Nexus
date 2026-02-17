@@ -24,7 +24,7 @@ const {
     listTemplates: vi.fn().mockResolvedValue([{ name: 'test-tool', version: '1', transport: 'stdio' }]),
     getTemplate: vi.fn().mockResolvedValue({ name: 'test-tool', version: '1', transport: 'stdio', command: 'echo' })
   };
-  const adaptersStub = { createAdapter: vi.fn().mockResolvedValue(adapterStub) };
+  const adaptersStub = { createAdapter: vi.fn().mockResolvedValue(adapterStub), releaseAdapter: vi.fn() };
   return {
     mockStaticPlugin: vi.fn((_i: any, _o: any, done?: (e?: Error) => void) => done?.()),
     mockCorsPlugin: vi.fn((_i: any, _o: any, done?: (e?: Error) => void) => done?.()),

@@ -20,6 +20,8 @@ import { OrchestratorEngine } from '../orchestrator/OrchestratorEngine.js';
 import { SubagentLoader } from '../orchestrator/SubagentLoader.js';
 import { InstancePersistence } from '../gateway/InstancePersistence.js';
 import { DeploymentPolicy } from '../security/DeploymentPolicy.js';
+import { ToolListCache } from '../gateway/ToolListCache.js';
+import { AdapterPool } from '../adapters/AdapterPool.js';
 import {
   RouteContext,
   ServiceRoutes,
@@ -75,6 +77,8 @@ export class HttpApiServer {
   private sandboxStreamClients: Set<FastifyReply> = new Set();
   private instancePersistence?: InstancePersistence;
   private deploymentPolicy?: DeploymentPolicy;
+  private toolListCache?: ToolListCache;
+  private adapterPool?: AdapterPool;
   private middlewares: Middleware[] = [];
   private readonly middlewareChain: MiddlewareChain;
   // Demo 日志与 SSE 清理定时器
@@ -386,7 +390,9 @@ export class HttpApiServer {
       middlewares: this.middlewares,
       middlewareChain: this.middlewareChain,
       get instancePersistence() { return self.instancePersistence; },
-      get deploymentPolicy() { return self.deploymentPolicy; }
+      get deploymentPolicy() { return self.deploymentPolicy; },
+      get toolListCache() { return self.toolListCache; },
+      get adapterPool() { return self.adapterPool; }
     } as unknown as RouteContext;
   }
 
@@ -586,6 +592,11 @@ export class HttpApiServer {
   setDeploymentComponents(persistence: InstancePersistence, policy: DeploymentPolicy): void {
     this.instancePersistence = persistence;
     this.deploymentPolicy = policy;
+  }
+
+  setPerformanceComponents(cache: ToolListCache, pool: AdapterPool): void {
+    this.toolListCache = cache;
+    this.adapterPool = pool;
   }
 
   updateOrchestratorStatus(status: OrchestratorStatus | null): void {

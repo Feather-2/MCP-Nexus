@@ -118,7 +118,8 @@ describe('Routes middleware pipeline integration', () => {
         sendAndReceive: vi.fn().mockResolvedValue({ jsonrpc: '2.0', id: 'x', result: { ok: true } })
       };
       const protocolAdapters = {
-        createAdapter: vi.fn().mockResolvedValue(adapter)
+        createAdapter: vi.fn().mockResolvedValue(adapter),
+        releaseAdapter: vi.fn()
       } as any;
 
       const ctx = {
@@ -177,7 +178,8 @@ describe('Routes middleware pipeline integration', () => {
         sendAndReceive: vi.fn().mockResolvedValue({ jsonrpc: '2.0', id: 'x', error: { message: 'boom' } })
       };
       const protocolAdapters = {
-        createAdapter: vi.fn().mockResolvedValue(adapter)
+        createAdapter: vi.fn().mockResolvedValue(adapter),
+        releaseAdapter: vi.fn()
       } as any;
 
       const ctx = {

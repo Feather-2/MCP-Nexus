@@ -27,7 +27,7 @@ const {
     sendAndReceive: vi.fn().mockResolvedValue({ jsonrpc: '2.0', id: 'x', result: { content: 'hello' } }),
     isConnected: vi.fn().mockReturnValue(true)
   };
-  const adaptersStub = { createAdapter: vi.fn().mockResolvedValue(mockAdapter) };
+  const adaptersStub = { createAdapter: vi.fn().mockResolvedValue(mockAdapter), releaseAdapter: vi.fn() };
   return {
     mockStaticPlugin: vi.fn((_instance: any, _opts: any, done?: (err?: Error) => void) => done?.()),
     mockCorsPlugin: vi.fn((_instance: any, _opts: any, done?: (err?: Error) => void) => done?.()),

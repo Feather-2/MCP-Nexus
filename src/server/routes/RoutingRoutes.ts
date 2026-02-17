@@ -190,7 +190,7 @@ export class RoutingRoutes extends BaseRouteHandler {
           } catch { /* ignored */ }
           reply.send(response);
         } finally {
-          await adapter.disconnect();
+          this.ctx.protocolAdapters.releaseAdapter(service.config, adapter);
         }
       } catch (error) {
         try { this.ctx.serviceRegistry.reportHeartbeat(serviceId, { healthy: false, error: (error as Error)?.message || 'proxy failed' }); } catch {}
@@ -238,7 +238,7 @@ export class RoutingRoutes extends BaseRouteHandler {
           const response = await (sr?.(mcpMessage) ?? adapter.send(mcpMessage));
           reply.send(response);
         } finally {
-          await adapter.disconnect();
+          this.ctx.protocolAdapters.releaseAdapter(service.config, adapter);
         }
       } catch (error) {
         return this.respondError(reply, 500, error instanceof Error ? error.message : 'MCP request failed', { code: 'MCP_ERROR' });

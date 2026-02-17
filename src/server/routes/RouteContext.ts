@@ -13,6 +13,8 @@ import type { Middleware } from '../../middleware/types.js';
 import { MiddlewareChain } from '../../middleware/chain.js';
 import type { InstancePersistence } from '../../gateway/InstancePersistence.js';
 import type { DeploymentPolicy } from '../../security/DeploymentPolicy.js';
+import type { ToolListCache } from '../../gateway/ToolListCache.js';
+import type { AdapterPool } from '../../adapters/AdapterPool.js';
 
 /**
  * Context shared across all route handlers
@@ -36,6 +38,8 @@ export interface RouteContext {
   eventBus?: EventBus;
   instancePersistence?: InstancePersistence;
   deploymentPolicy?: DeploymentPolicy;
+  toolListCache?: ToolListCache;
+  adapterPool?: AdapterPool;
 
   // Shared state
   logBuffer: Array<{ timestamp: string; level: string; message: string; service?: string; data?: unknown }>;
