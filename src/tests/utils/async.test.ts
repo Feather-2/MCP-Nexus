@@ -1,4 +1,4 @@
-import { sleep, sleepBackoff, retry, withTimeout } from '../../utils/async.js';
+import { sleep, sleepBackoff, retry, withTimeout, unrefTimer } from '../../utils/async.js';
 
 describe('async utilities', () => {
   describe('sleep', () => {
@@ -75,6 +75,19 @@ describe('async utilities', () => {
     it('uses default error message', async () => {
       const fn = () => new Promise<never>(() => {});
       await expect(withTimeout(fn, 50)).rejects.toThrow('Operation timed out');
+    });
+  });
+
+  describe('unrefTimer', () => {
+    it('calls unref on a timer with unref method', () => {
+      const timer = setInterval(() => {}, 10000);
+      expect(() => unrefTimer(timer)).not.toThrow();
+      clearInterval(timer);
+    });
+
+    it('does not throw for objects without unref', () => {
+      const fakeTimer = { ref: () => {} } as unknown as ReturnType<typeof setInterval>;
+      expect(() => unrefTimer(fakeTimer)).not.toThrow();
     });
   });
 });

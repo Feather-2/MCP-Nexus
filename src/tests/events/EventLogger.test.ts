@@ -148,6 +148,82 @@ describeMaybe('EventLogger', () => {
       cleanupSqliteFiles(dbPath);
     }
   });
+
+  it('enriches payload with runId, stage, component, metadata', () => {
+    const dbPath = `/tmp/test-event-log-${randomUUID()}.db`;
+    cleanupSqliteFiles(dbPath);
+
+    const logger = new EventLogger({ dbPath });
+    try {
+      logger.log({
+        type: 'orchestrator:execute:end',
+        runId: 'run-123',
+        stage: 'orchestrator',
+        component: 'OrchestratorEngine',
+        metadata: { region: 'us-east' },
+        payload: { success: true, durationMs: 500 }
+      });
+
+      const rows = logger.query({ type: 'orchestrator:execute:end', limit: 1 });
+      expect(rows).toHaveLength(1);
+      const payload = rows[0]?.payload as Record<string, unknown>;
+      expect(payload.success).toBe(true);
+      expect(payload.durationMs).toBe(500);
+      expect(payload.runId).toBe('run-123');
+      expect(payload.stage).toBe('orchestrator');
+      expect(payload.component).toBe('OrchestratorEngine');
+      expect(payload.metadata).toEqual({ region: 'us-east' });
+    } finally {
+      logger.close();
+      cleanupSqliteFiles(dbPath);
+    }
+  });
+
+  it('enriches non-object payload by wrapping in _payload', () => {
+    const dbPath = `/tmp/test-event-log-${randomUUID()}.db`;
+    cleanupSqliteFiles(dbPath);
+
+    const logger = new EventLogger({ dbPath });
+    try {
+      logger.log({
+        type: 'test:string-payload',
+        runId: 'run-456',
+        payload: 'simple string'
+      });
+
+      const rows = logger.query({ type: 'test:string-payload', limit: 1 });
+      expect(rows).toHaveLength(1);
+      const payload = rows[0]?.payload as Record<string, unknown>;
+      expect(payload._payload).toBe('simple string');
+      expect(payload.runId).toBe('run-456');
+    } finally {
+      logger.close();
+      cleanupSqliteFiles(dbPath);
+    }
+  });
+
+  it('enriches undefined payload preserving only metadata fields', () => {
+    const dbPath = `/tmp/test-event-log-${randomUUID()}.db`;
+    cleanupSqliteFiles(dbPath);
+
+    const logger = new EventLogger({ dbPath });
+    try {
+      logger.log({
+        type: 'test:no-payload',
+        runId: 'run-789',
+        stage: 'test'
+      });
+
+      const rows = logger.query({ type: 'test:no-payload', limit: 1 });
+      expect(rows).toHaveLength(1);
+      const payload = rows[0]?.payload as Record<string, unknown>;
+      expect(payload.runId).toBe('run-789');
+      expect(payload.stage).toBe('test');
+    } finally {
+      logger.close();
+      cleanupSqliteFiles(dbPath);
+    }
+  });
 });
 
 describe('EventLogger fallback', () => {

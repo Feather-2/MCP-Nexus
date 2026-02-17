@@ -158,6 +158,10 @@ export class MonitoringRoutes extends BaseRouteHandler {
           running: services.filter(s => s.state === 'running').length,
           stopped: services.filter(s => s.state === 'stopped').length,
           error: services.filter(s => s.state === 'error').length
+        },
+        infrastructure: {
+          adapterPool: this.ctx.adapterPool?.getStats() ?? { size: 0, maxSize: 0 },
+          toolListCache: this.ctx.toolListCache?.getStats() ?? { size: 0, hits: 0, misses: 0, hitRate: 0 }
         }
       };
 
