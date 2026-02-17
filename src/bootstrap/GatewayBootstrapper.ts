@@ -7,7 +7,9 @@ import type {
   ServiceTemplate
 } from '../types/index.js';
 import { ConfigManagerImpl } from '../config/ConfigManagerImpl.js';
+import { AdapterPool } from '../adapters/AdapterPool.js';
 import { ProtocolAdaptersImpl } from '../adapters/ProtocolAdaptersImpl.js';
+import { ToolListCache } from '../gateway/ToolListCache.js';
 import { ServiceRegistryImpl } from '../gateway/ServiceRegistryImpl.js';
 import { AuthenticationLayerImpl } from '../auth/AuthenticationLayerImpl.js';
 import { GatewayRouterImpl } from '../routing/GatewayRouterImpl.js';
@@ -31,6 +33,8 @@ export type GatewayRuntime = {
   httpServer: HttpApiServer;
   instancePersistence: InstancePersistence;
   deploymentPolicy: DeploymentPolicy;
+  toolListCache: ToolListCache;
+  adapterPool: AdapterPool;
 };
 
 export type GatewayBootstrapStartResult = {
@@ -96,10 +100,14 @@ export class GatewayBootstrapper {
 
     this.applyTemplatesDirEnv(configPath, logger);
 
-    this.registerDefaults();
+    const adapterPool = new AdapterPool(logger);
+
+    this.registerDefaults(adapterPool);
 
     const configManager = this.container.resolve<ConfigManagerImpl>(TOKENS.configManager);
     this.config = configManager.getConfig();
+    const deploymentPolicy = new DeploymentPolicy(logger);
+    const toolListCache = new ToolListCache(logger);
 
     const runtime: GatewayRuntime = {
       logger,
@@ -111,7 +119,9 @@ export class GatewayBootstrapper {
       router: this.container.resolve<GatewayRouterImpl>(TOKENS.router),
       httpServer: this.container.resolve<HttpApiServer>(TOKENS.httpServer),
       instancePersistence: new InstancePersistence(logger),
-      deploymentPolicy: new DeploymentPolicy(logger),
+      deploymentPolicy,
+      toolListCache,
+      adapterPool,
     };
 
     // Core wiring
@@ -243,6 +253,9 @@ export class GatewayBootstrapper {
       await runtime.serviceRegistry.stopService(service.id);
     }
 
+    runtime.toolListCache.shutdown();
+    await runtime.adapterPool.shutdown();
+
     runtime.logger.info('PB MCP Nexus stopped successfully');
     await shutdownOpenTelemetry(runtime.logger);
   }
@@ -256,7 +269,7 @@ export class GatewayBootstrapper {
     }
   }
 
-  private registerDefaults(): void {
+  private registerDefaults(adapterPool: AdapterPool): void {
     if (!this.container.has(TOKENS.configManager)) {
       this.container.singleton(TOKENS.configManager, (c) => {
         const configPath = c.resolve<string>(TOKENS.configPath);
@@ -276,7 +289,7 @@ export class GatewayBootstrapper {
     if (!this.container.has(TOKENS.protocolAdapters)) {
       this.container.singleton(TOKENS.protocolAdapters, (c) => {
         const logger = c.resolve<Logger>(TOKENS.logger);
-        return new ProtocolAdaptersImpl(logger, () => this.getCurrentConfig());
+        return new ProtocolAdaptersImpl(logger, () => this.getCurrentConfig(), adapterPool);
       });
     }
 

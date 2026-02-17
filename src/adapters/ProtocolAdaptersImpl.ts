@@ -10,11 +10,16 @@ import { StdioTransportAdapter } from './StdioTransportAdapter.js';
 import { HttpTransportAdapter } from './HttpTransportAdapter.js';
 import { StreamableHttpAdapter } from './StreamableHttpAdapter.js';
 import { ContainerTransportAdapter } from './ContainerTransportAdapter.js';
+import { AdapterPool } from './AdapterPool.js';
 import { applyGatewaySandboxPolicy } from '../security/SandboxPolicy.js';
 import { resolveMcpServiceConfigEnvRefs } from '../security/secrets.js';
 
 export class ProtocolAdaptersImpl implements ProtocolAdapters {
-  constructor(private logger: Logger, private getGatewayConfig?: () => GatewayConfig) {}
+  constructor(
+    private logger: Logger,
+    private getGatewayConfig?: () => GatewayConfig,
+    private adapterPool?: AdapterPool
+  ) {}
 
   private prepareConfig(config: McpServiceConfig): { enforced: ReturnType<typeof applyGatewaySandboxPolicy>; effective: McpServiceConfig } {
     const gwConfig = this.getGatewayConfig?.();
@@ -166,7 +171,21 @@ export class ProtocolAdaptersImpl implements ProtocolAdapters {
 
   // Factory method to create appropriate adapter based on config
   async createAdapter(config: McpServiceConfig): Promise<TransportAdapter> {
+    if (this.adapterPool) {
+      const cached = this.adapterPool.get(config.name);
+      if (cached) {
+        this.logger.debug(`Reusing pooled adapter for ${config.name}`);
+        return cached;
+      }
+    }
+
     const prepared = this.prepareConfig(config);
     return this.createAdapterInternal(prepared.effective, prepared.enforced);
+  }
+
+  releaseAdapter(config: McpServiceConfig, adapter: TransportAdapter): void {
+    if (this.adapterPool) {
+      this.adapterPool.release(config.name, adapter);
+    }
   }
 }

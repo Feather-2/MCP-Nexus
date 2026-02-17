@@ -8,6 +8,7 @@ export class HttpTransportAdapter extends EventEmitter implements TransportAdapt
   private baseUrl: string;
   private connected = false;
   private headers: Record<string, string>;
+  private readonly requestTimeoutMs: number;
 
   constructor(
     private config: McpServiceConfig,
@@ -15,6 +16,7 @@ export class HttpTransportAdapter extends EventEmitter implements TransportAdapt
   ) {
     super();
     this.version = config.version;
+    this.requestTimeoutMs = config.timeout ?? 30_000;
     
     // Extract URL from config - could be in command or a separate url field
     this.baseUrl = this.extractUrlFromConfig(config);
@@ -53,11 +55,15 @@ export class HttpTransportAdapter extends EventEmitter implements TransportAdapt
       return;
     }
 
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+
     try {
       // Test connection with a simple HTTP request
       const testResponse = await fetch(this.baseUrl, {
         method: 'OPTIONS',
-        headers: this.headers
+        headers: this.headers,
+        signal: controller.signal
       });
 
       if (!testResponse.ok && testResponse.status !== 404) {
@@ -68,8 +74,15 @@ export class HttpTransportAdapter extends EventEmitter implements TransportAdapt
       this.connected = true;
       this.logger.info(`HTTP adapter connected to ${this.baseUrl}`);
     } catch (error) {
+      if ((error as Error).name === 'AbortError') {
+        const timeoutError = new Error(`Request timeout after ${this.requestTimeoutMs}ms to ${this.baseUrl}`, { cause: error });
+        this.logger.error(`Failed to connect HTTP adapter:`, timeoutError);
+        throw timeoutError;
+      }
       this.logger.error(`Failed to connect HTTP adapter:`, error);
       throw error;
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -83,11 +96,15 @@ export class HttpTransportAdapter extends EventEmitter implements TransportAdapt
       throw new Error('Adapter not connected');
     }
 
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+
     try {
       const response = await fetch(this.baseUrl, {
         method: 'POST',
         headers: this.headers,
-        body: JSON.stringify(message)
+        body: JSON.stringify(message),
+        signal: controller.signal
       });
 
       if (!response.ok) {
@@ -96,8 +113,15 @@ export class HttpTransportAdapter extends EventEmitter implements TransportAdapt
 
       this.logger.trace(`Sent HTTP message:`, message);
     } catch (error) {
+      if ((error as Error).name === 'AbortError') {
+        const timeoutError = new Error(`Request timeout after ${this.requestTimeoutMs}ms to ${this.baseUrl}`, { cause: error });
+        this.logger.error(`Failed to send HTTP message:`, timeoutError);
+        throw timeoutError;
+      }
       this.logger.error(`Failed to send HTTP message:`, error);
       throw error;
+    } finally {
+      clearTimeout(timer);
     }
   }
 
