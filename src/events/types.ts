@@ -89,3 +89,61 @@ export interface PersistenceErrorPayload {
     message: string;
   };
 }
+
+// Orchestrator event payloads
+export interface ExecuteStartPayload {
+  goal: string;
+  stepsProvided: number;
+  parallel?: boolean;
+  maxSteps: number;
+  timeoutMs: number;
+}
+
+export interface ExecuteEndPayload {
+  success: boolean;
+  stepsExecuted: number;
+  stepsFailed: number;
+  durationMs: number;
+}
+
+export interface ExecuteErrorPayload {
+  error: string;
+  stepsCompleted: number;
+  durationMs: number;
+}
+
+export interface PlanPayload {
+  goal: string;
+  planSize?: number;
+}
+
+export interface StepStartPayload {
+  stepId: string;
+  tool?: string;
+}
+
+export interface StepEndPayload {
+  stepId: string;
+  durationMs: number;
+  ok: boolean;
+}
+
+export interface StepErrorPayload {
+  stepId: string;
+  error: string;
+  durationMs: number;
+}
+
+export interface LlmCallPayload {
+  operation: string;
+  model?: string;
+  durationMs: number;
+  success: boolean;
+  tokensUsed?: number;
+}
+
+/**
+ * Helper type to extract typed payload from a LoggedEvent.
+ * Usage: const p = event.payload as EventPayload;
+ */
+export type EventPayload = Record<string, unknown>;

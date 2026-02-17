@@ -1,4 +1,5 @@
 import type { Logger } from '../types/index.js';
+import { unrefTimer } from '../utils/async.js';
 
 export interface ToolListCacheOptions {
   ttlMs?: number;
@@ -28,7 +29,7 @@ export class ToolListCache {
 
     const cleanupIntervalMs = opts.cleanupIntervalMs ?? 60_000;
     this.cleanupTimer = setInterval(() => this.cleanup(), cleanupIntervalMs);
-    (this.cleanupTimer as unknown as { unref?: () => void }).unref?.();
+    unrefTimer(this.cleanupTimer);
   }
 
   get(serviceKey: string): unknown[] | null {

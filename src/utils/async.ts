@@ -64,3 +64,13 @@ export function withTimeout<T>(
     )
   ]);
 }
+
+/**
+ * Unref a timer to prevent it from keeping the process alive.
+ * Handles the cross-environment compatibility (Node vs browser).
+ */
+export function unrefTimer(timer: ReturnType<typeof setInterval> | ReturnType<typeof setTimeout>): void {
+  if (timer && typeof (timer as NodeJS.Timeout).unref === 'function') {
+    (timer as NodeJS.Timeout).unref();
+  }
+}

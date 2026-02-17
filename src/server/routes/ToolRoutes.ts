@@ -116,7 +116,7 @@ export class ToolRoutes extends BaseRouteHandler {
             meta: {
               transport: template.transport,
               version: template.version,
-              security: (template as any).security || { trustLevel: 'trusted' },
+              security: (template as Record<string, unknown>).security || { trustLevel: 'trusted' },
               healthCheck: template.healthCheck
             }
           }
@@ -150,7 +150,7 @@ export class ToolRoutes extends BaseRouteHandler {
         requestId: execId,
         startTime,
         metadata: {},
-        sessionId: ((request as any).auth as Record<string, unknown> | undefined)?.context as string | undefined
+        sessionId: ((request as unknown as Record<string, unknown>).auth as Record<string, unknown> | undefined)?.context as string | undefined
       };
       const mwState = {
         stage: 'beforeTool' as const,

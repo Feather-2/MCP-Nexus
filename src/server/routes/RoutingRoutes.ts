@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { RouteRequest, ServiceHealth, HealthCheckResult } from '../../types/index.js';
 import { MiddlewareChain } from '../../middleware/chain.js';
 import { SELECTED_INSTANCE_STATE_KEY } from '../../gateway/load-balancer.middleware.js';
+import { unrefTimer } from '../../utils/async.js';
 
 interface _RouteRequestBody {
   method: string;
@@ -260,7 +261,7 @@ export class RoutingRoutes extends BaseRouteHandler {
       const heartbeat = setInterval(() => {
         try { reply.raw.write(': heartbeat\n\n'); } catch { clearInterval(heartbeat); }
       }, 30_000);
-      (heartbeat as unknown as { unref?: () => void }).unref?.();
+      unrefTimer(heartbeat);
 
       const cleanup = () => {
         clearInterval(heartbeat);

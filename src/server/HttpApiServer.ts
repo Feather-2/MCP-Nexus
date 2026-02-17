@@ -47,6 +47,7 @@ import {
   MiddlewareAbortedError,
   MiddlewareStageError
 } from '../middleware/chain.js';
+import { unrefTimer } from '../utils/async.js';
 import { AuthMiddleware } from '../middleware/AuthMiddleware.js';
 import { RateLimitMiddleware } from '../middleware/RateLimitMiddleware.js';
 import { setupObservabilityHooks } from './ObservabilityHooks.js';
@@ -228,7 +229,7 @@ export class HttpApiServer {
 
       this.addLogEntry(level, message, service);
     }, 3000 + Math.random() * 7000); // Random interval between 3-10 seconds
-    (this.demoLogTimer as unknown as { unref?: () => void }).unref?.();
+    unrefTimer(this.demoLogTimer);
 
     // Periodic cleanup of disconnected SSE clients
     this.sseCleanupTimer = setInterval(() => {
@@ -247,7 +248,7 @@ export class HttpApiServer {
         }
       } catch {}
     }, 30000);
-    (this.sseCleanupTimer as unknown as { unref?: () => void }).unref?.();
+    unrefTimer(this.sseCleanupTimer);
   }
 
   private setupApiVersioning(): void {

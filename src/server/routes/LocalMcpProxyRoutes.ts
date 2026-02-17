@@ -2,6 +2,7 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseRouteHandler, RouteContext } from './RouteContext.js';
 import { randomBytes, createHash, createHmac, pbkdf2Sync, scryptSync, randomUUID } from 'crypto';
 import { z } from 'zod';
+import { unrefTimer } from '../../utils/async.js';
 
 /**
  * Local MCP Proxy routes for secure browser-based MCP access
@@ -40,10 +41,10 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
     super(ctx);
     this.rotateVerificationCode();
     this.codeRotationTimer = setInterval(() => this.rotateVerificationCode(), this.codeRotationMs);
-    (this.codeRotationTimer as unknown as { unref?: () => void }).unref?.();
+    unrefTimer(this.codeRotationTimer);
     // Periodic cleanup to prevent rateCounters memory leak
     this.rateCleanupTimer = setInterval(() => this.cleanupRateCounters(), LocalMcpProxyRoutes.RATE_CLEANUP_INTERVAL_MS);
-    (this.rateCleanupTimer as unknown as { unref?: () => void }).unref?.();
+    unrefTimer(this.rateCleanupTimer);
   }
 
   setupRoutes(): void {

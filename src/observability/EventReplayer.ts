@@ -35,8 +35,8 @@ export class EventReplayer {
     // 按 runId 过滤（从 payload 或 metadata 中读取）
     const filtered = options?.filters?.runId
       ? ascending.filter((e) => {
-          const payload = e.payload as any;
-          return payload?.runId === options.filters!.runId || (e as any).metadata?.runId === options.filters!.runId;
+          const payload = e.payload as Record<string, unknown> | undefined;
+          return payload?.runId === options.filters!.runId || e.runId === options.filters!.runId;
         })
       : ascending;
 

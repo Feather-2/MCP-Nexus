@@ -1,4 +1,5 @@
 import type { TransportAdapter, Logger } from '../types/index.js';
+import { unrefTimer } from '../utils/async.js';
 
 export interface AdapterPoolOptions {
   maxSize?: number;
@@ -26,7 +27,7 @@ export class AdapterPool {
 
     const cleanupIntervalMs = opts.cleanupIntervalMs ?? 60_000;
     this.cleanupTimer = setInterval(() => this.cleanup(), cleanupIntervalMs);
-    (this.cleanupTimer as unknown as { unref?: () => void }).unref?.();
+    unrefTimer(this.cleanupTimer);
   }
 
   get(key: string): TransportAdapter | null {

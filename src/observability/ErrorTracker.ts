@@ -19,12 +19,12 @@ export class ErrorTracker {
 
     const events = this.logger.query({ limit: 1000 });
     const errorEvents = events.filter((e) => {
-      const payload = e.payload as any;
+      const payload = e.payload as Record<string, unknown> | undefined;
       return payload?.error || payload?.errorEnvelope;
     });
 
     const filtered = errorEvents.filter((e) => {
-      const payload = e.payload as any;
+      const payload = e.payload as Record<string, unknown> | undefined;
       return payload?.runId === runId;
     });
     return this.groupByFingerprint(filtered);
@@ -44,7 +44,7 @@ export class ErrorTracker {
 
     const events = this.logger.query({ limit: 1000 });
     const errorEvents = events.filter((e) => {
-      const payload = e.payload as any;
+      const payload = e.payload as Record<string, unknown> | undefined;
       const envelope = payload?.errorEnvelope as ErrorEnvelope | undefined;
       return envelope?.fingerprint === fingerprint;
     });
@@ -56,7 +56,7 @@ export class ErrorTracker {
     const groups = new Map<string, LoggedEvent[]>();
 
     for (const event of events) {
-      const payload = event.payload as any;
+      const payload = event.payload as Record<string, unknown> | undefined;
       const envelope = payload?.errorEnvelope as ErrorEnvelope | undefined;
       const fingerprint = envelope?.fingerprint || 'unknown';
 
@@ -78,7 +78,7 @@ export class ErrorTracker {
 
     const causeChain: ErrorEnvelope[] = [];
     if (first) {
-      const payload = first.payload as any;
+      const payload = first.payload as Record<string, unknown> | undefined;
       const envelope = payload?.errorEnvelope as ErrorEnvelope | undefined;
       if (envelope) {
         this.extractCauseChain(envelope, causeChain);
@@ -86,7 +86,7 @@ export class ErrorTracker {
     }
 
     return {
-      runId: first ? (first.payload as any)?.runId : undefined,
+      runId: first ? ((first.payload as Record<string, unknown> | undefined)?.runId as string | undefined) : undefined,
       fingerprint,
       occurrences: events.length,
       firstSeen: first?.timestamp || new Date(),

@@ -31,7 +31,7 @@ export class PerformanceAnalyzer {
 
     const events = this.logger.query({ limit: 1000 });
     const runEvents = events.filter((e) => {
-      const payload = e.payload as any;
+      const payload = e.payload as Record<string, unknown> | undefined;
       return payload?.runId === runId;
     });
 
@@ -40,9 +40,9 @@ export class PerformanceAnalyzer {
     const executeEnd = runEvents.find((e) => e.type === OrchestratorEvents.EXECUTE_END);
     if (!executeEnd) return null;
 
-    const payload = executeEnd.payload as any;
-    const totalDurationMs = payload.durationMs || 0;
-    const stepsExecuted = payload.stepsExecuted || 0;
+    const payload = executeEnd.payload as Record<string, unknown> | undefined;
+    const totalDurationMs = (payload?.durationMs as number) || 0;
+    const stepsExecuted = (payload?.stepsExecuted as number) || 0;
 
     const stepMetrics = this.extractStepMetrics(runEvents, totalDurationMs);
     const llmMetrics = this.extractLlmMetrics(runEvents);
@@ -61,10 +61,10 @@ export class PerformanceAnalyzer {
     const stepEnds = events.filter((e) => e.type === OrchestratorEvents.STEP_END);
 
     const metrics: StepMetric[] = stepEnds.map((e) => {
-      const payload = e.payload as any;
-      const durationMs = payload.durationMs || 0;
+      const payload = e.payload as Record<string, unknown> | undefined;
+      const durationMs = (payload?.durationMs as number) || 0;
       return {
-        stepId: payload.stepId || 'unknown',
+        stepId: (payload?.stepId as string) || 'unknown',
         durationMs,
         percentage: totalDurationMs > 0 ? (durationMs / totalDurationMs) * 100 : 0
       };
@@ -79,12 +79,12 @@ export class PerformanceAnalyzer {
     const llmEvents = events.filter((e) => e.type === 'aiauditor:llm:call');
 
     return llmEvents.map((e) => {
-      const payload = e.payload as any;
+      const payload = e.payload as Record<string, unknown> | undefined;
       return {
-        operation: payload.operation || 'unknown',
-        model: payload.model,
-        durationMs: payload.durationMs || 0,
-        success: payload.success ?? true
+        operation: (payload?.operation as string) || 'unknown',
+        model: payload?.model as string | undefined,
+        durationMs: (payload?.durationMs as number) || 0,
+        success: (payload?.success as boolean) ?? true
       };
     });
   }

@@ -123,10 +123,10 @@ export class PrometheusExporter {
     });
 
     eventBus.subscribe('orchestrator:execute:end', (event) => {
-      const payload = event.payload as any;
+      const payload = event.payload as Record<string, unknown> | undefined;
       this.executeTotal.inc();
-      if (payload.success) this.executeSuccess.inc();
-      if (payload.durationMs) this.executeDuration.observe(payload.durationMs);
+      if (payload?.success) this.executeSuccess.inc();
+      if (payload?.durationMs) this.executeDuration.observe(payload.durationMs as number);
       this.concurrentExecutions.dec();
     });
 

@@ -224,6 +224,17 @@ export class EventLogger {
     return Boolean(this.db);
   }
 
+  private enrichPayload(event: Event): unknown {
+    const base = (event.payload && typeof event.payload === 'object' && !Array.isArray(event.payload))
+      ? { ...(event.payload as Record<string, unknown>) }
+      : { _payload: event.payload } as Record<string, unknown>;
+    if (event.runId) base.runId = event.runId;
+    if (event.stage) base.stage = event.stage;
+    if (event.component) base.component = event.component;
+    if (event.metadata) base.metadata = event.metadata;
+    return base;
+  }
+
   log(event: Event): boolean {
     if (!this.stmtInsert) return false;
     if (!event?.type) return false;
@@ -235,7 +246,7 @@ export class EventLogger {
       version: normalizeVersion(event.version),
       timestamp: normalizeDateToEpochMs(event.timestamp, nowMs),
       session_id: event.sessionId ?? null,
-      payload_json: serializePayload(event.payload),
+      payload_json: serializePayload(this.enrichPayload(event)),
       created_at: nowMs
     };
 
