@@ -85,6 +85,10 @@ export class MonitoringRoutes extends BaseRouteHandler {
         const routerMetrics = this.ctx.router.getMetrics();
         const registryStats = await this.ctx.serviceRegistry.getRegistryStats();
         this.updatePrometheusMetrics(routerMetrics, registryStats);
+        this.prometheusExporter.updateInfrastructureMetrics({
+          adapterPool: this.ctx.adapterPool?.getStats(),
+          toolListCache: this.ctx.toolListCache?.getStats(),
+        });
 
         const gatewayMetrics = await this.metricsRegistry.metrics();
         const observabilityMetrics = await this.prometheusExporter.getMetrics();

@@ -160,4 +160,132 @@ describe('LocalMcpProxyRoutes - input validation and flow', () => {
     expect(list.success).toBe(true);
     expect(Array.isArray(list.tools)).toBe(true);
   });
+
+  describe('POST /handshake/refresh', () => {
+    const origin = 'http://localhost';
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    async function performHandshake() {
+      const codeRes = await (server as any).server.inject({ method: 'GET', url: '/local-proxy/code' });
+      const { code } = codeRes.json();
+      const clientNonce = 'client-nonce';
+      const codeProof = crypto.createHash('sha256').update(`${code}|${origin}|${clientNonce}`).digest('hex');
+
+      const initRes = await (server as any).server.inject({
+        method: 'POST',
+        url: '/handshake/init',
+        headers: { Origin: origin },
+        payload: { clientNonce, codeProof }
+      });
+      const { handshakeId, serverNonce } = initRes.json();
+
+      await (server as any).server.inject({
+        method: 'POST',
+        url: '/handshake/approve',
+        payload: { handshakeId, approve: true }
+      });
+
+      const key = crypto.pbkdf2Sync(code, Buffer.from(serverNonce, 'base64'), 200_000, 32, 'sha256');
+      const data = `${origin}|${clientNonce}|${handshakeId}`;
+      const response = crypto.createHmac('sha256', key).update(data).digest('base64');
+
+      const confirmRes = await (server as any).server.inject({
+        method: 'POST',
+        url: '/handshake/confirm',
+        headers: { Origin: origin },
+        payload: { handshakeId, response }
+      });
+      return confirmRes.json().token as string;
+    }
+
+    it('successfully refreshes valid token', async () => {
+      const token = await performHandshake();
+
+      const res = await (server as any).server.inject({
+        method: 'POST',
+        url: '/handshake/refresh',
+        headers: { Origin: origin, Authorization: `LocalMCP ${token}` }
+      });
+
+      expect(res.statusCode).toBe(200);
+      const json = res.json();
+      expect(json.success).toBe(true);
+      expect(json.token).toBeTruthy();
+      expect(json.token).not.toBe(token);
+      expect(json.expiresIn).toBe(600);
+
+      // Old token should be invalidated
+      const oldTokenRes = await (server as any).server.inject({
+        method: 'POST',
+        url: '/handshake/refresh',
+        headers: { Origin: origin, Authorization: `LocalMCP ${token}` }
+      });
+      expect(oldTokenRes.statusCode).toBe(401);
+      expect(oldTokenRes.json().error.code).toBe('INVALID_TOKEN');
+    });
+
+    it('rejects refresh with expired token', async () => {
+      const token = await performHandshake();
+
+      // Enable fake timers after handshake completes
+      vi.useFakeTimers();
+      vi.setSystemTime(Date.now() + 11 * 60 * 1000);
+
+      const res = await (server as any).server.inject({
+        method: 'POST',
+        url: '/handshake/refresh',
+        headers: { Origin: origin, Authorization: `LocalMCP ${token}` }
+      });
+
+      expect(res.statusCode).toBe(401);
+      const json = res.json();
+      expect(json.success).toBe(false);
+      expect(json.error.code).toBe('TOKEN_EXPIRED');
+    });
+
+    it('rejects refresh without Authorization header', async () => {
+      const res = await (server as any).server.inject({
+        method: 'POST',
+        url: '/handshake/refresh',
+        headers: { Origin: origin }
+      });
+
+      expect(res.statusCode).toBe(401);
+      const json = res.json();
+      expect(json.success).toBe(false);
+      expect(json.error.code).toBe('UNAUTHORIZED');
+    });
+
+    it('rejects refresh with invalid token', async () => {
+      const res = await (server as any).server.inject({
+        method: 'POST',
+        url: '/handshake/refresh',
+        headers: { Origin: origin, Authorization: 'LocalMCP invalid-token-xyz' }
+      });
+
+      expect(res.statusCode).toBe(401);
+      const json = res.json();
+      expect(json.success).toBe(false);
+      expect(json.error.code).toBe('INVALID_TOKEN');
+    });
+
+    it('rejects refresh with wrong origin', async () => {
+      const token = await performHandshake();
+      const wrongOrigin = 'http://localhost:9999';
+
+      const res = await (server as any).server.inject({
+        method: 'POST',
+        url: '/handshake/refresh',
+        headers: { Origin: wrongOrigin, Authorization: `LocalMCP ${token}` }
+      });
+
+      expect(res.statusCode).toBe(403);
+      const json = res.json();
+      expect(json.success).toBe(false);
+      expect(json.error.code).toBe('ORIGIN_MISMATCH');
+    });
+  });
 });
