@@ -10,10 +10,10 @@ export interface SecurityConfig {
 }
 
 const DEFAULT_SENSITIVE_PATTERNS = [
-  /sk-[a-zA-Z0-9]{48}/g,                 // OpenAI API Keys
-  /ghp_[a-zA-Z0-9]{36}/g,                // GitHub Tokens
-  /xox[baprs]-[a-zA-Z0-9-]+/g,           // Slack Tokens
-  /[0-9]{4}-[0-9]{4}-[0-9]{4}-[0-9]{4}/g // Credit Cards (simple)
+  /sk-[a-zA-Z0-9]{48}/,                 // OpenAI API Keys
+  /ghp_[a-zA-Z0-9]{36}/,                // GitHub Tokens
+  /xox[baprs]-[a-zA-Z0-9-]+/,           // Slack Tokens
+  /[0-9]{4}-[0-9]{4}-[0-9]{4}-[0-9]{4}/ // Credit Cards (simple)
 ];
 
 const DEFAULT_BANNED_ARGS = [
@@ -74,11 +74,12 @@ export class SecurityMiddleware implements Middleware {
     // 3. 敏感信息脱敏 (Secret Redaction)
     let sanitized = result.content;
     for (const pattern of this.config.sensitivePatterns) {
-      sanitized = sanitized.replace(pattern, (match: string) => {
+      const globalPattern = new RegExp(pattern.source, pattern.flags + 'g');
+      sanitized = sanitized.replace(globalPattern, (match: string) => {
         return `${match.slice(0, 4)}****${match.slice(-4)}`;
       });
     }
-    
+
     if (sanitized !== result.content) {
       ctx.metadata.redacted = true;
       result.content = sanitized;

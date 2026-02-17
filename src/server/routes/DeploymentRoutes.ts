@@ -48,7 +48,6 @@ export class DeploymentRoutes extends BaseRouteHandler {
       }
 
       try {
-        this.ctx.deploymentPolicy.setAuthorizationMode('api');
         const resolver = new GitHubPackageResolver(this.ctx.logger, this.ctx.deploymentPolicy);
         const resolved = await resolver.resolve(body.source);
         reply.send({ success: true, package: resolved });
@@ -72,7 +71,6 @@ export class DeploymentRoutes extends BaseRouteHandler {
       }
 
       try {
-        this.ctx.deploymentPolicy.setAuthorizationMode('api');
         const installer = new SandboxPackageInstaller(this.ctx.logger, this.ctx.deploymentPolicy);
         const result = await installer.install(body.packageSpec, { timeout: body.timeout });
         if (!result.success) {

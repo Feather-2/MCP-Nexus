@@ -431,11 +431,17 @@ export class ToolRoutes extends BaseRouteHandler {
             ? sr(msg)
             : adapter.send(msg);
 
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error(`Execution timeout after ${timeoutMs}ms`)), timeoutMs)
-          );
+          let timeoutId: ReturnType<typeof setTimeout>;
+          const timeoutPromise = new Promise((_, reject) => {
+            timeoutId = setTimeout(() => reject(new Error(`Execution timeout after ${timeoutMs}ms`)), timeoutMs);
+          });
 
-          const res = await Promise.race([execPromise, timeoutPromise]) as Record<string, unknown> | undefined;
+          let res: Record<string, unknown> | undefined;
+          try {
+            res = await Promise.race([execPromise, timeoutPromise]) as Record<string, unknown> | undefined;
+          } finally {
+            clearTimeout(timeoutId!);
+          }
 
           if (res?.error) {
             throw new Error((res.error as Record<string, unknown>)?.message as string || 'Tool execution error');

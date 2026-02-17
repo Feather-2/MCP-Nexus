@@ -336,7 +336,14 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
       return null;
     }
     // Basic validation: must be http://localhost or http://127.0.0.1
-    if (!origin.startsWith('http://localhost') && !origin.startsWith('http://127.0.0.1')) {
+    let hostname: string;
+    try {
+      hostname = new URL(origin).hostname;
+    } catch {
+      this.respondError(reply, 403, 'Invalid origin', { code: 'FORBIDDEN', recoverable: true });
+      return null;
+    }
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
       this.respondError(reply, 403, 'Invalid origin', { code: 'FORBIDDEN', recoverable: true });
       return null;
     }

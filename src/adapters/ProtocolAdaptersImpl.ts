@@ -109,7 +109,6 @@ export class ProtocolAdaptersImpl implements ProtocolAdapters {
     try {
       await adapter.connect();
 
-      // Send a test message to validate protocol compatibility
       const testMessage = {
         jsonrpc: '2.0' as const,
         id: 'protocol-test',
@@ -125,20 +124,25 @@ export class ProtocolAdaptersImpl implements ProtocolAdapters {
       };
 
       await adapter.send(testMessage);
-      const response = await Promise.race([
-        adapter.receive(),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Protocol validation timeout')), 5000)
-        )
-      ]);
+      let timeoutId: ReturnType<typeof setTimeout>;
+      let response: unknown;
+      try {
+        response = await Promise.race([
+          adapter.receive(),
+          new Promise((_, reject) => {
+            timeoutId = setTimeout(() => reject(new Error('Protocol validation timeout')), 5000);
+          })
+        ]);
+      } finally {
+        clearTimeout(timeoutId!);
+      }
 
-      await adapter.disconnect();
-
-      // Check if response is valid MCP format
       return this.isValidMcpResponse(response);
     } catch (error) {
       this.logger.warn(`Protocol validation failed:`, error);
       return false;
+    } finally {
+      try { await adapter.disconnect(); } catch {}
     }
   }
 

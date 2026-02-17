@@ -109,7 +109,7 @@ describe('DeploymentRoutes', () => {
 
     const res = await server.inject({ method: 'POST', url: '/api/deploy/resolve', payload: { source: 'demo-package' } });
     expect(res.statusCode).toBe(200);
-    expect(policy.setAuthorizationMode).toHaveBeenCalledWith('api');
+    expect(policy.setAuthorizationMode).not.toHaveBeenCalled();
     expect(resolveMock).toHaveBeenCalledWith('demo-package');
     expect(res.json().success).toBe(true);
   });
@@ -121,7 +121,7 @@ describe('DeploymentRoutes', () => {
 
     const res = await server.inject({ method: 'POST', url: '/api/deploy/install', payload: { packageSpec: 'demo@1.0.0' } });
     expect(res.statusCode).toBe(400);
-    expect(policy.setAuthorizationMode).toHaveBeenCalledWith('api');
+    expect(policy.setAuthorizationMode).not.toHaveBeenCalled();
     expect(res.json().error.code).toBe('INSTALL_FAILED');
     expect(res.json().error.message).toContain('install failed');
   });

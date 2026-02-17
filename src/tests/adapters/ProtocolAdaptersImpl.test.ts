@@ -169,7 +169,7 @@ describe('ProtocolAdaptersImpl', () => {
 
       await expect(promise).resolves.toBe(false);
       expect(logger.warn).toHaveBeenCalledWith('Protocol validation failed:', expect.any(Error));
-      expect(adapter.disconnect).not.toHaveBeenCalled();
+      expect(adapter.disconnect).toHaveBeenCalled();
     });
   });
 
