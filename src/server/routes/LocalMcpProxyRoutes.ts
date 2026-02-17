@@ -36,6 +36,7 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
   private tokenStore = new Map<string, { origin: string; expiresAt: number }>();
   private rateCounters = new Map<string, number[]>();
   private rateCleanupTimer?: ReturnType<typeof setInterval>;
+  private entryCleanupTimer?: ReturnType<typeof setInterval>;
 
   constructor(ctx: RouteContext) {
     super(ctx);
@@ -45,6 +46,8 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
     // Periodic cleanup to prevent rateCounters memory leak
     this.rateCleanupTimer = setInterval(() => this.cleanupRateCounters(), LocalMcpProxyRoutes.RATE_CLEANUP_INTERVAL_MS);
     unrefTimer(this.rateCleanupTimer);
+    this.entryCleanupTimer = setInterval(() => this.cleanupExpiredEntries(), LocalMcpProxyRoutes.RATE_CLEANUP_INTERVAL_MS);
+    unrefTimer(this.entryCleanupTimer);
   }
 
   setupRoutes(): void {
@@ -365,12 +368,29 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
     }
   }
 
+  private cleanupExpiredEntries(): void {
+    const now = Date.now();
+    for (const [id, hs] of this.handshakeStore.entries()) {
+      if (now > hs.expiresAt) {
+        this.handshakeStore.delete(id);
+      }
+    }
+    for (const [token, rec] of this.tokenStore.entries()) {
+      if (now > rec.expiresAt) {
+        this.tokenStore.delete(token);
+      }
+    }
+  }
+
   cleanup(): void {
     if (this.codeRotationTimer) {
       clearInterval(this.codeRotationTimer);
     }
     if (this.rateCleanupTimer) {
       clearInterval(this.rateCleanupTimer);
+    }
+    if (this.entryCleanupTimer) {
+      clearInterval(this.entryCleanupTimer);
     }
   }
 }

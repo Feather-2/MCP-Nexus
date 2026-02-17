@@ -49,6 +49,13 @@ export class AdapterPool {
   }
 
   release(key: string, adapter: TransportAdapter): void {
+    // Don't pool adapters that are no longer connected
+    if (!adapter.isConnected()) {
+      this.logger.debug(`Rejecting unhealthy adapter for ${key}`);
+      try { adapter.disconnect(); } catch { /* best effort */ }
+      return;
+    }
+
     const existing = this.pool.get(key);
     const isNewKey = !existing;
 

@@ -18,6 +18,11 @@ export class PrometheusExporter {
   private llmCallDuration: Histogram;
   private llmTokensUsed: Counter;
   private errorsTotal: Counter;
+  private adapterPoolSize: Gauge;
+  private adapterPoolMaxSize: Gauge;
+  private toolCacheSize: Gauge;
+  private toolCacheHits: Counter;
+  private toolCacheMisses: Counter;
 
   constructor() {
     this.registry = new Registry();
@@ -115,6 +120,36 @@ export class PrometheusExporter {
       labelNames: ['category', 'severity', 'recoverable'],
       registers: [this.registry],
     });
+
+    this.adapterPoolSize = new Gauge({
+      name: 'adapter_pool_size',
+      help: 'Current number of pooled adapters',
+      registers: [this.registry],
+    });
+
+    this.adapterPoolMaxSize = new Gauge({
+      name: 'adapter_pool_max_size',
+      help: 'Maximum adapter pool capacity',
+      registers: [this.registry],
+    });
+
+    this.toolCacheSize = new Gauge({
+      name: 'tool_cache_size',
+      help: 'Current number of cached tool lists',
+      registers: [this.registry],
+    });
+
+    this.toolCacheHits = new Counter({
+      name: 'tool_cache_hits_total',
+      help: 'Total tool list cache hits',
+      registers: [this.registry],
+    });
+
+    this.toolCacheMisses = new Counter({
+      name: 'tool_cache_misses_total',
+      help: 'Total tool list cache misses',
+      registers: [this.registry],
+    });
   }
 
   attachToEventBus(eventBus: EventBus): void {
@@ -160,6 +195,23 @@ export class PrometheusExporter {
 
   recordError(category: string, severity: string, recoverable: boolean): void {
     this.errorsTotal.inc({ category, severity, recoverable: String(recoverable) });
+  }
+
+  updateInfrastructureMetrics(stats: {
+    adapterPool?: { size: number; maxSize: number };
+    toolListCache?: { size: number; hits: number; misses: number };
+  }): void {
+    if (stats.adapterPool) {
+      this.adapterPoolSize.set(stats.adapterPool.size);
+      this.adapterPoolMaxSize.set(stats.adapterPool.maxSize);
+    }
+    if (stats.toolListCache) {
+      this.toolCacheSize.set(stats.toolListCache.size);
+      this.toolCacheHits.reset();
+      this.toolCacheHits.inc(stats.toolListCache.hits);
+      this.toolCacheMisses.reset();
+      this.toolCacheMisses.inc(stats.toolListCache.misses);
+    }
   }
 
   async getMetrics(): Promise<string> {
