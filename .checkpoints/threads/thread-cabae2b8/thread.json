@@ -32,6 +32,15 @@
       "contextSizeAtEnd": "~60%",
       "archivedAt": "2026-02-13T00:00:00+08:00",
       "file": null
+    },
+    {
+      "id": "1a877cf0-f9e9-4880-9160-1070530185c8",
+      "name": "架构审计修复: slot RAII + API auth + persistence wiring",
+      "startedAt": "2026-02-16T00:00:00+08:00",
+      "active": true,
+      "contextSizeAtEnd": null,
+      "archivedAt": null,
+      "file": null
     }
   ]
 }
