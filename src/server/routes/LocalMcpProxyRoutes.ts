@@ -373,8 +373,3 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
     }
   }
 }
-
-// Helper type guard to safely use optional sendAndReceive when available
-function hasSendAndReceive(adapter: unknown): adapter is { sendAndReceive: (msg: unknown) => Promise<unknown> } {
-  return !!adapter && typeof (adapter as Record<string, unknown>).sendAndReceive === 'function';
-}

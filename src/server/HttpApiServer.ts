@@ -446,7 +446,7 @@ export class HttpApiServer {
       return reply.type('text/html').sendFile('index.html', staticRoot);
     });
 
-    const spaRoutes = ['/dashboard*', '/services*', '/templates*', '/auth*', '/monitoring*', '/settings*'];
+    const spaRoutes = ['/dashboard*', '/services*', '/templates*', '/auth*', '/monitoring*', '/settings*', '/deployment*', '/performance*'];
     for (const route of spaRoutes) {
       this.server.get(route, async (request, reply) => {
         const indexPath = join(staticRoot, 'index.html');
