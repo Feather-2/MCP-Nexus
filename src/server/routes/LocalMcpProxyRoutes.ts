@@ -187,6 +187,41 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
       }
     });
 
+    // Token refresh - extend session without re-handshake
+    server.post('/handshake/refresh', async (request, reply) => {
+      try {
+        const origin = this.requireAndValidateOrigin(request, reply);
+        if (!origin) return;
+
+        const token = this.extractLocalMcpToken(request);
+        if (!token) return this.respondError(reply, 401, 'Missing Authorization', { code: 'UNAUTHORIZED', recoverable: true });
+
+        // Rate limit per origin (max 10/minute for refresh)
+        if (!this.checkRateLimit(`refresh:${origin}`, 10, 60_000)) {
+          return this.respondError(reply, 429, 'Rate limited', { code: 'RATE_LIMIT', recoverable: true });
+        }
+
+        const rec = this.tokenStore.get(token);
+        if (!rec) return this.respondError(reply, 401, 'Invalid token', { code: 'INVALID_TOKEN', recoverable: true });
+        if (rec.origin !== origin) return this.respondError(reply, 403, 'Origin mismatch', { code: 'ORIGIN_MISMATCH', recoverable: true });
+        if (Date.now() > rec.expiresAt) {
+          this.tokenStore.delete(token);
+          return this.respondError(reply, 401, 'Token expired', { code: 'TOKEN_EXPIRED', recoverable: true });
+        }
+
+        // Revoke old token and issue new one
+        this.tokenStore.delete(token);
+        const newToken = randomBytes(32).toString('base64');
+        const expiresIn = LocalMcpProxyRoutes.TOKEN_EXPIRY_SECONDS;
+        this.tokenStore.set(newToken, { origin, expiresAt: Date.now() + expiresIn * 1000 });
+
+        this.ctx.addLogEntry('info', 'mcp.local.token_refresh', undefined, { origin });
+        reply.send({ success: true, token: newToken, expiresIn });
+      } catch (err: unknown) {
+        if (!reply.sent) return this.respondError(reply, 500, (err as Error)?.message || 'Internal error', { code: 'INTERNAL_ERROR' });
+      }
+    });
+
     // List tools (main endpoint) + compatibility alias
     server.get('/tools', (req, rep) => this.handleToolsList(req, rep));
     server.get('/local-proxy/tools', (req, rep) => this.handleToolsList(req, rep));
