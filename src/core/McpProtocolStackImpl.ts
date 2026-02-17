@@ -352,7 +352,7 @@ export class McpProtocolStackImpl implements McpProtocolStack {
 
         // Merge user overrides last
         for (const [k, v] of Object.entries(overrideEnv)) {
-          (patched as any)[k] = String(v);
+          (patched as Record<string, string>)[k] = String(v);
         }
         return patched;
       }

@@ -43,7 +43,7 @@ export interface ServiceObservationTransaction {
 }
 
 function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
-  return typeof (value as any)?.then === 'function';
+  return typeof (value as Record<string, unknown>)?.then === 'function';
 }
 
 function cloneState(state: ServiceState): ServiceState {

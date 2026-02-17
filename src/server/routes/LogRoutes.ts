@@ -17,7 +17,7 @@ export class LogRoutes extends BaseRouteHandler {
     server.get('/api/logs', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const Q = z.object({ limit: z.coerce.number().int().positive().max(1000).optional().default(50) });
-        const { limit } = Q.parse((request.query as any) || {});
+        const { limit } = Q.parse((request.query as Record<string, unknown>) || {});
         const recentLogs = this.ctx.logBuffer.slice(-limit);
         reply.send(recentLogs);
       } catch (error) {

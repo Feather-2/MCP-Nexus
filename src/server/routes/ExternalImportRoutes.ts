@@ -37,7 +37,7 @@ export class ExternalImportRoutes extends BaseRouteHandler {
         for (const group of discovered) {
           for (const tmpl of group.items) {
             try {
-              await this.ctx.serviceRegistry.registerTemplate(tmpl as any);
+              await this.ctx.serviceRegistry.registerTemplate(tmpl as import('../../types/index.js').McpServiceConfig);
               applied += 1;
             } catch (e) {
               this.ctx.logger.warn('Failed to apply imported template', { name: tmpl.name, error: (e as Error).message });

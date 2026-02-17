@@ -18,8 +18,7 @@ interface SqliteStatement {
   get(...params: unknown[]): unknown;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic require of optional native module
-let BetterSqlite: (new (path: string) => SqliteDb) | null = null as any;
+let BetterSqlite: (new (path: string) => SqliteDb) | null = null;
 try {
   // Native module; may be unavailable on some platforms (e.g., Windows CI)
   // eslint-disable-next-line @typescript-eslint/no-var-requires

@@ -79,7 +79,7 @@ export async function startOpenTelemetry(logger?: Logger, opts?: { serviceName?:
     } catch (error) {
       enabled = false;
       sdk = undefined;
-      try { logger?.warn?.('Failed to start OpenTelemetry', { error: (error as any)?.message || String(error) }); } catch {}
+      try { logger?.warn?.('Failed to start OpenTelemetry', { error: (error as Error)?.message || String(error) }); } catch {}
     } finally {
       starting = undefined;
     }
@@ -99,6 +99,6 @@ export async function shutdownOpenTelemetry(logger?: Logger): Promise<void> {
   try {
     await current.shutdown();
   } catch (error) {
-    try { logger?.warn?.('Failed to shutdown OpenTelemetry', { error: (error as any)?.message || String(error) }); } catch {}
+    try { logger?.warn?.('Failed to shutdown OpenTelemetry', { error: (error as Error)?.message || String(error) }); } catch {}
   }
 }

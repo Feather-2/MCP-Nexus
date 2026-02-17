@@ -259,7 +259,7 @@ function parseAiAuditResult(text: string): AiAuditResult {
     }
   }
 
-  throw new Error(`Invalid AI audit JSON: ${String((lastError as any)?.message ?? lastError)}`);
+  throw new Error(`Invalid AI audit JSON: ${String((lastError as Error)?.message ?? lastError)}`);
 }
 
 function fallbackResult(message: string): AiAuditResult {

@@ -2,6 +2,7 @@ import type { Logger } from '../types/index.js';
 import type { OrchestratorStep } from './types.js';
 import { toErrorEnvelope, propagateError, type ErrorEnvelope } from '../types/errors.js';
 import type { EventBus } from '../events/bus.js';
+import { unrefTimer } from '../utils/async.js';
 
 export interface SchedulerConcurrency {
   global: number;
@@ -125,7 +126,7 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
       reject(new Error(`${label} timed out after ${timeoutMs}ms`));
     }, timeoutMs);
     // Avoid keeping the process alive solely for timers (tests/CLI).
-    (timer as any).unref?.();
+    unrefTimer(timer);
   });
 
   try {

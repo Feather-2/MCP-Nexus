@@ -348,7 +348,7 @@ async function queryOsv(
     const result = data.results[i];
     const pkg = packages[i];
     if (!pkg || !isRecord(result)) continue;
-    const vulns = (result as any).vulns;
+    const vulns = (result as Record<string, unknown>).vulns;
     if (!Array.isArray(vulns)) continue;
 
     for (const v of vulns) {

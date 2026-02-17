@@ -3,6 +3,7 @@
  */
 
 import { TokenBucket, TokenBucketOptions } from './TokenBucket.js';
+import { unrefTimer } from '../utils/async.js';
 import { CircuitBreaker, CircuitBreakerOptions, CircuitState } from './CircuitBreaker.js';
 
 export interface BackpressureLease {
@@ -58,7 +59,7 @@ export class BackpressureController {
 
     // Start queue processor
     this.queueProcessor = setInterval(() => this.processQueues(), 50);
-    (this.queueProcessor as any).unref?.();
+    unrefTimer(this.queueProcessor);
   }
 
   /**
