@@ -210,26 +210,28 @@ export class HttpApiServer {
     this.addLogEntry('info', 'API 服务已就绪', 'api');
     this.addLogEntry('info', '监控服务已启动', 'monitor');
 
-    // Set up periodic log generation for demo
-    this.demoLogTimer = setInterval(() => {
-      const messages = [
-        '处理客户端连接请求',
-        '服务健康检查完成',
-        '缓存清理任务执行',
-        '网关路由更新',
-        '认证令牌验证成功',
-        '配置热重载完成'
-      ];
-      const levels = ['info', 'debug', 'warn'];
-      const services = ['gateway', 'api', 'auth', 'router', 'monitor'];
+    // Set up periodic log generation for demo (dev only)
+    if (process.env.NODE_ENV !== 'production') {
+      this.demoLogTimer = setInterval(() => {
+        const messages = [
+          '处理客户端连接请求',
+          '服务健康检查完成',
+          '缓存清理任务执行',
+          '网关路由更新',
+          '认证令牌验证成功',
+          '配置热重载完成'
+        ];
+        const levels = ['info', 'debug', 'warn'];
+        const services = ['gateway', 'api', 'auth', 'router', 'monitor'];
 
-      const message = messages[Math.floor(Math.random() * messages.length)];
-      const level = levels[Math.floor(Math.random() * levels.length)];
-      const service = services[Math.floor(Math.random() * services.length)];
+        const message = messages[Math.floor(Math.random() * messages.length)];
+        const level = levels[Math.floor(Math.random() * levels.length)];
+        const service = services[Math.floor(Math.random() * services.length)];
 
-      this.addLogEntry(level, message, service);
-    }, 3000 + Math.random() * 7000); // Random interval between 3-10 seconds
-    unrefTimer(this.demoLogTimer);
+        this.addLogEntry(level, message, service);
+      }, 3000 + Math.random() * 7000); // Random interval between 3-10 seconds
+      unrefTimer(this.demoLogTimer);
+    }
 
     // Periodic cleanup of disconnected SSE clients
     this.sseCleanupTimer = setInterval(() => {

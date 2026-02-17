@@ -83,6 +83,7 @@ function isWithinPath(targetPath: string, rootPath: string): boolean {
 
 export class StdioTransportAdapter extends EventEmitter implements TransportAdapter {
   private static readonly commandValidator = new CommandValidator({ allowShellMeta: false });
+  private static readonly MAX_QUEUE_SIZE = 1000;
 
   readonly type = 'stdio' as const;
   readonly version: McpVersion;
@@ -516,6 +517,13 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
     }
   }
 
+  private enqueueMessage(message: McpMessage): void {
+    if (this.messageQueue.length >= StdioTransportAdapter.MAX_QUEUE_SIZE) {
+      this.messageQueue.shift();
+    }
+    this.messageQueue.push(message);
+  }
+
   private handleMessage(message: McpMessage): void {
     this.logger.trace(`Received message via stdio:`, message);
 
@@ -532,10 +540,10 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
     if (!message.id || message.method) {
       // This is a notification or request from the server
       this.emit('message', message);
-      this.messageQueue.push(message);
+      this.enqueueMessage(message);
     } else {
       // Response without matching request - queue it
-      this.messageQueue.push(message);
+      this.enqueueMessage(message);
       this.emit('message', message);
     }
   }

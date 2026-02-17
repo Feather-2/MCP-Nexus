@@ -75,7 +75,8 @@ describe('security wiring integration', () => {
     };
 
     const mockProtocolAdapters = {
-      createAdapter: vi.fn().mockResolvedValue(mockAdapter)
+      createAdapter: vi.fn().mockResolvedValue(mockAdapter),
+      releaseAdapter: vi.fn()
     };
 
     const auditor = new SkillAuditor({
@@ -90,7 +91,7 @@ describe('security wiring integration', () => {
     expect(mockProtocolAdapters.createAdapter).toHaveBeenCalledTimes(1);
     expect(mockAdapter.connect).toHaveBeenCalledTimes(1);
     expect(mockAdapter.sendAndReceive).toHaveBeenCalledTimes(1);
-    expect(mockAdapter.disconnect).toHaveBeenCalledTimes(1);
+    expect(mockProtocolAdapters.releaseAdapter).toHaveBeenCalledTimes(1);
     expect(result.dryRunResults).toBeDefined();
     expect(result.dryRunResults).toHaveLength(1);
     expect(result.dryRunResults?.[0]?.success).toBe(true);

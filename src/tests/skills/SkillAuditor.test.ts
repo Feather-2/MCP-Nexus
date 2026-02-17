@@ -257,7 +257,8 @@ describe('SkillAuditor', () => {
       };
 
       const mockProtocolAdapters = {
-        createAdapter: vi.fn().mockResolvedValue(mockAdapter)
+        createAdapter: vi.fn().mockResolvedValue(mockAdapter),
+        releaseAdapter: vi.fn()
       };
 
       const auditor = new SkillAuditor({
@@ -286,7 +287,8 @@ describe('SkillAuditor', () => {
       };
 
       const mockProtocolAdapters = {
-        createAdapter: vi.fn().mockResolvedValue(mockAdapter)
+        createAdapter: vi.fn().mockResolvedValue(mockAdapter),
+        releaseAdapter: vi.fn()
       };
 
       const auditor = new SkillAuditor({
@@ -308,7 +310,8 @@ describe('SkillAuditor', () => {
       const templates: TemplateProvider = { getTemplate: vi.fn().mockResolvedValue(template) };
 
       const mockProtocolAdapters = {
-        createAdapter: vi.fn().mockRejectedValue(new Error('Adapter creation failed'))
+        createAdapter: vi.fn().mockRejectedValue(new Error('Adapter creation failed')),
+        releaseAdapter: vi.fn()
       };
 
       const auditor = new SkillAuditor({

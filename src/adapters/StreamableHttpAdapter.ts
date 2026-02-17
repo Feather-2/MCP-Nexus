@@ -2,9 +2,11 @@ import { TransportAdapter, McpServiceConfig, McpMessage, Logger, McpVersion } fr
 import { EventEmitter } from 'events';
 
 export class StreamableHttpAdapter extends EventEmitter implements TransportAdapter {
+  private static readonly MAX_QUEUE_SIZE = 1000;
+
   readonly type = 'streamable-http' as const;
   readonly version: McpVersion;
-  
+
   private baseUrl: string;
   private connected = false;
   private headers: Record<string, string>;
@@ -228,6 +230,13 @@ export class StreamableHttpAdapter extends EventEmitter implements TransportAdap
     });
   }
 
+  private enqueueMessage(message: McpMessage): void {
+    if (this.messageQueue.length >= StreamableHttpAdapter.MAX_QUEUE_SIZE) {
+      this.messageQueue.shift();
+    }
+    this.messageQueue.push(message);
+  }
+
   private handleMessage(message: McpMessage): void {
     this.logger.trace(`Received message via StreamableHttp:`, message);
 
@@ -244,10 +253,10 @@ export class StreamableHttpAdapter extends EventEmitter implements TransportAdap
     if (!message.id || message.method) {
       // This is a notification or request from the server
       this.emit('message', message);
-      this.messageQueue.push(message);
+      this.enqueueMessage(message);
     } else {
       // Response without matching request - queue it
-      this.messageQueue.push(message);
+      this.enqueueMessage(message);
       this.emit('message', message);
     }
   }

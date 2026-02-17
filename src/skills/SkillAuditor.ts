@@ -185,7 +185,7 @@ export class SkillAuditor {
           const ok = Boolean((res as Record<string, unknown>)?.result);
           dryRunResults.push({ tool: toolId, success: ok, latency: Date.now() - start });
         } finally {
-          await withTimeout(adapter.disconnect(), timeoutMs, `disconnect(${toolId})`).catch(() => {});
+          this.opts.protocolAdapters.releaseAdapter(config, adapter);
         }
       } catch (e: unknown) {
         dryRunResults.push({
