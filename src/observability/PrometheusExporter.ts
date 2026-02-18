@@ -8,7 +8,6 @@ export class PrometheusExporter {
   private executeDuration: Histogram;
   private stepError: Counter;
   private concurrentExecutions: Gauge;
-  private eventbusPublished: Counter;
   private eventbusBackpressureDrops: Counter;
   private eventbusBufferDrops: Counter;
   private eventbusHandlerErrors: Counter;
@@ -57,12 +56,6 @@ export class PrometheusExporter {
     this.concurrentExecutions = new Gauge({
       name: 'orchestrator_concurrent_executions',
       help: 'Current concurrent executions',
-      registers: [this.registry],
-    });
-
-    this.eventbusPublished = new Counter({
-      name: 'eventbus_published_total',
-      help: 'Total events published',
       registers: [this.registry],
     });
 

@@ -8,8 +8,7 @@ import type {
   BackpressureDropPayload,
   BufferDropPayload,
   HandlerErrorPayload,
-  HandlerTimeoutPayload,
-  LoggerErrorPayload
+  HandlerTimeoutPayload
 } from './types.js';
 
 // 重新导出以便测试和外部使用

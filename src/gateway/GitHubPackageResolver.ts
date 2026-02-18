@@ -94,7 +94,7 @@ export class GitHubPackageResolver {
 
     // Read package.json
     const pkgJson = await this.readPackageJson(cloneDir);
-    const templateName = pkgJson?.name?.replace(/[\/@ ]/g, '-').replace(/^-+|-+$/g, '') || repo;
+    const templateName = pkgJson?.name?.replace(/[/@ ]/g, '-').replace(/^-+|-+$/g, '') || repo;
 
     // Install dependencies
     const { nodeBin, npmArgs } = await resolveNpm();
@@ -153,7 +153,7 @@ export class GitHubPackageResolver {
     }
 
     const pkgJson = await this.readPackageJson(result.installDir);
-    const templateName = result.packageName.replace(/[\/@ ]/g, '-').replace(/^-+|-+$/g, '');
+    const templateName = result.packageName.replace(/[/@ ]/g, '-').replace(/^-+|-+$/g, '');
     const transport = await this.detectTransport(result.installDir, pkgJson);
 
     return {
