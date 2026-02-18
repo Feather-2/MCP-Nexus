@@ -1,10 +1,11 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { BaseRouteHandler, RouteContext } from './RouteContext.js';
-import { McpServiceConfig, McpMessage } from '../../types/index.js';
+import { McpServiceConfig } from '../../types/index.js';
 import { MiddlewareChain } from '../../middleware/chain.js';
 import { sleepBackoff } from '../../utils/async.js';
 import { sendRequest } from '../../adapters/ProtocolAdaptersImpl.js';
+import { mcpRequest } from '../../core/mcpMessage.js';
 
 // Schema definitions
 const ToolExecuteBodySchema = z.object({
@@ -358,12 +359,7 @@ export class ToolRoutes extends BaseRouteHandler {
 
     try {
       return await this.ctx.protocolAdapters.withAdapter(template, async (adapter) => {
-        const msg: McpMessage = {
-          jsonrpc: '2.0',
-          id: `info-${Date.now()}`,
-          method: 'tools/list',
-          params: {}
-        };
+        const msg = mcpRequest('tools/list', {}, 'info');
         const res = await sendRequest(adapter, msg);
 
         const r = res as Record<string, unknown> | undefined;
@@ -406,15 +402,7 @@ export class ToolRoutes extends BaseRouteHandler {
         }
 
         return await this.ctx.protocolAdapters.withAdapter(template, async (adapter) => {
-          const msg: McpMessage = {
-            jsonrpc: '2.0',
-            id: `tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            method: 'tools/call',
-            params: {
-              name: toolId,
-              arguments: params || {}
-            }
-          };
+          const msg = mcpRequest('tools/call', { name: toolId, arguments: params || {} }, 'tool');
 
           // Execute with timeout
           const execPromise = sendRequest(adapter, msg);

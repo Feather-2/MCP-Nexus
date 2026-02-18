@@ -1,7 +1,9 @@
 /**
- * SSRF protection for HTTP-based transport adapters.
+ * SSRF protection and URL extraction for HTTP-based transport adapters.
  * Blocks requests to private, link-local, and metadata IP ranges.
  */
+
+import type { McpServiceConfig } from '../types/index.js';
 
 const BLOCKED_HOST_PATTERNS: ReadonlyArray<RegExp> = [
   /^127\./, /^10\./, /^172\.(1[6-9]|2\d|3[01])\./, /^192\.168\./,
@@ -30,4 +32,35 @@ export function isValidHttpUrl(urlStr: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Extract HTTP URL from service config with SSRF validation.
+ * Used by both HttpTransportAdapter and StreamableHttpAdapter.
+ */
+export function extractHttpUrl(config: McpServiceConfig): string {
+  let url: string | undefined;
+  let fromConfig = false;
+
+  if (config.env?.MCP_SERVER_URL) {
+    url = config.env.MCP_SERVER_URL;
+    fromConfig = true;
+  } else if (config.env?.MCP_HOST && config.env?.MCP_PORT) {
+    const protocol = config.env.MCP_HTTPS === 'true' ? 'https' : 'http';
+    url = `${protocol}://${config.env.MCP_HOST}:${config.env.MCP_PORT}`;
+    fromConfig = true;
+  } else if (config.command?.startsWith('http') && isValidHttpUrl(config.command)) {
+    url = config.command;
+  } else {
+    const fallback = config.env?.MCP_BASE_URL;
+    if (fallback && isValidHttpUrl(fallback)) {
+      url = fallback;
+      fromConfig = true;
+    } else {
+      url = 'http://localhost:3000';
+    }
+  }
+
+  if (fromConfig) validateNotPrivateUrl(url);
+  return url;
 }

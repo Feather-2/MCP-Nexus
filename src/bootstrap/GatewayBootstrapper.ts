@@ -8,7 +8,7 @@ import type {
 } from '../types/index.js';
 import { ConfigManagerImpl } from '../config/ConfigManagerImpl.js';
 import { AdapterPool } from '../adapters/AdapterPool.js';
-import { ProtocolAdaptersImpl, sendRequest } from '../adapters/ProtocolAdaptersImpl.js';
+import { ProtocolAdaptersImpl } from '../adapters/ProtocolAdaptersImpl.js';
 import { ToolListCache } from '../gateway/ToolListCache.js';
 import { ServiceRegistryImpl } from '../gateway/ServiceRegistryImpl.js';
 import { AuthenticationLayerImpl } from '../auth/AuthenticationLayerImpl.js';
@@ -19,6 +19,7 @@ import { SecurityMiddleware } from '../middleware/SecurityMiddleware.js';
 import { OrchestratorManager, type OrchestratorStatus } from '../orchestrator/OrchestratorManager.js';
 import { startOpenTelemetry, shutdownOpenTelemetry } from '../observability/otel.js';
 import { InstancePersistence } from '../gateway/InstancePersistence.js';
+import { registerDefaultHealthProbe } from '../gateway/healthProbe.js';
 import { AutostartManager } from '../gateway/AutostartManager.js';
 import { DeploymentPolicy } from '../security/DeploymentPolicy.js';
 
@@ -131,7 +132,7 @@ export class GatewayBootstrapper {
     runtime.httpServer.setDeploymentComponents(runtime.instancePersistence, runtime.deploymentPolicy);
     runtime.httpServer.setPerformanceComponents(runtime.toolListCache, runtime.adapterPool);
 
-    this.registerDefaultHealthProbe(runtime);
+    registerDefaultHealthProbe(runtime.serviceRegistry, runtime.protocolAdapters);
 
     this.runtime = runtime;
     return runtime;
@@ -375,39 +376,4 @@ export class GatewayBootstrapper {
     };
   }
 
-  private registerDefaultHealthProbe(runtime: Pick<GatewayRuntime, 'serviceRegistry' | 'protocolAdapters'>): void {
-    try {
-      runtime.serviceRegistry.setHealthProbe(async (serviceId: string) => {
-        const service = await runtime.serviceRegistry.getService(serviceId);
-        if (!service) {
-          return { healthy: false, error: 'Service not found', timestamp: new Date() };
-        }
-        if (service.state !== 'running') {
-          return { healthy: false, error: 'Service not running', timestamp: new Date() };
-        }
-        const start = Date.now();
-        try {
-          const result = await runtime.protocolAdapters.withAdapter(service.config, async (adapter) => {
-            const msg: import('../types/index.js').McpMessage = { jsonrpc: '2.0', id: `health-${Date.now()}`, method: 'tools/list', params: {} };
-            return sendRequest(adapter, msg);
-          });
-          const latency = Date.now() - start;
-          const r = result as Record<string, unknown> | undefined;
-          const ok = !!(result && r?.result);
-          if (!ok && (r?.error as Record<string, unknown>)?.message) {
-            try {
-              await runtime.serviceRegistry.setInstanceMetadata(serviceId, 'lastProbeError', (r?.error as Record<string, unknown>).message as string);
-            } catch { /* best-effort metadata update */ }
-          }
-          return { healthy: ok, latency, timestamp: new Date() };
-        } catch (error: unknown) {
-          const errMsg = (error as Error)?.message || 'probe failed';
-          try {
-            await runtime.serviceRegistry.setInstanceMetadata(serviceId, 'lastProbeError', errMsg);
-          } catch { /* best-effort metadata update */ }
-          return { healthy: false, error: errMsg, latency: Date.now() - start, timestamp: new Date() };
-        }
-      });
-    } catch { /* best-effort: health probe registration is non-critical */ }
-  }
 }

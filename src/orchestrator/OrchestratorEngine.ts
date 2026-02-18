@@ -1,6 +1,7 @@
-import { Logger, McpMessage, McpServiceConfig, OrchestratorConfig, TransportAdapter } from '../types/index.js';
+import { Logger, McpServiceConfig, OrchestratorConfig, TransportAdapter } from '../types/index.js';
 import { ServiceRegistryImpl } from '../gateway/ServiceRegistryImpl.js';
 import { ProtocolAdaptersImpl, sendRequest } from '../adapters/ProtocolAdaptersImpl.js';
+import { mcpRequest } from '../core/mcpMessage.js';
 import { OrchestratorManager } from './OrchestratorManager.js';
 import { SubagentLoader } from './SubagentLoader.js';
 import type { ExecuteRequest, ExecuteResult, OrchestratorStep } from './types.js';
@@ -171,24 +172,14 @@ export class OrchestratorEngine {
 
     return this.adapters.withAdapter(template as McpServiceConfig, async (adapter) => {
       const toolName = await this.resolveToolName(adapter, step.tool);
-      const msg: McpMessage = {
-        jsonrpc: '2.0',
-        id: `exec-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        method: 'tools/call',
-        params: { name: toolName, arguments: step.params || {} }
-      };
+      const msg = mcpRequest('tools/call', { name: toolName, arguments: step.params || {} }, 'exec');
       const res = await sendRequest(adapter, msg);
       return (res as unknown as Record<string, unknown>)?.result ?? res;
     });
   }
 
   private async resolveToolName(adapter: TransportAdapter, requested?: string): Promise<string> {
-    const listMsg: McpMessage = {
-      jsonrpc: '2.0',
-      id: `tools-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      method: 'tools/list',
-      params: {}
-    };
+    const listMsg = mcpRequest('tools/list', {}, 'tools');
     const res = await sendRequest(adapter, listMsg).catch(() => undefined);
     const r = res as Record<string, unknown> | undefined;
     const result = r?.result as Record<string, unknown> | undefined;

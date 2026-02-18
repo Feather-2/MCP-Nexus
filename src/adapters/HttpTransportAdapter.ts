@@ -1,5 +1,5 @@
 import { TransportAdapter, McpServiceConfig, McpMessage, Logger, McpVersion } from '../types/index.js';
-import { validateNotPrivateUrl, isValidHttpUrl } from './ssrf-guard.js';
+import { extractHttpUrl } from './ssrf-guard.js';
 import { EventEmitter } from 'events';
 
 export class HttpTransportAdapter extends EventEmitter implements TransportAdapter {
@@ -20,7 +20,7 @@ export class HttpTransportAdapter extends EventEmitter implements TransportAdapt
     this.requestTimeoutMs = config.timeout ?? 30_000;
     
     // Extract URL from config - could be in command or a separate url field
-    this.baseUrl = this.extractUrlFromConfig(config);
+    this.baseUrl = extractHttpUrl(config);
     
     this.headers = {
       'Content-Type': 'application/json',
@@ -175,36 +175,6 @@ export class HttpTransportAdapter extends EventEmitter implements TransportAdapt
       this.logger.error(`HTTP request failed:`, error);
       throw error;
     }
-  }
-
-  private extractUrlFromConfig(config: McpServiceConfig): string {
-    // Try to extract URL from various possible config locations
-    let url: string | undefined;
-    let fromConfig = false;
-
-    if (config.env?.MCP_SERVER_URL) {
-      url = config.env.MCP_SERVER_URL;
-      fromConfig = true;
-    } else if (config.env?.MCP_HOST && config.env?.MCP_PORT) {
-      const protocol = config.env.MCP_HTTPS === 'true' ? 'https' : 'http';
-      url = `${protocol}://${config.env.MCP_HOST}:${config.env.MCP_PORT}`;
-      fromConfig = true;
-    } else if (config.command?.startsWith('http') && isValidHttpUrl(config.command)) {
-      url = config.command;
-      // command is admin-set, not env-injected — skip SSRF check
-    } else {
-      const fallback = config.env?.MCP_BASE_URL;
-      if (fallback && isValidHttpUrl(fallback)) {
-        url = fallback;
-        fromConfig = true;
-      } else {
-        url = 'http://localhost:3000';
-      }
-    }
-
-    // Guard against SSRF to private/metadata IPs (only for user-supplied URLs)
-    if (fromConfig) validateNotPrivateUrl(url);
-    return url;
   }
 
   // Utility method for health checks

@@ -1,6 +1,6 @@
 import { TransportAdapter, McpServiceConfig, McpMessage, Logger, McpVersion } from '../types/index.js';
 import { EventEmitter } from 'events';
-import { validateNotPrivateUrl } from './ssrf-guard.js';
+import { extractHttpUrl } from './ssrf-guard.js';
 
 export class StreamableHttpAdapter extends EventEmitter implements TransportAdapter {
   private static readonly MAX_QUEUE_SIZE = 1000;
@@ -27,7 +27,7 @@ export class StreamableHttpAdapter extends EventEmitter implements TransportAdap
     this.version = config.version;
     
     // Extract URL from config
-    this.baseUrl = this.extractUrlFromConfig(config);
+    this.baseUrl = extractHttpUrl(config);
     
     this.headers = {
       'Content-Type': 'application/json',
@@ -275,34 +275,6 @@ export class StreamableHttpAdapter extends EventEmitter implements TransportAdap
       this.enqueueMessage(message);
       this.emit('message', message);
     }
-  }
-
-  private extractUrlFromConfig(config: McpServiceConfig): string {
-    let url: string | undefined;
-    let fromConfig = false;
-
-    if (config.env?.MCP_SERVER_URL) {
-      url = config.env.MCP_SERVER_URL;
-      fromConfig = true;
-    } else if (config.env?.MCP_HOST && config.env?.MCP_PORT) {
-      const protocol = config.env.MCP_HTTPS === 'true' ? 'https' : 'http';
-      url = `${protocol}://${config.env.MCP_HOST}:${config.env.MCP_PORT}`;
-      fromConfig = true;
-    } else if (config.command?.startsWith('http')) {
-      url = config.command;
-      // command is admin-set — skip SSRF check
-    } else {
-      const fallback = config.env?.MCP_BASE_URL;
-      if (fallback) {
-        url = fallback;
-        fromConfig = true;
-      } else {
-        url = 'http://localhost:3000';
-      }
-    }
-
-    if (fromConfig) validateNotPrivateUrl(url);
-    return url;
   }
 
   // Utility method for health checks

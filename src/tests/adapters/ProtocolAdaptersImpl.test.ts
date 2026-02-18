@@ -103,7 +103,7 @@ describe('ProtocolAdaptersImpl', () => {
       expect(adapter.send).toHaveBeenCalledWith(
         expect.objectContaining({
           jsonrpc: '2.0',
-          id: 'protocol-test',
+          id: expect.stringContaining('protocol-test'),
           method: 'initialize',
           params: expect.objectContaining({ protocolVersion: '2024-11-26' })
         })

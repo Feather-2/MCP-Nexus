@@ -15,7 +15,7 @@ import {
 import { ServiceRegistryImpl } from '../gateway/ServiceRegistryImpl.js';
 import { AuthenticationLayerImpl } from '../auth/AuthenticationLayerImpl.js';
 import { GatewayRouterImpl } from '../routing/GatewayRouterImpl.js';
-import { ProtocolAdaptersImpl, sendRequest } from '../adapters/ProtocolAdaptersImpl.js';
+import { ProtocolAdaptersImpl } from '../adapters/ProtocolAdaptersImpl.js';
 import type { OrchestratorStatus, OrchestratorManager } from '../orchestrator/OrchestratorManager.js';
 import { OrchestratorEngine } from '../orchestrator/OrchestratorEngine.js';
 import { SubagentLoader } from '../orchestrator/SubagentLoader.js';
@@ -23,6 +23,7 @@ import { InstancePersistence } from '../gateway/InstancePersistence.js';
 import { DeploymentPolicy } from '../security/DeploymentPolicy.js';
 import { ToolListCache } from '../gateway/ToolListCache.js';
 import { AdapterPool } from '../adapters/AdapterPool.js';
+import { registerDefaultHealthProbe } from '../gateway/healthProbe.js';
 import {
   RouteContext,
   ServiceRoutes,
@@ -158,45 +159,8 @@ export class HttpApiServer implements Disposable {
     // When components are injected (e.g., via GatewayBootstrapper), wiring is centralized upstream.
     const shouldAutoWireHealthProbe = !components?.serviceRegistry || !components?.protocolAdapters;
     if (shouldAutoWireHealthProbe) {
-      this.registerDefaultHealthProbe();
+      registerDefaultHealthProbe(this.serviceRegistry, this.protocolAdapters);
     }
-  }
-
-  private registerDefaultHealthProbe(): void {
-    try {
-      this.serviceRegistry.setHealthProbe(async (serviceId: string) => {
-        const service = await this.serviceRegistry.getService(serviceId);
-        if (!service) {
-          return { healthy: false, error: 'Service not found', timestamp: new Date() };
-        }
-        // 仅对运行中的实例做探测，避免为非运行/一次性服务反复拉起进程
-        if (service.state !== 'running') {
-          return { healthy: false, error: 'Service not running', timestamp: new Date() };
-        }
-        const start = Date.now();
-        try {
-          const result = await this.protocolAdapters.withAdapter(service.config, async (adapter) => {
-            const msg = { jsonrpc: '2.0' as const, id: `health-${Date.now()}`, method: 'tools/list', params: {} };
-            return sendRequest(adapter, msg);
-          });
-          const latency = Date.now() - start;
-          const r = result as Record<string, unknown> | null;
-          const ok = !!(r && r.result);
-          if (!ok && (r?.error as Record<string, unknown>)?.message) {
-            try {
-              await this.serviceRegistry.setInstanceMetadata(serviceId, 'lastProbeError', String((r!.error as Record<string, unknown>).message));
-            } catch { /* best-effort metadata update */ }
-          }
-          return { healthy: ok, latency, timestamp: new Date() };
-        } catch (error: unknown) {
-          const errMsg = (error as Error)?.message || 'probe failed';
-          try {
-            await this.serviceRegistry.setInstanceMetadata(serviceId, 'lastProbeError', errMsg);
-          } catch { /* best-effort metadata update */ }
-          return { healthy: false, error: errMsg, latency: Date.now() - start, timestamp: new Date() };
-        }
-      });
-    } catch { /* best-effort: health probe registration is non-critical */ }
   }
 
   private initializeLogSystem(): void {

@@ -4,6 +4,7 @@ import { randomBytes, createHash, createHmac, pbkdf2Sync, scryptSync, randomUUID
 import { z } from 'zod';
 import { unrefTimer } from '../../utils/async.js';
 import { sendRequest } from '../../adapters/ProtocolAdaptersImpl.js';
+import { mcpRequest } from '../../core/mcpMessage.js';
 
 /**
  * Local MCP Proxy routes for secure browser-based MCP access
@@ -264,7 +265,7 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
       }
 
       await this.ctx.protocolAdapters.withAdapter(service.config, async (adapter) => {
-        const msg: import('../../types/index.js').McpMessage = { jsonrpc: '2.0', id: `tools-list-${Date.now()}`, method: 'tools/list', params: {} };
+        const msg = mcpRequest('tools/list', {}, 'tools-list');
         const res = await sendRequest(adapter, msg);
         const r = res as Record<string, unknown> | undefined;
         const result = r?.result as Record<string, unknown> | undefined;
@@ -306,7 +307,7 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
       const service = await this.findTargetService(serviceId);
       if (!service) return this.respondError(reply, 404, 'No suitable service', { code: 'NO_SERVICE', recoverable: true });
       await this.ctx.protocolAdapters.withAdapter(service.config, async (adapter) => {
-        const msg: import('../../types/index.js').McpMessage = { jsonrpc: '2.0', id: `call-${Date.now()}`, method: 'tools/call', params: { name: tool, arguments: params || {} } };
+        const msg = mcpRequest('tools/call', { name: tool, arguments: params || {} }, 'call');
         const res = await sendRequest(adapter, msg);
         const r = res as Record<string, unknown> | undefined;
         this.ctx.addLogEntry('info', 'mcp.local.call', service.id, { tool });

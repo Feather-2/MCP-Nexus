@@ -12,6 +12,7 @@ import { HttpTransportAdapter } from './HttpTransportAdapter.js';
 import { StreamableHttpAdapter } from './StreamableHttpAdapter.js';
 import { ContainerTransportAdapter } from './ContainerTransportAdapter.js';
 import { AdapterPool } from './AdapterPool.js';
+import { mcpRequest } from '../core/mcpMessage.js';
 import { applyGatewaySandboxPolicy } from '../security/SandboxPolicy.js';
 import { resolveMcpServiceConfigEnvRefs } from '../security/secrets.js';
 
@@ -110,19 +111,14 @@ export class ProtocolAdaptersImpl implements ProtocolAdapters {
     try {
       await adapter.connect();
 
-      const testMessage = {
-        jsonrpc: '2.0' as const,
-        id: 'protocol-test',
-        method: 'initialize',
-        params: {
+      const testMessage = mcpRequest('initialize', {
           protocolVersion: version,
           capabilities: {},
           clientInfo: {
             name: 'MCP-Nexus-test',
             version: '1.0.0'
           }
-        }
-      };
+        }, 'protocol-test');
 
       await adapter.send(testMessage);
       let timeoutId: ReturnType<typeof setTimeout>;

@@ -13,6 +13,7 @@ import { EntropyAnalyzer } from '../security/analyzers/EntropyAnalyzer.js';
 import { PermissionAnalyzer } from '../security/analyzers/PermissionAnalyzer.js';
 import type { ProtocolAdaptersImpl } from '../adapters/ProtocolAdaptersImpl.js';
 import { sendRequest } from '../adapters/ProtocolAdaptersImpl.js';
+import { mcpRequest } from '../core/mcpMessage.js';
 import type { EventBus } from '../events/bus.js';
 import type { AuditResult, Skill } from './types.js';
 
@@ -210,7 +211,7 @@ export class SkillAuditor {
         const { config } = applyGatewaySandboxPolicy(template, gatewayConfig);
         await withTimeout(
           this.opts.protocolAdapters.withAdapter(config, async (adapter) => {
-            const msg: import('../types/index.js').McpMessage = { jsonrpc: '2.0', id: `dryrun-${Date.now()}`, method: 'tools/list', params: {} };
+            const msg = mcpRequest('tools/list', {}, 'dryrun');
             const res = await sendRequest(adapter, msg);
             const ok = Boolean((res as Record<string, unknown>)?.result);
             dryRunResults.push({ tool: toolId, success: ok, latency: Date.now() - start });
