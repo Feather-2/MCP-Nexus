@@ -41,6 +41,9 @@ export class RoutingRoutes extends BaseRouteHandler {
 
       try {
         const services = await this.ctx.serviceRegistry.listServices();
+        if (services.length === 0) {
+          return this.respondError(reply, 503, 'No services available', { code: 'NO_SERVICE' });
+        }
         const serviceHealthMap = new Map<string, ServiceHealth>();
         await Promise.all(
           services.map(async (service) => {

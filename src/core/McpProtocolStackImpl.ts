@@ -71,6 +71,7 @@ export class McpProtocolStackImpl implements McpProtocolStack {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         process.stdout!.off('data', onData);
+        process.off('exit', onExit);
         reject(new Error(`Timeout waiting for response to message ${messageId} from ${serviceId}`));
       }, 30000);
 
@@ -80,18 +81,26 @@ export class McpProtocolStackImpl implements McpProtocolStack {
         }
       });
 
+      const onExit = () => {
+        clearTimeout(timeout);
+        process.stdout!.off('data', onData);
+        reject(new Error(`Process exited while waiting for response ${messageId} from ${serviceId}`));
+      };
+
       const onData = (data: Buffer) => {
         const messages = parser.push(data);
         for (const msg of messages) {
           if (msg && msg.id === messageId) {
             clearTimeout(timeout);
             process.stdout!.off('data', onData);
+            process.off('exit', onExit);
             resolve(msg);
             return;
           }
         }
       };
 
+      process.once('exit', onExit);
       process.stdout?.on('data', onData);
     });
   }

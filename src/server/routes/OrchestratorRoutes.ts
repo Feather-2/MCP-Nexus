@@ -10,9 +10,24 @@ import { ExecuteRequestSchema } from '../../orchestrator/types.js';
  */
 export class OrchestratorRoutes extends BaseRouteHandler {
   private subagentLoader?: SubagentLoader;
+  private loaderInitPromise?: Promise<SubagentLoader>;
 
   constructor(ctx: RouteContext) {
     super(ctx);
+  }
+
+  private getOrCreateLoader(subagentsDir: string): Promise<SubagentLoader> {
+    if (!this.loaderInitPromise) {
+      this.loaderInitPromise = (async () => {
+        const loader = this.ctx.subagentLoader || this.subagentLoader
+          || (this.ctx.getSubagentLoader ? this.ctx.getSubagentLoader() : undefined)
+          || new SubagentLoader(subagentsDir, this.ctx.logger);
+        this.subagentLoader = loader;
+        await loader.loadAll();
+        return loader;
+      })();
+    }
+    return this.loaderInitPromise;
   }
 
   setupRoutes(): void {
@@ -88,8 +103,7 @@ export class OrchestratorRoutes extends BaseRouteHandler {
         if (!status) {
           return this.respondError(reply, 503, 'Orchestrator not initialized', { code: 'NOT_INITIALIZED' });
         }
-        const loader = this.ctx.subagentLoader || this.subagentLoader || new SubagentLoader(status.subagentsDir, this.ctx.logger);
-        this.subagentLoader = loader;
+        const loader = await this.getOrCreateLoader(status.subagentsDir);
         const subagents = await loader.loadAll();
         reply.send({ subagents });
       } catch (error) {
@@ -120,12 +134,8 @@ export class OrchestratorRoutes extends BaseRouteHandler {
 
         // Ensure subagents are loaded before execution (best-effort)
         try {
-          if (loader) {
-            await loader.loadAll();
-            this.subagentLoader = loader;
-          } else if (status.subagentsDir && !this.subagentLoader) {
-            this.subagentLoader = new SubagentLoader(status.subagentsDir, this.ctx.logger);
-            await this.subagentLoader.loadAll();
+          if (status.subagentsDir) {
+            await this.getOrCreateLoader(status.subagentsDir);
           }
         } catch (e) {
           this.ctx.logger.warn('Failed to load subagents before orchestration', e);
