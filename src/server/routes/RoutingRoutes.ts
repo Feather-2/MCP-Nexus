@@ -129,7 +129,7 @@ export class RoutingRoutes extends BaseRouteHandler {
 
     // Proxy MCP requests to services
     server.post('/api/proxy/:serviceId', async (request: FastifyRequest, reply: FastifyReply) => {
-      const Params = z.object({ serviceId: z.string().min(1) });
+      const Params = z.object({ serviceId: z.string().min(1).regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/) });
       let serviceId: string;
       try { ({ serviceId } = Params.parse(request.params as Record<string, unknown>)); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid service id', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues }); }
 

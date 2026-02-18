@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import type { Logger } from '../types/index.js';
+import { unrefTimer } from '../utils/async.js';
 
 export interface PersistedInstance {
   templateName: string;
@@ -93,6 +94,7 @@ export class InstancePersistence {
     this.dirty = true;
     if (this.flushTimer) return;
     this.flushTimer = setTimeout(() => this.flush(), 500);
+    unrefTimer(this.flushTimer);
   }
 
   async flush(): Promise<void> {

@@ -74,7 +74,8 @@ export class SecurityMiddleware implements Middleware {
     // 3. 敏感信息脱敏 (Secret Redaction)
     let sanitized = result.content;
     for (const pattern of this.config.sensitivePatterns) {
-      const globalPattern = new RegExp(pattern.source, pattern.flags + 'g');
+      const flags = pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g';
+      const globalPattern = new RegExp(pattern.source, flags);
       sanitized = sanitized.replace(globalPattern, (match: string) => {
         return `${match.slice(0, 4)}****${match.slice(-4)}`;
       });

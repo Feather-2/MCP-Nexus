@@ -54,7 +54,11 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
     const { server } = this.ctx;
 
     // Get current verification code
-    server.get('/local-proxy/code', async (_req, reply) => {
+    server.get('/local-proxy/code', async (req, reply) => {
+      const ip = req.ip;
+      if (ip !== '127.0.0.1' && ip !== '::1' && ip !== '::ffff:127.0.0.1') {
+        return this.respondError(reply, 403, 'Forbidden', { code: 'FORBIDDEN' });
+      }
       const now = Date.now();
       const expiresIn = Math.max(0, Math.floor((this.codeExpiresAt - now) / 1000));
       reply.send({ code: this.currentVerificationCode, expiresIn });
@@ -385,13 +389,6 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
     const now = Date.now();
     const arr = this.rateCounters.get(key) || [];
     const recent = arr.filter(ts => now - ts < windowMs);
-
-    // Immediately cleanup if no recent entries
-    if (recent.length === 0) {
-      this.rateCounters.delete(key);
-      return true; // No recent requests, allow
-    }
-
     recent.push(now);
     this.rateCounters.set(key, recent);
     return recent.length <= maxCount;

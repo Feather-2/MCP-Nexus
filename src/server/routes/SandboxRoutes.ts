@@ -422,6 +422,9 @@ export class SandboxRoutes extends BaseRouteHandler {
 
         const downloadUrl = config.node.urls[platform];
         const fileName = downloadUrl.split('/').pop()!;
+        if (!/^[a-zA-Z0-9._-]+$/.test(fileName)) {
+          throw new Error(`Unsafe archive filename: ${fileName}`);
+        }
         const archivePath = path.join(runtimeDir, fileName);
 
         logger.info(`下载Node.js ${config.node.version} for ${platformLabel}...`);

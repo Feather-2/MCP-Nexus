@@ -31,9 +31,20 @@ export class StreamableHttpAdapter extends EventEmitter implements TransportAdap
     this.headers = {
       'Content-Type': 'application/json',
       'Accept': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      ...(config.env?.HTTP_HEADERS ? JSON.parse(config.env.HTTP_HEADERS) : {})
+      'Cache-Control': 'no-cache'
     };
+    try {
+      if (config.env?.HTTP_HEADERS) {
+        const parsed = JSON.parse(config.env.HTTP_HEADERS);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          for (const [k, v] of Object.entries(parsed)) {
+            if (typeof k === 'string' && typeof v === 'string') this.headers[k] = v;
+          }
+        }
+      }
+    } catch (e) {
+      this.logger.warn('Invalid HTTP_HEADERS JSON', { error: (e as Error)?.message });
+    }
 
     // Add authentication headers if provided
     if (config.env?.API_KEY) {

@@ -244,7 +244,7 @@ export class McpProtocolStackImpl implements McpProtocolStack {
           resolve();
         }, 5000);
 
-        process.on('exit', () => {
+        process.once('exit', () => {
           clearTimeout(timeout);
           resolve();
         });
