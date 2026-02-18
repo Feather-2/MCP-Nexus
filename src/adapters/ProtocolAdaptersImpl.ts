@@ -29,7 +29,7 @@ export class ProtocolAdaptersImpl implements ProtocolAdapters {
     if (enforced.applied) {
       try {
         this.logger.warn?.('Sandbox policy enforced for service', { name: config.name, reasons: enforced.reasons });
-      } catch (_e) { /* sandbox policy log failed */ }
+      } catch { /* best-effort: sandbox policy log */ }
     }
     return { enforced, effective };
   }
@@ -143,7 +143,7 @@ export class ProtocolAdaptersImpl implements ProtocolAdapters {
       this.logger.warn(`Protocol validation failed:`, error);
       return false;
     } finally {
-      try { await adapter.disconnect(); } catch {}
+      try { await adapter.disconnect(); } catch { /* best-effort */ }
     }
   }
 
@@ -162,8 +162,8 @@ export class ProtocolAdaptersImpl implements ProtocolAdapters {
 
       const contentType = response.headers.get('content-type');
       return contentType?.includes('text/event-stream') || false;
-    } catch (e) {
-      this.logger?.warn?.('SSE endpoint check failed', { error: (e as Error).message });
+    } catch (error) {
+      this.logger?.warn?.('SSE endpoint check failed', { error: (error as Error).message });
       return false;
     } finally {
       clearTimeout(timer);
@@ -197,7 +197,7 @@ export class ProtocolAdaptersImpl implements ProtocolAdapters {
     if (this.adapterPool) {
       this.adapterPool.release(config.name, adapter);
     } else {
-      adapter.disconnect().catch(() => {});
+      adapter.disconnect().catch(() => { /* best-effort */ });
     }
   }
 

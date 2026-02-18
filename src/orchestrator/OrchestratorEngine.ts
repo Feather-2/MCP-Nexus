@@ -55,7 +55,7 @@ export class OrchestratorEngine {
     });
 
     // Best-effort: keep subagent cache warm for planning/template selection.
-    try { await this.subagents.loadAll(); } catch (e) { this.logger.warn('Failed to load subagents', { error: (e as Error).message }); }
+    try { await this.subagents.loadAll(); } catch (error) { this.logger.warn('Failed to load subagents', { error: (error as Error).message }); }
 
     this.emit(OrchestratorEvents.PLAN_START, runId, { goal: req.goal });
     const plan = await this.buildPlan(req.goal, req.steps, config);
@@ -120,7 +120,7 @@ export class OrchestratorEngine {
     let templates: McpServiceConfig[] = [];
     try {
       templates = await this.registry.listTemplates();
-    } catch {
+    } catch { /* best-effort: templates not required for planning */
       templates = [];
     }
     const subs = this.subagents.list();
