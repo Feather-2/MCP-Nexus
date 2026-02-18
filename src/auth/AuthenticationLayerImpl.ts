@@ -432,13 +432,13 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
       if (!clientIp) return false;
       const raw = String(clientIp);
       let ip = raw;
-      // IPv4 with optional port
-      if (raw.includes('.')) {
-        ip = raw.split(':')[0];
+      // IPv4-mapped IPv6 (handle before port stripping)
+      if (ip.startsWith('::ffff:')) {
+        ip = ip.slice(7);
       }
-      // IPv4-mapped IPv6
-      if (raw.startsWith('::ffff:')) {
-        ip = raw.slice(7);
+      // IPv4 with optional port
+      if (ip.includes('.') && ip.includes(':')) {
+        ip = ip.split(':')[0];
       }
       if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1') return true;
       // IPv4 private ranges

@@ -115,7 +115,7 @@ describe('ConfigRoutes and ServiceRoutes - validation', () => {
       expect(res.statusCode).toBe(200);
       const body = res.json();
       expect(Array.isArray(body)).toBe(true);
-      expect(body[0].config.env.TOKEN).toBe('secr…3456');
+      expect(body[0].config.env.TOKEN).toBe('***');
       expect(body[0].config.env.NORMAL).toBe('ok');
     });
 
@@ -138,7 +138,7 @@ describe('ConfigRoutes and ServiceRoutes - validation', () => {
         expect(res.statusCode).toBe(200);
         const body = res.json();
         expect(body.service.id).toBe('svc-1');
-        expect(body.service.config.env.TOKEN).toBe('secr…3456');
+        expect(body.service.config.env.TOKEN).toBe('***');
         expect(body.service.config.env.NORMAL).toBe('ok');
       });
 

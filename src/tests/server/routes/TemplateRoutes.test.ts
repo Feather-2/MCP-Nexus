@@ -99,7 +99,7 @@ describe('TemplateRoutes - validation & operations', () => {
     const res = await (server as any).server.inject({ method: 'GET', url: '/api/templates' });
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body[0].env.GITHUB_TOKEN).toBe('secr…3456');
+    expect(body[0].env.GITHUB_TOKEN).toBe('***');
   });
 
   it('GET /api/templates/:name validates param and 404 when missing', async () => {

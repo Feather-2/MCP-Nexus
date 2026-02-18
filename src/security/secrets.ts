@@ -40,9 +40,8 @@ export function isSensitiveKey(key: string): boolean {
 export function maskSecret(value: unknown): unknown {
   if (typeof value !== 'string') return '***';
   const trimmed = value.trim();
-  if (!trimmed) return '***';
-  if (trimmed.length <= 8) return '***';
-  return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)}`;
+  if (!trimmed || trimmed.length <= 16) return '***';
+  return `${trimmed.slice(0, 4)}***`;
 }
 
 export function redactEnv(env?: Record<string, unknown>): Record<string, unknown> | undefined {

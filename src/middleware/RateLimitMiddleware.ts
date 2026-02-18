@@ -12,8 +12,15 @@ interface RateLimitDecision {
 
 class MemoryFixedWindowStore {
   private readonly buckets = new Map<string, { count: number; resetAtMs: number }>();
+  private lastPurge = Date.now();
+  private static readonly PURGE_INTERVAL_MS = 60_000;
 
   check(key: string, nowMs: number, maxRequests: number, windowMs: number): RateLimitDecision {
+    // Periodically purge expired buckets to prevent unbounded growth
+    if (nowMs - this.lastPurge > MemoryFixedWindowStore.PURGE_INTERVAL_MS) {
+      this.purgeExpired(nowMs);
+      this.lastPurge = nowMs;
+    }
     const limit = Number.isFinite(maxRequests) && maxRequests > 0 ? Math.floor(maxRequests) : 0;
     const window = Number.isFinite(windowMs) && windowMs > 0 ? windowMs : 0;
 
@@ -34,6 +41,12 @@ class MemoryFixedWindowStore {
     this.buckets.set(key, existing);
     const remaining = Math.max(0, limit - nextCount);
     return { allowed: nextCount <= limit, limit, remaining, resetAtMs: existing.resetAtMs };
+  }
+
+  private purgeExpired(nowMs: number): void {
+    for (const [key, bucket] of this.buckets) {
+      if (nowMs >= bucket.resetAtMs) this.buckets.delete(key);
+    }
   }
 }
 

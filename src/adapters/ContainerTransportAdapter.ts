@@ -70,7 +70,12 @@ export class ContainerTransportAdapter extends EventEmitter implements Transport
     // Security hardening (service config overrides policy defaults)
     const noNewPrivileges = container.noNewPrivileges ?? policyOpts?.defaultNoNewPrivileges ?? true;
     if (noNewPrivileges) runArgs.push('--security-opt', 'no-new-privileges:true');
-    if (container.seccompProfile) runArgs.push('--security-opt', `seccomp=${container.seccompProfile}`);
+    if (container.seccompProfile) {
+      const profile = String(container.seccompProfile);
+      if (/^[\w.\-/]+$/.test(profile)) {
+        runArgs.push('--security-opt', `seccomp=${profile}`);
+      }
+    }
     const dropCaps = (container.dropCapabilities ?? policyOpts?.defaultDropCapabilities ?? []) as unknown[];
     for (const cap of dropCaps) {
       runArgs.push('--cap-drop', String(cap).toUpperCase());
