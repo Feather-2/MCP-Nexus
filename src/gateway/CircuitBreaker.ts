@@ -27,6 +27,8 @@ export class CircuitBreaker {
   private lastStateChange: number = Date.now();
   private halfOpenSuccesses: number = 0;
   private readonly stats: RequestStat[] = [];
+  private successCount = 0;
+  private errorCount = 0;
 
   private readonly errorThresholdPercentage: number;
   private readonly requestVolumeThreshold: number;
@@ -75,6 +77,7 @@ export class CircuitBreaker {
   recordResult(success: boolean): void {
     const now = Date.now();
     this.stats.push({ timestamp: now, success });
+    if (success) this.successCount++; else this.errorCount++;
     this.pruneOldStats();
 
     switch (this.state) {
@@ -124,16 +127,14 @@ export class CircuitBreaker {
   } {
     this.pruneOldStats();
 
-    const successCount = this.stats.filter(s => s.success).length;
-    const errorCount = this.stats.filter(s => !s.success).length;
     const totalRequests = this.stats.length;
-    const errorRate = totalRequests > 0 ? (errorCount / totalRequests) * 100 : 0;
+    const errorRate = totalRequests > 0 ? (this.errorCount / totalRequests) * 100 : 0;
 
     return {
       state: this.getState(),
       totalRequests,
-      successCount,
-      errorCount,
+      successCount: this.successCount,
+      errorCount: this.errorCount,
       errorRate,
       lastStateChange: new Date(this.lastStateChange)
     };
@@ -151,6 +152,8 @@ export class CircuitBreaker {
    */
   reset(): void {
     this.stats.length = 0;
+    this.successCount = 0;
+    this.errorCount = 0;
     this.halfOpenSuccesses = 0;
     this.transitionTo('CLOSED');
   }
@@ -167,6 +170,8 @@ export class CircuitBreaker {
 
     if (newState === 'CLOSED') {
       this.stats.length = 0;
+      this.successCount = 0;
+      this.errorCount = 0;
     }
   }
 
@@ -175,8 +180,7 @@ export class CircuitBreaker {
       return;
     }
 
-    const errorCount = this.stats.filter(s => !s.success).length;
-    const errorRate = (errorCount / this.stats.length) * 100;
+    const errorRate = (this.errorCount / this.stats.length) * 100;
 
     if (errorRate >= this.errorThresholdPercentage) {
       this.transitionTo('OPEN');
@@ -185,8 +189,15 @@ export class CircuitBreaker {
 
   private pruneOldStats(): void {
     const cutoff = Date.now() - this.rollingWindowMs;
-    while (this.stats.length > 0 && this.stats[0].timestamp < cutoff) {
-      this.stats.shift();
+    let pruneCount = 0;
+    while (pruneCount < this.stats.length && this.stats[pruneCount].timestamp < cutoff) {
+      pruneCount++;
+    }
+    if (pruneCount > 0) {
+      const removed = this.stats.splice(0, pruneCount);
+      for (const r of removed) {
+        if (r.success) this.successCount--; else this.errorCount--;
+      }
     }
   }
 }

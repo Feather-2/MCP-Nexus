@@ -293,8 +293,7 @@ export class ExternalMcpConfigImporter {
       return JSON.parse(raw);
     } catch {
       // VS Code settings.json 可能不是严格 JSON（尾逗号/注释），这里做简单修复
-      const stripped = raw
-        .replace(/\/\/.*$/gm, '')
+      const stripped = this.stripJsoncComments(raw)
         .replace(/,\s*([}\]])/g, '$1');
       try {
         return JSON.parse(stripped);
@@ -302,6 +301,32 @@ export class ExternalMcpConfigImporter {
         return null;
       }
     }
+  }
+
+  /** Strip // comments from JSONC without breaking strings containing // (e.g. URLs) */
+  private stripJsoncComments(input: string): string {
+    let result = '';
+    let inString = false;
+    let escape = false;
+    for (let i = 0; i < input.length; i++) {
+      const ch = input[i];
+      if (escape) { result += ch; escape = false; continue; }
+      if (inString) {
+        if (ch === '\\') { escape = true; }
+        else if (ch === '"') { inString = false; }
+        result += ch;
+        continue;
+      }
+      if (ch === '"') { inString = true; result += ch; continue; }
+      if (ch === '/' && input[i + 1] === '/') {
+        // Skip to end of line
+        while (i < input.length && input[i] !== '\n') i++;
+        if (i < input.length) result += '\n';
+        continue;
+      }
+      result += ch;
+    }
+    return result;
   }
 
   // ===== Helpers =====
