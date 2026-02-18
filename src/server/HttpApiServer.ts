@@ -77,6 +77,7 @@ export class HttpApiServer {
   private subagentLoader?: SubagentLoader;
   private sandboxStreamClients: Set<FastifyReply> = new Set();
   private instancePersistence?: InstancePersistence;
+  private localMcpProxy?: LocalMcpProxyRoutes;
   private deploymentPolicy?: DeploymentPolicy;
   private toolListCache?: ToolListCache;
   private adapterPool?: AdapterPool;
@@ -346,6 +347,19 @@ export class HttpApiServer {
       if (this.demoLogTimer) clearInterval(this.demoLogTimer);
       if (this.sseCleanupTimer) clearInterval(this.sseCleanupTimer);
 
+      // Close all SSE connections before server shutdown
+      for (const client of this.logStreamClients) {
+        try { client.raw.end(); } catch {}
+      }
+      this.logStreamClients.clear();
+      for (const client of this.sandboxStreamClients) {
+        try { client.raw.end(); } catch {}
+      }
+      this.sandboxStreamClients.clear();
+
+      // Clean up LocalMcpProxy timers
+      this.localMcpProxy?.cleanup();
+
       // 30秒超时保护
       let shutdownTimer: ReturnType<typeof setTimeout>;
       const timeout = new Promise<void>((_, reject) => {
@@ -526,7 +540,8 @@ export class HttpApiServer {
     new OrchestratorRoutes(routeContext).setupRoutes();
 
     // Local MCP Proxy endpoints (modularized)
-    new LocalMcpProxyRoutes(routeContext).setupRoutes();
+    this.localMcpProxy = new LocalMcpProxyRoutes(routeContext);
+    this.localMcpProxy.setupRoutes();
 
     // Tool API endpoints（统一逻辑工具入口，初始实现为模板直通）
     // 注意：当前实现为最小版本，后续会在 routes/ToolRoutes.ts 中增强映射与编排能力。

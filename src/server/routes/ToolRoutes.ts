@@ -357,8 +357,8 @@ export class ToolRoutes extends BaseRouteHandler {
 
     try {
       const adapter = await this.ctx.protocolAdapters.createAdapter(template);
-      await adapter.connect();
       try {
+        await adapter.connect();
         const msg: McpMessage = {
           jsonrpc: '2.0',
           id: `info-${Date.now()}`,
@@ -412,9 +412,8 @@ export class ToolRoutes extends BaseRouteHandler {
         }
 
         const adapter = await this.ctx.protocolAdapters.createAdapter(template);
-        await adapter.connect();
-
         try {
+          await adapter.connect();
           const msg: McpMessage = {
             jsonrpc: '2.0',
             id: `tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,

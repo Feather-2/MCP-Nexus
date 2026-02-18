@@ -182,11 +182,16 @@ export class TemplateManager extends EventEmitter {
    * Sanitize filename for safe filesystem operations
    */
   private sanitizeFilename(name: string): string {
-    return String(name)
+    const sanitized = String(name)
       .replace(/[^a-zA-Z0-9._-]/g, '')
       .replace(/\.+/g, '.')
       .replace(/\.\.+/g, '.')
       .slice(0, 200);
+    if (!sanitized) {
+      const { createHash } = require('crypto');
+      return (createHash('sha256') as import('crypto').Hash).update(name).digest('hex').slice(0, 32);
+    }
+    return sanitized;
   }
 
   /**

@@ -240,7 +240,7 @@ export class ServiceHealthChecker {
     if (!arr || arr.length === 0) return ps.map(() => 0);
     const sorted = [...arr].sort((a, b) => a - b);
     return ps.map(p => {
-      const idx = Math.max(0, Math.min(sorted.length - 1, Math.floor(p * sorted.length) - 1));
+      const idx = Math.max(0, Math.min(sorted.length - 1, Math.ceil(p * sorted.length) - 1));
       return sorted[idx] ?? 0;
     });
   }

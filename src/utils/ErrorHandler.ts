@@ -6,7 +6,8 @@ export class UnifiedErrorHandler {
     recentErrors: [] as Array<{ message: string; name?: string; category: string; timestamp: Date; serviceId?: string }>,
     errorsByCategory: {} as Record<string, number>,
     errorsByService: {} as Record<string, number>,
-    recoveryAttempts: 0
+    recoveryAttempts: 0,
+    recoveryAttemptsByService: {} as Record<string, number>
   };
 
   constructor(private logger: Logger) {}
@@ -77,11 +78,11 @@ export class UnifiedErrorHandler {
     this.logger.error(prefix, info);
 
     const recoveryKey = svcId || 'global';
-    if (!this.stats.errorsByService[recoveryKey]) this.stats.errorsByService[recoveryKey] = 0;
-    const svcRecoveries = this.stats.errorsByService[recoveryKey];
+    if (!this.stats.recoveryAttemptsByService) this.stats.recoveryAttemptsByService = {};
+    const svcRecoveries = this.stats.recoveryAttemptsByService[recoveryKey] || 0;
     const autoRecoveryAttempted = !!context?.autoRecover && recoverable && (svcRecoveries < 3);
     if (autoRecoveryAttempted) {
-      this.stats.errorsByService[recoveryKey]++;
+      this.stats.recoveryAttemptsByService[recoveryKey] = svcRecoveries + 1;
       this.stats.recoveryAttempts++;
     }
     return { suggestion, recoverable, autoRecoveryAttempted };
@@ -134,7 +135,7 @@ export class UnifiedErrorHandler {
     // simple pattern: repeated network errors for a service
     for (const [serviceId, count] of Object.entries(this.stats.errorsByService)) {
       if (count >= 5) {
-        patterns.push({ type: 'repeated_error', category: 'network', count, serviceId });
+        patterns.push({ type: 'repeated_error', category: 'mixed', count, serviceId });
       }
     }
     return patterns;
@@ -194,6 +195,6 @@ export class UnifiedErrorHandler {
   }
 
   resetStatistics(): void {
-    this.stats = { totalErrors: 0, recentErrors: [], errorsByCategory: {}, errorsByService: {}, recoveryAttempts: 0 };
+    this.stats = { totalErrors: 0, recentErrors: [], errorsByCategory: {}, errorsByService: {}, recoveryAttempts: 0, recoveryAttemptsByService: {} };
   }
 }

@@ -25,7 +25,10 @@ export class OrchestratorRoutes extends BaseRouteHandler {
         this.subagentLoader = loader;
         await loader.loadAll();
         return loader;
-      })();
+      })().catch((err) => {
+        this.loaderInitPromise = undefined;
+        throw err;
+      });
     }
     return this.loaderInitPromise;
   }

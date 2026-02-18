@@ -195,6 +195,8 @@ export class ProtocolAdaptersImpl implements ProtocolAdapters {
   releaseAdapter(config: McpServiceConfig, adapter: TransportAdapter): void {
     if (this.adapterPool) {
       this.adapterPool.release(config.name, adapter);
+    } else {
+      adapter.disconnect().catch(() => {});
     }
   }
 }

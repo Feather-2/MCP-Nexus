@@ -268,7 +268,7 @@ describe('UnifiedErrorHandler', () => {
       expect(patterns).toContainEqual(
         expect.objectContaining({
           type: 'repeated_error',
-          category: 'network',
+          category: 'mixed',
           count: 10,
           serviceId: 'service-1'
         })
