@@ -8,21 +8,25 @@ import {
 } from '../types/index.js';
 import { randomBytes } from 'crypto';
 import { EventEmitter } from 'events';
+import { unrefTimer } from '../utils/async.js';
 
 export class AuthenticationLayerImpl extends EventEmitter implements AuthenticationLayer {
+  private static readonly TOKEN_CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
   private tokens = new Map<string, {
     userId: string;
     permissions: string[];
     expiresAt: Date;
     lastUsed: Date;
   }>();
-  
+
   private apiKeys = new Map<string, {
     name: string;
     permissions: string[];
     createdAt: Date;
     lastUsed: Date;
   }>();
+
+  private cleanupTimer?: ReturnType<typeof setInterval>;
 
   private trustedLocalNetworks = [
     '127.0.0.1',
@@ -39,6 +43,8 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
   ) {
     super();
     this.initializeDefaults();
+    this.cleanupTimer = setInterval(() => this.cleanupExpiredTokensInternal(), AuthenticationLayerImpl.TOKEN_CLEANUP_INTERVAL_MS);
+    unrefTimer(this.cleanupTimer);
   }
 
   async authenticate(request: AuthRequest): Promise<AuthResponse> {

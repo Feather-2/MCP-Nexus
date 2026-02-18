@@ -98,7 +98,7 @@ export function resolveEnvRefs(input?: Record<string, unknown>, sourceEnv: NodeJ
   for (const [k, v] of Object.entries(input)) {
     if (isEnvRef(v)) {
       const name = extractEnvRefName(v);
-      out[k] = sourceEnv[name] ?? v;
+      out[k] = sourceEnv[name] ?? '';
       continue;
     }
     out[k] = v;
@@ -112,7 +112,7 @@ export function resolveArgsEnvRefs(args?: unknown[], sourceEnv: NodeJS.ProcessEn
     const s = String(a);
     if (isEnvRef(s)) {
       const name = extractEnvRefName(s);
-      return sourceEnv[name] ?? s;
+      return sourceEnv[name] ?? '';
     }
     return s;
   });

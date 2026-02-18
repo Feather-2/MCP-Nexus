@@ -178,8 +178,8 @@ export class ContainerTransportAdapter extends EventEmitter implements Transport
           this.logger.warn('Docker failed to start; retry with podman');
           // Clean up old delegate listeners before replacing
           this.delegate.removeAllListeners();
-          (this.config as Record<string, unknown>).container = { ...container2, runtime: 'podman' };
-          const retry = new ContainerTransportAdapter(this.config, this.logger, this.policy);
+          const podmanConfig = { ...this.config, container: { ...container2, runtime: 'podman' } } as typeof this.config;
+          const retry = new ContainerTransportAdapter(podmanConfig, this.logger, this.policy);
           this.delegate = (retry as unknown as { delegate: StdioTransportAdapter }).delegate;
           // Re-wire event listeners to new delegate
           this.delegate.on('message', (m) => this.emit('message', m));
