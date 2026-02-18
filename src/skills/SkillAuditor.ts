@@ -169,8 +169,8 @@ export class SkillAuditor {
         if (outcome.applied) {
           warnings.push(`Tool '${toolId}' sandbox policy applied (${outcome.reasons.join(', ')})`);
         }
-      } catch (e: unknown) {
-        errors.push(`Tool '${toolId}' violates sandbox policy: ${(e as Error)?.message || String(e)}`);
+      } catch (error: unknown) {
+        errors.push(`Tool '${toolId}' violates sandbox policy: ${(error as Error)?.message || String(error)}`);
       }
     }
 
@@ -178,8 +178,8 @@ export class SkillAuditor {
 
     try {
       result.security = await this.auditSecurity(skill);
-    } catch (e: unknown) {
-      warnings.push(`Security audit failed: ${(e as Error)?.message || String(e)}`);
+    } catch (error: unknown) {
+      warnings.push(`Security audit failed: ${(error as Error)?.message || String(error)}`);
     }
 
     const dryRun = Boolean(options?.dryRun);
@@ -195,8 +195,8 @@ export class SkillAuditor {
     let canarySetup: Awaited<ReturnType<typeof setupCanaries>> | undefined;
     try {
       canarySetup = await setupCanaries(canarySandboxRoot);
-    } catch (e: unknown) {
-      result.warnings.push(`Canary setup failed: ${(e as Error)?.message || String(e)}`);
+    } catch (error: unknown) {
+      result.warnings.push(`Canary setup failed: ${(error as Error)?.message || String(error)}`);
     }
 
     const dryRunResults: AuditResult['dryRunResults'] = [];
@@ -218,12 +218,12 @@ export class SkillAuditor {
           timeoutMs,
           `dryrun(${toolId})`
         );
-      } catch (e: unknown) {
+      } catch (error: unknown) {
         dryRunResults.push({
           tool: toolId,
           success: false,
           latency: Date.now() - start,
-          error: (e as Error)?.message || String(e)
+          error: (error as Error)?.message || String(error)
         });
       }
     }
@@ -237,8 +237,8 @@ export class SkillAuditor {
             `Canary files accessed during dry-run: ${canaryResult.accessedFiles.join(', ')}`
           );
         }
-      } catch (e: unknown) {
-        result.warnings.push(`Canary check failed: ${(e as Error)?.message || String(e)}`);
+      } catch (error: unknown) {
+        result.warnings.push(`Canary check failed: ${(error as Error)?.message || String(error)}`);
       }
     }
 

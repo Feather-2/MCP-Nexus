@@ -185,18 +185,18 @@ export class HttpApiServer implements Disposable {
           if (!ok && (r?.error as Record<string, unknown>)?.message) {
             try {
               await this.serviceRegistry.setInstanceMetadata(serviceId, 'lastProbeError', String((r!.error as Record<string, unknown>).message));
-            } catch {}
+            } catch { /* best-effort metadata update */ }
           }
           return { healthy: ok, latency, timestamp: new Date() };
-        } catch (e: unknown) {
-          const errMsg = (e as Error)?.message || 'probe failed';
+        } catch (error: unknown) {
+          const errMsg = (error as Error)?.message || 'probe failed';
           try {
             await this.serviceRegistry.setInstanceMetadata(serviceId, 'lastProbeError', errMsg);
-          } catch {}
+          } catch { /* best-effort metadata update */ }
           return { healthy: false, error: errMsg, latency: Date.now() - start, timestamp: new Date() };
         }
       });
-    } catch {}
+    } catch { /* best-effort: health probe registration is non-critical */ }
   }
 
   private initializeLogSystem(): void {
@@ -243,7 +243,7 @@ export class HttpApiServer implements Disposable {
             this.sandboxStreamClients.delete(client);
           }
         }
-      } catch {}
+      } catch { /* best-effort SSE cleanup */ }
     }, 30000);
     unrefTimer(this.sseCleanupTimer);
   }
@@ -273,9 +273,7 @@ export class HttpApiServer implements Disposable {
           url: aliasedUrl,
           config: { ...(routeOpts.config as Record<string, unknown> || {}), __apiVersionAlias: true }
         } as unknown as Parameters<FastifyInstance['route']>[0]);
-      } catch {
-        // Ignore duplicate route errors (e.g., in tests that rebuild servers).
-      }
+      } catch { /* best-effort: ignore duplicate route errors in tests */ }
     }
   }
 
@@ -343,11 +341,11 @@ export class HttpApiServer implements Disposable {
 
       // Close all SSE connections before server shutdown
       for (const client of this.logStreamClients) {
-        try { client.raw.end(); } catch {}
+        try { client.raw.end(); } catch { /* best-effort */ }
       }
       this.logStreamClients.clear();
       for (const client of this.sandboxStreamClients) {
-        try { client.raw.end(); } catch {}
+        try { client.raw.end(); } catch { /* best-effort */ }
       }
       this.sandboxStreamClients.clear();
 
@@ -430,7 +428,7 @@ export class HttpApiServer implements Disposable {
     }
     try {
       (reply.raw as unknown as { writeHead: (status: number, headers: Record<string, string>) => void }).writeHead(200, headers);
-    } catch {}
+    } catch { /* best-effort: headers may already be sent */ }
   }
 
   private setupRoutes(): void {
@@ -564,7 +562,7 @@ export class HttpApiServer implements Disposable {
         meta: opts?.meta
       }
     };
-    try { this.logger.error(message, { ...(opts || {}), httpStatus: status }); } catch {}
+    try { this.logger.error(message, { ...(opts || {}), httpStatus: status }); } catch { /* best-effort logging */ }
     return reply.code(status).send(payload);
   }
 
@@ -633,8 +631,8 @@ export class HttpApiServer implements Disposable {
           orchestratorManager: this.orchestratorManager,
           subagentLoader: this.subagentLoader
         });
-      } catch (err) {
-        this.logger.warn('Failed to initialize orchestrator engine', err);
+      } catch (error) {
+        this.logger.warn('Failed to initialize orchestrator engine', { error: (error as Error).message });
       }
     } else {
       this.orchestratorEngine = undefined;
@@ -650,7 +648,7 @@ export class HttpApiServer implements Disposable {
           span.recordException?.(error instanceof Error ? error : new Error(String(error)));
           span.setStatus?.({ code: SpanStatusCode.ERROR, message: (error as Error)?.message || String(error) });
         }
-      } catch {}
+      } catch { /* best-effort OTel span annotation */ }
 
       const errorDetails = {
         method: request.method,

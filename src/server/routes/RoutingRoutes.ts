@@ -36,8 +36,8 @@ export class RoutingRoutes extends BaseRouteHandler {
         contentLength: z.coerce.number().int().positive().optional()
       });
       let body: z.infer<typeof Body>;
-      try { body = Body.parse((request.body as Record<string, unknown>) || {}); } catch (e) {
-        const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid route request', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
+      try { body = Body.parse((request.body as Record<string, unknown>) || {}); } catch (error) {
+        const zodErr = error as z.ZodError; return this.respondError(reply, 400, 'Invalid route request', { code: 'BAD_REQUEST', recoverable: true, meta: zodErr.issues });
       }
 
       try {
@@ -88,9 +88,9 @@ export class RoutingRoutes extends BaseRouteHandler {
           await chain.execute('beforeModel', mwCtx, mwState);
           const picked = mwState.values.get(SELECTED_INSTANCE_STATE_KEY);
           if (picked) selectedService = picked as typeof selectedService;
-        } catch (e) {
+        } catch (error) {
           // If middleware chain fails, fall back to router selection path below
-          this.ctx.logger?.warn?.('Middleware routing failed, falling back to router.route', { error: (e as Error)?.message });
+          this.ctx.logger?.warn?.('Middleware routing failed, falling back to router.route', { error: (error as Error)?.message });
           selectedService = undefined;
         }
 
@@ -135,7 +135,7 @@ export class RoutingRoutes extends BaseRouteHandler {
     server.post('/api/proxy/:serviceId', async (request: FastifyRequest, reply: FastifyReply) => {
       const Params = z.object({ serviceId: z.string().min(1).regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/) });
       let serviceId: string;
-      try { ({ serviceId } = Params.parse(request.params as Record<string, unknown>)); } catch (e) { const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid service id', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues }); }
+      try { ({ serviceId } = Params.parse(request.params as Record<string, unknown>)); } catch (error) { const zodErr = error as z.ZodError; return this.respondError(reply, 400, 'Invalid service id', { code: 'BAD_REQUEST', recoverable: true, meta: zodErr.issues }); }
 
       // Validate MCP message structure
       const McpMessageSchema = z.object({
@@ -146,8 +146,8 @@ export class RoutingRoutes extends BaseRouteHandler {
       });
 
       let mcpMessage: z.infer<typeof McpMessageSchema>;
-      try { mcpMessage = McpMessageSchema.parse((request.body as Record<string, unknown>) || {}); } catch (e) {
-        const err = e as z.ZodError; return this.respondError(reply, 400, 'Invalid MCP message format', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
+      try { mcpMessage = McpMessageSchema.parse((request.body as Record<string, unknown>) || {}); } catch (error) {
+        const zodErr = error as z.ZodError; return this.respondError(reply, 400, 'Invalid MCP message format', { code: 'BAD_REQUEST', recoverable: true, meta: zodErr.issues });
       }
 
       try {
@@ -178,21 +178,21 @@ export class RoutingRoutes extends BaseRouteHandler {
           try {
             const preview = JSON.stringify(mcpMessage?.params ?? {}).slice(0, 800);
             this.ctx.addLogEntry('debug', `params: ${preview}${preview.length === 800 ? '…' : ''}`, serviceId);
-          } catch { /* ignored */ }
+          } catch { /* best-effort preview logging */ }
 
           const response = await sendRequest(adapter, mcpMessage);
           const duration = Date.now() - startTs;
           this.ctx.addLogEntry('info', `Proxy response ${mcpMessage?.method || 'unknown'} (id=${mcpMessage?.id ?? 'auto'}) in ${duration}ms`, serviceId, { response });
-          try { this.ctx.serviceRegistry.reportHeartbeat(serviceId, { healthy: true, latency: duration }); } catch {}
+          try { this.ctx.serviceRegistry.reportHeartbeat(serviceId, { healthy: true, latency: duration }); } catch { /* best-effort heartbeat */ }
           try {
             const r = response as Record<string, unknown> | undefined;
             const preview = JSON.stringify(r?.result ?? r?.error ?? {}).slice(0, 800);
             this.ctx.addLogEntry('debug', `result: ${preview}${preview.length === 800 ? '…' : ''}`, serviceId);
-          } catch { /* ignored */ }
+          } catch { /* best-effort preview logging */ }
           reply.send(response);
         });
       } catch (error) {
-        try { this.ctx.serviceRegistry.reportHeartbeat(serviceId, { healthy: false, error: (error as Error)?.message || 'proxy failed' }); } catch {}
+        try { this.ctx.serviceRegistry.reportHeartbeat(serviceId, { healthy: false, error: (error as Error)?.message || 'proxy failed' }); } catch { /* best-effort heartbeat */ }
         this.ctx.addLogEntry('error', `Proxy failed: ${(error as Error)?.message || 'unknown error'}`, (request.params as Record<string, unknown>)?.serviceId as string);
         return this.respondError(reply, 500, error instanceof Error ? error.message : 'Proxy request failed', { code: 'PROXY_ERROR' });
       }
@@ -212,9 +212,9 @@ export class RoutingRoutes extends BaseRouteHandler {
       let mcpMessage: z.infer<typeof McpMessageSchema>;
       try {
         mcpMessage = McpMessageSchema.parse((request.body as Record<string, unknown>) || {});
-      } catch (e) {
-        const err = e as z.ZodError;
-        return this.respondError(reply, 400, 'Invalid MCP message format', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
+      } catch (error) {
+        const zodErr = error as z.ZodError;
+        return this.respondError(reply, 400, 'Invalid MCP message format', { code: 'BAD_REQUEST', recoverable: true, meta: zodErr.issues });
       }
 
       if (!MCP_ALLOWED_PREFIXES.some(p => mcpMessage.method.startsWith(p))) {
@@ -251,7 +251,7 @@ export class RoutingRoutes extends BaseRouteHandler {
 
       // Keepalive heartbeat to prevent proxy timeout
       const heartbeat = setInterval(() => {
-        try { reply.raw.write(': heartbeat\n\n'); } catch { clearInterval(heartbeat); }
+        try { reply.raw.write(': heartbeat\n\n'); } catch { /* best-effort heartbeat */ clearInterval(heartbeat); }
       }, 30_000);
       unrefTimer(heartbeat);
 

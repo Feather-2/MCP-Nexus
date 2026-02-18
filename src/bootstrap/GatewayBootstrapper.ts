@@ -397,17 +397,17 @@ export class GatewayBootstrapper {
           if (!ok && (r?.error as Record<string, unknown>)?.message) {
             try {
               await runtime.serviceRegistry.setInstanceMetadata(serviceId, 'lastProbeError', (r?.error as Record<string, unknown>).message as string);
-            } catch {}
+            } catch { /* best-effort metadata update */ }
           }
           return { healthy: ok, latency, timestamp: new Date() };
-        } catch (e: unknown) {
-          const errMsg = (e as Error)?.message || 'probe failed';
+        } catch (error: unknown) {
+          const errMsg = (error as Error)?.message || 'probe failed';
           try {
             await runtime.serviceRegistry.setInstanceMetadata(serviceId, 'lastProbeError', errMsg);
-          } catch {}
+          } catch { /* best-effort metadata update */ }
           return { healthy: false, error: errMsg, latency: Date.now() - start, timestamp: new Date() };
         }
       });
-    } catch {}
+    } catch { /* best-effort: health probe registration is non-critical */ }
   }
 }

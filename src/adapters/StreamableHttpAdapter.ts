@@ -43,8 +43,8 @@ export class StreamableHttpAdapter extends EventEmitter implements TransportAdap
           }
         }
       }
-    } catch (e) {
-      this.logger.warn('Invalid HTTP_HEADERS JSON', { error: (e as Error)?.message });
+    } catch (error) {
+      this.logger.warn('Invalid HTTP_HEADERS JSON', { error: (error as Error)?.message });
     }
 
     // Add authentication headers if provided
@@ -316,7 +316,7 @@ export class StreamableHttpAdapter extends EventEmitter implements TransportAdap
 
       const response = await this.sendAndReceive(healthMessage);
       return !response.error;
-    } catch {
+    } catch { /* best-effort */
       return false;
     }
   }

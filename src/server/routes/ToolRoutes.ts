@@ -133,12 +133,12 @@ export class ToolRoutes extends BaseRouteHandler {
       let body: ToolExecuteBody;
       try {
         body = ToolExecuteBodySchema.parse((request.body as Record<string, unknown>) || {});
-      } catch (e) {
-        const err = e as z.ZodError;
+      } catch (error) {
+        const zodErr = error as z.ZodError;
         return this.respondError(reply, 400, 'Invalid request body', {
           code: 'BAD_REQUEST',
           recoverable: true,
-          meta: err.issues
+          meta: zodErr.issues
         });
       }
 
@@ -201,7 +201,7 @@ export class ToolRoutes extends BaseRouteHandler {
         const chain = this.ctx.middlewareChain ?? new MiddlewareChain(this.ctx.middlewares || []);
         mwState.values.set('toolError', message);
         mwState.values.set('toolEndTimeMs', Date.now());
-        try { await chain.execute('afterTool', mwCtx, mwState); } catch {}
+        try { await chain.execute('afterTool', mwCtx, mwState); } catch { /* best-effort afterTool middleware */ }
 
         this.recordExecution({
           id: execId,
@@ -227,12 +227,12 @@ export class ToolRoutes extends BaseRouteHandler {
       let body: BatchExecuteBody;
       try {
         body = BatchExecuteBodySchema.parse((request.body as Record<string, unknown>) || {});
-      } catch (e) {
-        const err = e as z.ZodError;
+      } catch (error) {
+        const zodErr = error as z.ZodError;
         return this.respondError(reply, 400, 'Invalid request body', {
           code: 'BAD_REQUEST',
           recoverable: true,
-          meta: err.issues
+          meta: zodErr.issues
         });
       }
 
@@ -260,11 +260,11 @@ export class ToolRoutes extends BaseRouteHandler {
                 timeoutMs: options?.timeoutMs
               });
               return { toolId: call.toolId, success: true, result, durationMs: Date.now() - callStart };
-            } catch (e) {
+            } catch (error) {
               return {
                 toolId: call.toolId,
                 success: false,
-                error: (e as Error)?.message || 'Execution failed',
+                error: (error as Error)?.message || 'Execution failed',
                 durationMs: Date.now() - callStart
               };
             }
@@ -279,11 +279,11 @@ export class ToolRoutes extends BaseRouteHandler {
                 timeoutMs: options?.timeoutMs
               });
               results.push({ toolId: call.toolId, success: true, result, durationMs: Date.now() - callStart });
-            } catch (e) {
+            } catch (error) {
               const errResult = {
                 toolId: call.toolId,
                 success: false,
-                error: (e as Error)?.message || 'Execution failed',
+                error: (error as Error)?.message || 'Execution failed',
                 durationMs: Date.now() - callStart
               };
               results.push(errResult);
@@ -380,7 +380,7 @@ export class ToolRoutes extends BaseRouteHandler {
           toolCount: tools.length
         };
       });
-    } catch {
+    } catch { /* best-effort: tool info fetch is non-critical */
       return { toolCount: 0 };
     }
   }

@@ -38,8 +38,8 @@ export class HttpTransportAdapter extends EventEmitter implements TransportAdapt
           this.logger.warn('Invalid HTTP_HEADERS format (must be object)');
         }
       }
-    } catch (e) {
-      this.logger.warn('Invalid HTTP_HEADERS JSON', { error: (e as Error)?.message });
+    } catch (error) {
+      this.logger.warn('Invalid HTTP_HEADERS JSON', { error: (error as Error)?.message });
     }
 
     // Add authentication headers if provided
@@ -170,7 +170,7 @@ export class HttpTransportAdapter extends EventEmitter implements TransportAdapt
       return responseData;
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error(`HTTP request timeout for message ${message.id}`);
+      throw new Error(`HTTP request timeout for message ${message.id}`, { cause: error });
       }
       this.logger.error(`HTTP request failed:`, error);
       throw error;
@@ -218,7 +218,7 @@ export class HttpTransportAdapter extends EventEmitter implements TransportAdapt
 
       const response = await this.sendAndReceive(healthMessage);
       return !response.error;
-    } catch {
+    } catch { /* best-effort */
       return false;
     }
   }
