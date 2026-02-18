@@ -86,6 +86,7 @@ const DEFAULT_LIMITS: DeploymentLimits = {
 
 export class DeploymentPolicy {
   private limits: DeploymentLimits;
+  private blockedRegexes: RegExp[];
   private activeProcesses = 0;
   private confirmationCallback: ConfirmationCallback | null = null;
   private authMode: AuthorizationMode;
@@ -97,6 +98,14 @@ export class DeploymentPolicy {
   ) {
     this.limits = { ...DEFAULT_LIMITS, ...overrides };
     this.authMode = authMode;
+    this.blockedRegexes = [];
+    for (const pattern of this.limits.blockedPackages) {
+      try {
+        this.blockedRegexes.push(new RegExp(pattern, 'i'));
+      } catch (e) {
+        this.logger.warn('Invalid blocklist regex, skipping', { pattern, error: (e as Error)?.message });
+      }
+    }
   }
 
   setConfirmationCallback(cb: ConfirmationCallback): void {
@@ -125,10 +134,10 @@ export class DeploymentPolicy {
 
     // 1. Blocklist check
     const pkgName = request.packageName || request.source;
-    for (const pattern of this.limits.blockedPackages) {
-      if (new RegExp(pattern, 'i').test(pkgName)) {
-        this.logger.warn('deployment blocked by blocklist', { source: request.source, pattern });
-        return { ...base, allowed: false, reason: `package matches blocklist pattern: ${pattern}` };
+    for (const re of this.blockedRegexes) {
+      if (re.test(pkgName)) {
+        this.logger.warn('deployment blocked by blocklist', { source: request.source, pattern: re.source });
+        return { ...base, allowed: false, reason: `package matches blocklist pattern: ${re.source}` };
       }
     }
 

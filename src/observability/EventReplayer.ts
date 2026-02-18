@@ -30,7 +30,7 @@ export class EventReplayer {
     });
 
     // EventLogger 返回降序，反转为升序回放
-    const ascending = events.reverse();
+    const ascending = [...events].reverse();
 
     // 按 runId 过滤（从 payload 或 metadata 中读取）
     const filtered = options?.filters?.runId

@@ -24,7 +24,11 @@ export class UnifiedErrorHandler {
 
   private redact(message?: string): string | undefined {
     if (!message) return message;
-    return message.replace(/password=[^\s]+/gi, 'password=[REDACTED]');
+    return message
+      .replace(/password=[^\s]+/gi, 'password=[REDACTED]')
+      .replace(/token=[^\s]+/gi, 'token=[REDACTED]')
+      .replace(/Bearer\s+[^\s]+/gi, 'Bearer [REDACTED]')
+      .replace(/api[_-]?key=[^\s]+/gi, 'apikey=[REDACTED]');
   }
 
   handleError(error: unknown, context?: Record<string, unknown>): { suggestion: string; recoverable: boolean; autoRecoveryAttempted: boolean } {
@@ -72,7 +76,14 @@ export class UnifiedErrorHandler {
     );
     this.logger.error(prefix, info);
 
-    const autoRecoveryAttempted = !!context?.autoRecover && recoverable && (this.stats.recoveryAttempts++ < 3);
+    const recoveryKey = svcId || 'global';
+    if (!this.stats.errorsByService[recoveryKey]) this.stats.errorsByService[recoveryKey] = 0;
+    const svcRecoveries = this.stats.errorsByService[recoveryKey];
+    const autoRecoveryAttempted = !!context?.autoRecover && recoverable && (svcRecoveries < 3);
+    if (autoRecoveryAttempted) {
+      this.stats.errorsByService[recoveryKey]++;
+      this.stats.recoveryAttempts++;
+    }
     return { suggestion, recoverable, autoRecoveryAttempted };
   }
 

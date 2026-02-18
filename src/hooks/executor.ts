@@ -206,11 +206,12 @@ export class HookExecutor {
 
       child.stdout.setEncoding('utf8');
       child.stderr.setEncoding('utf8');
+      const MAX_OUTPUT = 1024 * 1024; // 1MB cap
       child.stdout.on('data', (chunk: string) => {
-        stdout += chunk;
+        if (stdout.length < MAX_OUTPUT) stdout += chunk.slice(0, MAX_OUTPUT - stdout.length);
       });
       child.stderr.on('data', (chunk: string) => {
-        stderr += chunk;
+        if (stderr.length < MAX_OUTPUT) stderr += chunk.slice(0, MAX_OUTPUT - stderr.length);
       });
 
       child.on('error', (error: Error) => {

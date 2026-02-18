@@ -30,8 +30,9 @@ export class MemoryStore {
   }
 
   async forget(id: string): Promise<boolean> {
-    this.records.delete(id);
-    return this.vectorStore.delete(id);
+    const ok = await this.vectorStore.delete(id);
+    if (ok) this.records.delete(id);
+    return ok;
   }
 
   async recall(query: string, opts?: { topK?: number }): Promise<RecallResult[]> {

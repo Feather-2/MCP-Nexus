@@ -84,8 +84,7 @@ export class ConfigBackup {
       } else if (parsed) {
         result.config = parsed as GatewayConfig;
       } else {
-        // fallback: treat as raw config json string
-        result.config = JSON.parse(backupData) as GatewayConfig;
+        throw new Error('Backup file contains invalid JSON');
       }
 
       this.logger.info('Configuration restored from backup', { backupPath: candidate });

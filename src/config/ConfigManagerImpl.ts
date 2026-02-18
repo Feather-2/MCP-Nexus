@@ -161,11 +161,12 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
   }
 
   async updateConfig(updates: Partial<GatewayConfig>): Promise<GatewayConfig> {
+    const oldConfig = this.currentConfig;
     const newConfig = { ...this.currentConfig, ...updates };
     await this.saveConfig(newConfig);
-    
-    this.emit('configUpdated', { old: this.currentConfig, new: newConfig });
-    
+
+    this.emit('configUpdated', { old: oldConfig, new: newConfig });
+
     return newConfig;
   }
 

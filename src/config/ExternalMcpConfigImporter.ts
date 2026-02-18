@@ -239,10 +239,10 @@ export class ExternalMcpConfigImporter {
         env['HTTP_HEADERS'] = JSON.stringify(headers);
         const auth = headers['Authorization'] || headers['authorization'];
         if (auth && auth.startsWith('Bearer ')) {
-          env['API_KEY'] = auth.substring(7);
+          env['API_KEY'] = '${API_KEY}';
         }
         if (headers['X-API-Token']) {
-          env['API_TOKEN'] = headers['X-API-Token'];
+          env['API_TOKEN'] = '${API_TOKEN}';
         }
       }
 
@@ -303,7 +303,7 @@ export class ExternalMcpConfigImporter {
     }
   }
 
-  /** Strip // comments from JSONC without breaking strings containing // (e.g. URLs) */
+  /** Strip line and block comments from JSONC without breaking strings containing // (e.g. URLs) */
   private stripJsoncComments(input: string): string {
     let result = '';
     let inString = false;
@@ -322,6 +322,12 @@ export class ExternalMcpConfigImporter {
         // Skip to end of line
         while (i < input.length && input[i] !== '\n') i++;
         if (i < input.length) result += '\n';
+        continue;
+      }
+      if (ch === '/' && input[i + 1] === '*') {
+        i += 2;
+        while (i < input.length && !(input[i] === '*' && input[i + 1] === '/')) i++;
+        if (i < input.length) i += 1; // skip closing */
         continue;
       }
       result += ch;
