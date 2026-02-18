@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
-import type { Logger } from '../types/index.js';
+import type { Logger, Disposable } from '../types/index.js';
 import { unrefTimer } from '../utils/async.js';
 
 export interface PersistedInstance {
@@ -18,7 +18,7 @@ export interface InstancePersistenceData {
 
 const DEFAULT_PATH = path.resolve('data', 'instances.json');
 
-export class InstancePersistence {
+export class InstancePersistence implements Disposable {
   private data: InstancePersistenceData = { version: 1, instances: {} };
   private dirty = false;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -124,4 +124,6 @@ export class InstancePersistence {
   async shutdown(): Promise<void> {
     await this.flush();
   }
+
+  async dispose(): Promise<void> { await this.shutdown(); }
 }

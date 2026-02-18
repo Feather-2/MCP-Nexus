@@ -2,6 +2,7 @@
  * Backpressure Controller for managing request flow and preventing cascade failures.
  */
 
+import { Disposable } from '../types/index.js';
 import { TokenBucket, TokenBucketOptions } from './TokenBucket.js';
 import { unrefTimer } from '../utils/async.js';
 import { CircuitBreaker, CircuitBreakerOptions, CircuitState } from './CircuitBreaker.js';
@@ -39,7 +40,7 @@ interface ServiceBackpressure {
   }>;
 }
 
-export class BackpressureController {
+export class BackpressureController implements Disposable {
   private readonly services = new Map<string, ServiceBackpressure>();
   private readonly tokenBucketDefaults: TokenBucketOptions;
   private readonly circuitBreakerDefaults: CircuitBreakerOptions;
@@ -189,6 +190,8 @@ export class BackpressureController {
       }
     }
   }
+
+  dispose(): void { this.stop(); }
 
   private getOrCreateService(serviceId: string): ServiceBackpressure {
     let service = this.services.get(serviceId);

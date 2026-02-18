@@ -1,11 +1,12 @@
 import type { FastifyReply } from 'fastify';
+import type { Disposable } from '../types/index.js';
 
 /**
  * Manages Server-Sent Events (SSE) client connections.
  * Provides connection tracking, broadcasting, and cleanup.
  */
 
-export class SseManager {
+export class SseManager implements Disposable {
   private clients: Set<FastifyReply> = new Set();
   private cleanupTimer?: ReturnType<typeof setInterval>;
   private readonly cleanupIntervalMs: number;
@@ -126,4 +127,6 @@ export class SseManager {
     }
     this.clients.clear();
   }
+
+  dispose(): void { this.close(); }
 }

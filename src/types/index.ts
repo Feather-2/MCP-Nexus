@@ -4,3 +4,4 @@
 export * from './mcp.js';
 export * from './gateway.js';
 export * from './service.js';
+export * from './disposable.js';

@@ -10,7 +10,8 @@ import {
   ServiceHealth,
   ServiceLoadMetrics,
   ServiceCostMetrics,
-  ServiceContentAnalysis
+  ServiceContentAnalysis,
+  Disposable
 } from '../types/index.js';
 import { EventEmitter } from 'events';
 import { MetricsCollector } from './MetricsCollector.js';
@@ -18,7 +19,7 @@ import { LoadBalancer } from './LoadBalancer.js';
 import { RouteEvaluator } from './RouteEvaluator.js';
 import { RuleManager } from './RuleManager.js';
 
-export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
+export class GatewayRouterImpl extends EventEmitter implements GatewayRouter, Disposable {
   private routeHandlers = new Map<string, RouteHandler>();
   private metricsCollector: MetricsCollector;
   private loadBalancer: LoadBalancer;
@@ -338,4 +339,6 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
     this.metricsCollector.destroy();
     this.removeAllListeners();
   }
+
+  dispose(): void { this.destroy(); }
 }

@@ -1,4 +1,4 @@
-import type { TransportAdapter, Logger } from '../types/index.js';
+import type { TransportAdapter, Logger, Disposable } from '../types/index.js';
 import { unrefTimer } from '../utils/async.js';
 
 export interface AdapterPoolOptions {
@@ -12,7 +12,7 @@ interface PoolEntry {
   lastUsed: number;
 }
 
-export class AdapterPool {
+export class AdapterPool implements Disposable {
   private pool: Map<string, PoolEntry>;
   private maxSize: number;
   private maxIdleMs: number;
@@ -109,6 +109,8 @@ export class AdapterPool {
     }));
     this.logger.debug('AdapterPool shutdown complete');
   }
+
+  async dispose(): Promise<void> { await this.shutdown(); }
 
   getStats(): { size: number; maxSize: number } {
     return {

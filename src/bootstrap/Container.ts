@@ -1,3 +1,5 @@
+import { isDisposable } from '../types/disposable.js';
+
 export type Token<_T> = string | symbol;
 
 type Factory<T> = (container: Container) => T;
@@ -9,9 +11,16 @@ type Provider<T> =
 export class Container {
   private readonly providers = new Map<Token<unknown>, Provider<unknown>>();
   private readonly singletonCache = new Map<Token<unknown>, unknown>();
+  private readonly registrationOrder: Token<unknown>[] = [];
 
   has<T>(token: Token<T>): boolean {
     return this.providers.has(token);
+  }
+
+  private trackOrder(token: Token<unknown>): void {
+    const idx = this.registrationOrder.indexOf(token);
+    if (idx !== -1) this.registrationOrder.splice(idx, 1);
+    this.registrationOrder.push(token);
   }
 
   register<T>(token: Token<T>, valueOrFactory: T | Factory<T>): void {
@@ -22,6 +31,7 @@ export class Container {
 
     this.providers.set(token, provider);
     this.singletonCache.delete(token);
+    this.trackOrder(token);
   }
 
   singleton<T>(token: Token<T>, valueOrFactory: T | Factory<T>): void {
@@ -32,16 +42,19 @@ export class Container {
 
     this.providers.set(token, provider);
     this.singletonCache.delete(token);
+    this.trackOrder(token);
   }
 
   registerValue<T>(token: Token<T>, value: T): void {
     this.providers.set(token, { kind: 'value', value });
     this.singletonCache.delete(token);
+    this.trackOrder(token);
   }
 
   registerFactory<T>(token: Token<T>, factory: Factory<T>, singleton = false): void {
     this.providers.set(token, { kind: 'factory', factory, singleton });
     this.singletonCache.delete(token);
+    this.trackOrder(token);
   }
 
   resolve<T>(token: Token<T>): T {
@@ -64,5 +77,25 @@ export class Container {
     }
 
     return provider.factory(this);
+  }
+
+  async destroyAll(): Promise<void> {
+    const tokens = [...this.registrationOrder].reverse();
+    for (const token of tokens) {
+      const instance = this.singletonCache.get(token) ?? this.getValueInstance(token);
+      if (instance && isDisposable(instance)) {
+        try {
+          await instance.dispose();
+        } catch { /* best-effort: shutdown must not throw */ }
+      }
+    }
+    this.singletonCache.clear();
+    this.providers.clear();
+    this.registrationOrder.length = 0;
+  }
+
+  private getValueInstance(token: Token<unknown>): unknown {
+    const provider = this.providers.get(token);
+    return provider?.kind === 'value' ? provider.value : undefined;
   }
 }

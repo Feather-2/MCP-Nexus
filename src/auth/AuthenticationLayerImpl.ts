@@ -4,13 +4,14 @@ import {
   AuthResponse,
   AuthContext,
   Logger,
-  GatewayConfig
+  GatewayConfig,
+  Disposable
 } from '../types/index.js';
 import { randomBytes } from 'crypto';
 import { EventEmitter } from 'events';
 import { unrefTimer } from '../utils/async.js';
 
-export class AuthenticationLayerImpl extends EventEmitter implements AuthenticationLayer {
+export class AuthenticationLayerImpl extends EventEmitter implements AuthenticationLayer, Disposable {
   private static readonly TOKEN_CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
   private tokens = new Map<string, {
     userId: string;
@@ -34,6 +35,8 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
       this.cleanupTimer = undefined;
     }
   }
+
+  dispose(): void { this.destroy(); }
 
   private trustedLocalNetworks = [
     '127.0.0.1',

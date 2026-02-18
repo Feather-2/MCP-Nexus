@@ -9,7 +9,8 @@ import {
   Logger,
   GatewayConfig,
   ServiceHealth,
-  HealthCheckResult
+  HealthCheckResult,
+  Disposable
 } from '../types/index.js';
 import { ServiceRegistryImpl } from '../gateway/ServiceRegistryImpl.js';
 import { AuthenticationLayerImpl } from '../auth/AuthenticationLayerImpl.js';
@@ -56,7 +57,7 @@ import { setupMiddlewareWiring } from './MiddlewareWiring.js';
 // Fastify request/reply augmentation helpers (avoids per-line `as any`)
 type AugmentedRequest = FastifyRequest & Record<string, unknown>;
 
-export class HttpApiServer {
+export class HttpApiServer implements Disposable {
   private static readonly MAX_LOG_BUFFER_SIZE = 200;
   private static readonly API_VERSION = 'v1';
   private server: FastifyInstance;
@@ -381,6 +382,8 @@ export class HttpApiServer {
       throw error;
     }
   }
+
+  async dispose(): Promise<void> { await this.stop(); }
 
   /**
    * Create route context for modular route handlers

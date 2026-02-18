@@ -1,7 +1,7 @@
-import { HealthCheckResult, Logger } from '../types/index.js';
+import { HealthCheckResult, Logger, Disposable } from '../types/index.js';
 import type { ServiceObservationStore } from './service-state.js';
 
-export class ServiceHealthChecker {
+export class ServiceHealthChecker implements Disposable {
   private monitoringServices = new Set<string>();
   private checkInterval = 5000; // 5 seconds
   private probe?: (serviceId: string) => Promise<HealthCheckResult>;
@@ -28,6 +28,8 @@ export class ServiceHealthChecker {
   destroy(): void {
     clearInterval(this.periodicTimer);
   }
+
+  dispose(): void { this.destroy(); }
 
   setProbe(fn: (serviceId: string) => Promise<HealthCheckResult>): void {
     this.probe = fn;

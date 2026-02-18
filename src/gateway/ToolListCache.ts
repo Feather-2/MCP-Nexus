@@ -1,4 +1,4 @@
-import type { Logger } from '../types/index.js';
+import type { Logger, Disposable } from '../types/index.js';
 import { unrefTimer } from '../utils/async.js';
 
 export interface ToolListCacheOptions {
@@ -12,7 +12,7 @@ export interface CachedToolList {
   cachedAt: number;
 }
 
-export class ToolListCache {
+export class ToolListCache implements Disposable {
   private cache: Map<string, CachedToolList>;
   private ttlMs: number;
   private maxEntries: number;
@@ -106,6 +106,8 @@ export class ToolListCache {
     this.cache.clear();
     this.logger.debug('ToolListCache shutdown complete');
   }
+
+  dispose(): void { this.shutdown(); }
 
   private cleanup(): void {
     const now = Date.now();
