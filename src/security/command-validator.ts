@@ -163,9 +163,12 @@ export class CommandValidator {
     }
 
     const lower = trimmed.toLowerCase();
+    // Also check reconstructed command (quotes stripped) to prevent bypass
+    const reconstructed = args.join(' ').toLowerCase();
     for (const fragment of this.bannedFragments) {
       if (!fragment) continue;
-      if (lower.includes(fragment.toLowerCase())) {
+      const lf = fragment.toLowerCase();
+      if (lower.includes(lf) || reconstructed.includes(lf)) {
         throw new Error(`CommandValidator: banned fragment "${fragment}"`);
       }
     }

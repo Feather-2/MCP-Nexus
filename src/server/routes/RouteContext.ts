@@ -71,7 +71,8 @@ export abstract class BaseRouteHandler {
    */
   protected writeSseHeaders(reply: FastifyReply, request: FastifyRequest): void {
     const origin = request.headers['origin'] as string | undefined;
-    const config = (this.ctx.configManager as unknown as { config?: Record<string, unknown> }).config || {};
+    const cm = this.ctx.configManager;
+    const config = typeof cm.getConfig === 'function' ? cm.getConfig() : (cm as unknown as { config?: Record<string, unknown> }).config || {};
     const allowed = Array.isArray(config.corsOrigins) ? config.corsOrigins : [];
     const isAllowed = origin && allowed.includes(origin);
     reply.raw.writeHead(200, {

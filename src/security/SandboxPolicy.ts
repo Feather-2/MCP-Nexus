@@ -148,8 +148,9 @@ function applyPortableSandboxPolicy(template: McpServiceConfig, policy: Normaliz
 
   const cmdBase = basenameCrossPlatform(String(template.command || ''));
   const cmdKey = cmdBase.endsWith('.js') ? cmdBase.slice(0, -3) : cmdBase;
-  const args = Array.isArray(template.args) ? ([...template.args] as string[]) : [];
-  const env = { ...(template.env || {}) } as Record<string, string>;
+  const args = Array.isArray(template.args) ? template.args.map(String) : [];
+  const env: Record<string, string> = {};
+  if (template.env) { for (const [k, v] of Object.entries(template.env)) env[k] = String(v ?? ''); }
 
   const hasExplicitSandbox = typeof env.SANDBOX === 'string' && env.SANDBOX.length > 0;
   const isNpx = cmdKey === 'npx' || cmdKey === 'npx-cli';
@@ -288,7 +289,7 @@ export function normalizeSandboxPolicy(gatewayConfig?: GatewayConfig): Normalize
 
 function suggestContainerImage(template: McpServiceConfig): string {
   const cmd = String(template.command || '').toLowerCase();
-  const args = Array.isArray(template.args) ? (template.args as string[]).join(' ').toLowerCase() : '';
+  const args = Array.isArray(template.args) ? template.args.map(String).join(' ').toLowerCase() : '';
   if (cmd.includes('python') || args.includes('python')) return 'python:3.11-alpine';
   if (cmd.includes('go') || args.includes('golang') || args.includes('go ')) return 'golang:1.22-alpine';
   if (cmd.includes('node') || cmd.includes('npm') || cmd.includes('npx') || args.includes('node') || args.includes('npm') || args.includes('npx')) {
@@ -360,13 +361,13 @@ export function applyGatewaySandboxPolicy(template: McpServiceConfig, gatewayCon
     };
 
     // Default container params
-    const container = (next.container || {}) as Record<string, unknown>;
+    const container = next.container!;
     if (!container.image) container.image = suggestContainerImage(next);
     if (typeof container.readonlyRootfs !== 'boolean') {
       container.readonlyRootfs = policy.container.defaultReadonlyRootfs;
     }
 
-    const networkPolicy = next.security?.networkPolicy as string | undefined;
+    const networkPolicy = next.security?.networkPolicy;
     if (networkPolicy === 'blocked' || networkPolicy === 'local-only') {
       container.network = 'none';
     } else if (networkPolicy === 'full') {
@@ -380,7 +381,7 @@ export function applyGatewaySandboxPolicy(template: McpServiceConfig, gatewayCon
       }
     }
 
-    (next as Record<string, unknown>).container = container;
+    next.container = container;
 
     // Validate volumes against global allowlist (defense-in-depth; adapter will re-check).
     validateVolumesAllowed(next, policy);
