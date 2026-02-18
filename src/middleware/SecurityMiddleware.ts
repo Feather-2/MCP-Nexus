@@ -1,5 +1,5 @@
 import { Context, Middleware, State } from './types.js';
-import { realpathSync } from 'fs';
+import { realpath } from 'fs/promises';
 import { resolve } from 'path';
 
 export interface SecurityConfig {
@@ -30,6 +30,7 @@ const DEFAULT_BANNED_ARGS = [
 export class SecurityMiddleware implements Middleware {
   readonly name = 'SecurityMiddleware';
   private config: SecurityConfig;
+  private globalPatterns: RegExp[];
 
   constructor(config?: Partial<SecurityConfig>) {
     this.config = {
@@ -38,6 +39,10 @@ export class SecurityMiddleware implements Middleware {
       bannedArguments: config?.bannedArguments ?? DEFAULT_BANNED_ARGS,
       sensitivePatterns: config?.sensitivePatterns ?? DEFAULT_SENSITIVE_PATTERNS
     };
+    this.globalPatterns = this.config.sensitivePatterns.map(p => {
+      const flags = p.flags.includes('g') ? p.flags : p.flags + 'g';
+      return new RegExp(p.source, flags);
+    });
   }
 
   /**
@@ -58,7 +63,7 @@ export class SecurityMiddleware implements Middleware {
     // 2. 路径符号链接防护 (Symlink Guard)
     const toolArgs = toolCall.arguments as Record<string, unknown> | undefined;
     if (this.config.enableSymlinkGuard && toolArgs?.path) {
-      this.validatePath(String(toolArgs.path));
+      await this.validatePath(String(toolArgs.path));
     }
   }
 
@@ -73,9 +78,8 @@ export class SecurityMiddleware implements Middleware {
 
     // 3. 敏感信息脱敏 (Secret Redaction)
     let sanitized = result.content;
-    for (const pattern of this.config.sensitivePatterns) {
-      const flags = pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g';
-      const globalPattern = new RegExp(pattern.source, flags);
+    for (const globalPattern of this.globalPatterns) {
+      globalPattern.lastIndex = 0;
       sanitized = sanitized.replace(globalPattern, (match: string) => {
         return `${match.slice(0, 4)}****${match.slice(-4)}`;
       });
@@ -104,18 +108,16 @@ export class SecurityMiddleware implements Middleware {
     }
   }
 
-  private validatePath(filePath: string): void {
+  private async validatePath(filePath: string): Promise<void> {
     try {
       const resolvedPath = resolve(filePath);
-      const realPath = realpathSync(resolvedPath);
-      
-      // 获取当前工作目录
-      const cwd = process.cwd();
-      const realCwd = realpathSync(cwd);
+      const realPath = await realpath(resolvedPath);
 
-      // 如果提供了 ALLOWED_DIRECTORY 环境变量，则以此为准
-      const allowedDir = process.env.ALLOWED_DIRECTORY 
-        ? realpathSync(resolve(process.env.ALLOWED_DIRECTORY))
+      const cwd = process.cwd();
+      const realCwd = await realpath(cwd);
+
+      const allowedDir = process.env.ALLOWED_DIRECTORY
+        ? await realpath(resolve(process.env.ALLOWED_DIRECTORY))
         : realCwd;
 
       if (!realPath.startsWith(allowedDir)) {
@@ -123,7 +125,6 @@ export class SecurityMiddleware implements Middleware {
       }
     } catch (err: unknown) {
       if ((err as Error).message?.includes('Security Guard')) throw err;
-      // 路径不存在或解析失败，也视为不安全（除非明确允许创建）
       throw new Error(`Security Guard: Path validation failed: ${filePath}`);
     }
   }

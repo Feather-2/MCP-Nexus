@@ -333,4 +333,9 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter {
   refreshServiceMetrics(serviceId?: string, directMetrics?: ServiceLoadMetrics): void {
     this.metricsCollector.refreshServiceMetrics(serviceId, directMetrics);
   }
+
+  destroy(): void {
+    this.metricsCollector.destroy();
+    this.removeAllListeners();
+  }
 }

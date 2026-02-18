@@ -147,9 +147,12 @@ export class PrometheusExporter {
     });
   }
 
+  private outstandingExecutions = 0;
+
   attachToEventBus(eventBus: EventBus): void {
     eventBus.subscribe('orchestrator:execute:start', () => {
-      this.concurrentExecutions.inc();
+      this.outstandingExecutions++;
+      this.concurrentExecutions.set(this.outstandingExecutions);
     });
 
     eventBus.subscribe('orchestrator:execute:end', (event) => {
@@ -157,7 +160,8 @@ export class PrometheusExporter {
       this.executeTotal.inc();
       if (payload?.success) this.executeSuccess.inc();
       if (payload?.durationMs) this.executeDuration.observe(payload.durationMs as number);
-      this.concurrentExecutions.dec();
+      if (this.outstandingExecutions > 0) this.outstandingExecutions--;
+      this.concurrentExecutions.set(this.outstandingExecutions);
     });
 
     eventBus.subscribe('orchestrator:step:error', () => {

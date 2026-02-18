@@ -34,6 +34,16 @@ export class Container {
     this.singletonCache.delete(token);
   }
 
+  registerValue<T>(token: Token<T>, value: T): void {
+    this.providers.set(token, { kind: 'value', value });
+    this.singletonCache.delete(token);
+  }
+
+  registerFactory<T>(token: Token<T>, factory: Factory<T>, singleton = false): void {
+    this.providers.set(token, { kind: 'factory', factory, singleton });
+    this.singletonCache.delete(token);
+  }
+
   resolve<T>(token: Token<T>): T {
     const provider = this.providers.get(token) as Provider<T> | undefined;
     if (!provider) {

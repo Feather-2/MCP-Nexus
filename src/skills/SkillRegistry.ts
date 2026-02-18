@@ -343,9 +343,15 @@ export class SkillRegistry {
     }
   }
 
+  private static readonly MAX_WATCHERS = 128;
+
   private async addDirectoryWatcher(root: string, dir: string, depth: number): Promise<void> {
     const resolvedDir = path.resolve(dir);
     if (this.watchers.has(resolvedDir)) return;
+    if (this.watchers.size >= SkillRegistry.MAX_WATCHERS) {
+      this.logger?.warn('Max watcher limit reached, skipping directory', { dir: resolvedDir, limit: SkillRegistry.MAX_WATCHERS });
+      return;
+    }
 
     let watcher: AsyncFsWatcher;
     try {

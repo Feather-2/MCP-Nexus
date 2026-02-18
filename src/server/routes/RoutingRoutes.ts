@@ -157,31 +157,31 @@ export class RoutingRoutes extends BaseRouteHandler {
         }
 
         const adapter = await this.ctx.protocolAdapters.createAdapter(service.config);
-        await adapter.connect();
-
-        // Wire adapter events into log buffer
-        const emitter = adapter as unknown as { on?: (event: string, fn: (...args: unknown[]) => void) => void };
-        emitter.on?.('stderr', (line: unknown) => {
-          this.ctx.addLogEntry('warn', `stderr: ${line}`, serviceId);
-        });
-        emitter.on?.('sent', (msg: unknown) => {
-          const m = msg as Record<string, unknown> | undefined;
-          this.ctx.addLogEntry('debug', `${m?.method || 'unknown'} id=${m?.id ?? 'auto'}`, serviceId);
-        });
-        emitter.on?.('message', (msg: unknown) => {
-          const m = msg as Record<string, unknown> | undefined;
-          this.ctx.addLogEntry('debug', `${m?.method || (m?.result ? 'result' : 'message')} id=${m?.id ?? 'n/a'}`, serviceId);
-        });
-
-        const isPortable = service.config.env?.SANDBOX === 'portable';
-        const startTs = Date.now();
-        this.ctx.addLogEntry('info', `Proxy call ${mcpMessage?.method || 'unknown'} (id=${mcpMessage?.id ?? 'auto'})${isPortable ? ' [SANDBOX: portable]' : ''}`, serviceId, { request: mcpMessage });
         try {
-          const preview = JSON.stringify(mcpMessage?.params ?? {}).slice(0, 800);
-          this.ctx.addLogEntry('debug', `params: ${preview}${preview.length === 800 ? '…' : ''}`, serviceId);
-        } catch { /* ignored */ }
+          await adapter.connect();
 
-        try {
+          // Wire adapter events into log buffer
+          const emitter = adapter as unknown as { on?: (event: string, fn: (...args: unknown[]) => void) => void };
+          emitter.on?.('stderr', (line: unknown) => {
+            this.ctx.addLogEntry('warn', `stderr: ${line}`, serviceId);
+          });
+          emitter.on?.('sent', (msg: unknown) => {
+            const m = msg as Record<string, unknown> | undefined;
+            this.ctx.addLogEntry('debug', `${m?.method || 'unknown'} id=${m?.id ?? 'auto'}`, serviceId);
+          });
+          emitter.on?.('message', (msg: unknown) => {
+            const m = msg as Record<string, unknown> | undefined;
+            this.ctx.addLogEntry('debug', `${m?.method || (m?.result ? 'result' : 'message')} id=${m?.id ?? 'n/a'}`, serviceId);
+          });
+
+          const isPortable = service.config.env?.SANDBOX === 'portable';
+          const startTs = Date.now();
+          this.ctx.addLogEntry('info', `Proxy call ${mcpMessage?.method || 'unknown'} (id=${mcpMessage?.id ?? 'auto'})${isPortable ? ' [SANDBOX: portable]' : ''}`, serviceId, { request: mcpMessage });
+          try {
+            const preview = JSON.stringify(mcpMessage?.params ?? {}).slice(0, 800);
+            this.ctx.addLogEntry('debug', `params: ${preview}${preview.length === 800 ? '…' : ''}`, serviceId);
+          } catch { /* ignored */ }
+
           const sendReceive = (adapter as unknown as { sendAndReceive?: (msg: unknown) => Promise<unknown> }).sendAndReceive;
           const response = await (sendReceive?.(mcpMessage) ?? adapter.send(mcpMessage));
           const duration = Date.now() - startTs;
@@ -235,9 +235,8 @@ export class RoutingRoutes extends BaseRouteHandler {
 
         const service = running[0];
         const adapter = await this.ctx.protocolAdapters.createAdapter(service.config);
-        await adapter.connect();
-
         try {
+          await adapter.connect();
           const sr = (adapter as unknown as { sendAndReceive?: (msg: unknown) => Promise<unknown> }).sendAndReceive;
           const response = await (sr?.(mcpMessage) ?? adapter.send(mcpMessage));
           reply.send(response);

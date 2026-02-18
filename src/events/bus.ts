@@ -407,25 +407,8 @@ export class EventBus {
 
     const subscribers = [...bucket.values()];
     for (const sub of subscribers) {
-      if (!sub.closed && sub.queue.length < sub.bufferSize) {
-        sub.queue.push(evt);
-        if (!sub.running) {
-          sub.running = true;
-          void (async () => {
-            try {
-              while (!sub.closed && sub.queue.length > 0) {
-                const next = sub.queue.shift()!;
-                const task = Promise.resolve()
-                  .then(() => sub.handler(next))
-                  .then(() => {})
-                  .catch(() => {});
-                await withTimeoutOrCancel(task, sub.timeoutMs, sub.closeSignal);
-              }
-            } finally {
-              sub.running = false;
-            }
-          })();
-        }
+      if (!sub.closed) {
+        sub.enqueue(evt);
       }
     }
     } finally {

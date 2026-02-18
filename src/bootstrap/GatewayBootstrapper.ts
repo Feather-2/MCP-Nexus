@@ -250,12 +250,34 @@ export class GatewayBootstrapper {
     await runtime.httpServer.stop();
 
     const services = await runtime.serviceRegistry.listServices();
-    for (const service of services) {
-      await runtime.serviceRegistry.stopService(service.id);
+    const STOP_TIMEOUT_MS = 10_000;
+    const results = await Promise.allSettled(
+      services.map(service => {
+        const stopPromise = runtime.serviceRegistry.stopService(service.id);
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          const timer = setTimeout(
+            () => reject(new Error(`Stopping service ${service.id} timed out`)),
+            STOP_TIMEOUT_MS
+          );
+          (timer as unknown as { unref?: () => void }).unref?.();
+        });
+        return Promise.race([stopPromise, timeoutPromise]);
+      })
+    );
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        runtime.logger.warn('Service stop failed during shutdown', { error: (result.reason as Error)?.message });
+      }
     }
 
     runtime.toolListCache.shutdown();
     await runtime.adapterPool.shutdown();
+
+    // Destroy router to clear MetricsCollector interval
+    if (typeof (runtime as Record<string, unknown>).router === 'object') {
+      const router = runtime.router as { destroy?: () => void };
+      router.destroy?.();
+    }
 
     runtime.logger.info('PB MCP Nexus stopped successfully');
     await shutdownOpenTelemetry(runtime.logger);

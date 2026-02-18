@@ -78,8 +78,8 @@ export class RouteEvaluator {
 
   evaluateCondition(condition: Record<string, unknown> | string, request: RouteRequest): boolean {
     if (typeof condition === 'string') {
-      return request.method?.includes(condition) ||
-             request.serviceGroup?.includes(condition) || false;
+      return request.method === condition ||
+             request.serviceGroup === condition || false;
     }
 
     if (typeof condition === 'object') {
