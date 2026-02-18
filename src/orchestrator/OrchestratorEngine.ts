@@ -1,6 +1,6 @@
-import { Logger, McpMessage, McpServiceConfig, OrchestratorConfig } from '../types/index.js';
+import { Logger, McpMessage, McpServiceConfig, OrchestratorConfig, TransportAdapter } from '../types/index.js';
 import { ServiceRegistryImpl } from '../gateway/ServiceRegistryImpl.js';
-import { ProtocolAdaptersImpl } from '../adapters/ProtocolAdaptersImpl.js';
+import { ProtocolAdaptersImpl, sendRequest } from '../adapters/ProtocolAdaptersImpl.js';
 import { OrchestratorManager } from './OrchestratorManager.js';
 import { SubagentLoader } from './SubagentLoader.js';
 import type { ExecuteRequest, ExecuteResult, OrchestratorStep } from './types.js';
@@ -169,9 +169,7 @@ export class OrchestratorEngine {
     const template = await this.registry.getTemplate(templateName);
     if (!template) throw new Error(`Template not found: ${templateName}`);
 
-    const adapter = await this.adapters.createAdapter(template as McpServiceConfig);
-    try {
-      await adapter.connect();
+    return this.adapters.withAdapter(template as McpServiceConfig, async (adapter) => {
       const toolName = await this.resolveToolName(adapter, step.tool);
       const msg: McpMessage = {
         jsonrpc: '2.0',
@@ -179,21 +177,19 @@ export class OrchestratorEngine {
         method: 'tools/call',
         params: { name: toolName, arguments: step.params || {} }
       };
-      const res = await this.sendAndReceive(adapter, msg);
+      const res = await sendRequest(adapter, msg);
       return (res as unknown as Record<string, unknown>)?.result ?? res;
-    } finally {
-      this.adapters.releaseAdapter(template as McpServiceConfig, adapter);
-    }
+    });
   }
 
-  private async resolveToolName(adapter: { sendAndReceive?: (msg: McpMessage) => Promise<McpMessage>; send: (msg: McpMessage) => Promise<void>; receive: () => Promise<McpMessage> }, requested?: string): Promise<string> {
+  private async resolveToolName(adapter: TransportAdapter, requested?: string): Promise<string> {
     const listMsg: McpMessage = {
       jsonrpc: '2.0',
       id: `tools-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       method: 'tools/list',
       params: {}
     };
-    const res = await this.sendAndReceive(adapter, listMsg).catch(() => undefined);
+    const res = await sendRequest(adapter, listMsg).catch(() => undefined);
     const r = res as Record<string, unknown> | undefined;
     const result = r?.result as Record<string, unknown> | undefined;
     const tools = result?.tools;
@@ -210,14 +206,6 @@ export class OrchestratorEngine {
     if (hit) return hit;
     // Fall back to requested to preserve backward compatibility for servers that don't support tools/list properly.
     return requested;
-  }
-
-  private async sendAndReceive(adapter: { sendAndReceive?: (msg: McpMessage) => Promise<McpMessage>; send: (msg: McpMessage) => Promise<void>; receive: () => Promise<McpMessage> }, message: McpMessage): Promise<McpMessage> {
-    if (typeof adapter?.sendAndReceive === 'function') {
-      return adapter.sendAndReceive(message);
-    }
-    await adapter.send(message);
-    return adapter.receive();
   }
 
   private selectTemplate(step: OrchestratorStep): string | null {

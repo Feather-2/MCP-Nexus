@@ -38,7 +38,15 @@ function makeEngine(opts?: {
     });
   }
 
-  const protocolAdapters = { createAdapter: vi.fn().mockResolvedValue(adapter), releaseAdapter: vi.fn() };
+  const protocolAdapters = {
+    createAdapter: vi.fn().mockResolvedValue(adapter),
+    releaseAdapter: vi.fn(),
+    withAdapter: vi.fn(async (config: any, fn: any) => {
+      const a = await protocolAdapters.createAdapter(config);
+      await a.connect();
+      try { return await fn(a); } finally { protocolAdapters.releaseAdapter(config, a); }
+    })
+  };
 
   const registry = {
     listTemplates: opts?.listTemplatesFails

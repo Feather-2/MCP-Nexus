@@ -3,6 +3,7 @@ import { BaseRouteHandler, RouteContext } from './RouteContext.js';
 import { randomBytes, createHash, createHmac, pbkdf2Sync, scryptSync, randomUUID } from 'crypto';
 import { z } from 'zod';
 import { unrefTimer } from '../../utils/async.js';
+import { sendRequest } from '../../adapters/ProtocolAdaptersImpl.js';
 
 /**
  * Local MCP Proxy routes for secure browser-based MCP access
@@ -262,12 +263,9 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
         return;
       }
 
-      const adapter = await this.ctx.protocolAdapters.createAdapter(service.config);
-      await adapter.connect();
-      try {
+      await this.ctx.protocolAdapters.withAdapter(service.config, async (adapter) => {
         const msg: import('../../types/index.js').McpMessage = { jsonrpc: '2.0', id: `tools-list-${Date.now()}`, method: 'tools/list', params: {} };
-        const sr = (adapter as unknown as { sendAndReceive?: (msg: unknown) => Promise<unknown> }).sendAndReceive;
-        const res = sr ? await sr(msg) : await adapter.send(msg);
+        const res = await sendRequest(adapter, msg);
         const r = res as Record<string, unknown> | undefined;
         const result = r?.result as Record<string, unknown> | undefined;
 
@@ -277,9 +275,7 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
 
         this.ctx.addLogEntry('info', 'mcp.local.tools_list', service.id);
         reply.send({ success: true, tools: toolsResult, requestId: msg.id });
-      } finally {
-        this.ctx.protocolAdapters.releaseAdapter(service.config, adapter);
-      }
+      });
     } catch (error: unknown) {
       return this.respondError(reply, 500, (error as Error)?.message || 'Internal error', { code: 'INTERNAL_ERROR' });
     }
@@ -309,18 +305,13 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
     try {
       const service = await this.findTargetService(serviceId);
       if (!service) return this.respondError(reply, 404, 'No suitable service', { code: 'NO_SERVICE', recoverable: true });
-      const adapter = await this.ctx.protocolAdapters.createAdapter(service.config);
-      await adapter.connect();
-      try {
+      await this.ctx.protocolAdapters.withAdapter(service.config, async (adapter) => {
         const msg: import('../../types/index.js').McpMessage = { jsonrpc: '2.0', id: `call-${Date.now()}`, method: 'tools/call', params: { name: tool, arguments: params || {} } };
-        const sr = (adapter as unknown as { sendAndReceive?: (msg: unknown) => Promise<unknown> }).sendAndReceive;
-        const res = sr ? await sr(msg) : await adapter.send(msg);
+        const res = await sendRequest(adapter, msg);
         const r = res as Record<string, unknown> | undefined;
         this.ctx.addLogEntry('info', 'mcp.local.call', service.id, { tool });
         reply.send({ success: true, result: r?.result ?? res, requestId: msg.id });
-      } finally {
-        this.ctx.protocolAdapters.releaseAdapter(service.config, adapter);
-      }
+      });
     } catch (error: unknown) {
       return this.respondError(reply, 500, (error as Error)?.message || 'Internal error', { code: 'INTERNAL_ERROR' });
     }

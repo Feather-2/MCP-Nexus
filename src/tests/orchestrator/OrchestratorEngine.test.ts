@@ -31,7 +31,12 @@ function makeEngine(opts?: { tools?: string[]; callResult?: any }) {
 
   const protocolAdapters = {
     createAdapter: vi.fn().mockResolvedValue(adapter),
-    releaseAdapter: vi.fn()
+    releaseAdapter: vi.fn(),
+    withAdapter: vi.fn(async (config: any, fn: any) => {
+      const a = await protocolAdapters.createAdapter(config);
+      await a.connect();
+      try { return await fn(a); } finally { protocolAdapters.releaseAdapter(config, a); }
+    })
   };
 
   const registry = {
@@ -123,7 +128,12 @@ describe('OrchestratorEngine', () => {
     };
     const protocolAdapters = {
       createAdapter: vi.fn().mockResolvedValue(adapter),
-      releaseAdapter: vi.fn()
+      releaseAdapter: vi.fn(),
+      withAdapter: vi.fn(async (config: any, fn: any) => {
+        const a = await protocolAdapters.createAdapter(config);
+        await a.connect();
+        try { return await fn(a); } finally { protocolAdapters.releaseAdapter(config, a); }
+      })
     };
     const registry = {
       listTemplates: vi.fn().mockResolvedValue([{ name: 'brave-search', transport: 'http' }]),

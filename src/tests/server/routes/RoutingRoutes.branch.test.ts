@@ -11,7 +11,8 @@ function makeAdapter(overrides?: Record<string, any>) {
   return {
     connect: vi.fn().mockResolvedValue(undefined),
     disconnect: vi.fn().mockResolvedValue(undefined),
-    send: vi.fn().mockResolvedValue({ jsonrpc: '2.0', id: 1, result: {} }),
+    send: vi.fn().mockResolvedValue(undefined),
+    receive: vi.fn().mockResolvedValue({ jsonrpc: '2.0', id: 1, result: {} }),
     sendAndReceive: vi.fn().mockResolvedValue({ jsonrpc: '2.0', id: 1, result: {} }),
     on: vi.fn(),
     ...overrides,
@@ -28,7 +29,7 @@ function makeSvc(id = 'svc-1', extra?: Record<string, any>) {
 }
 
 function makeCtx(server: FastifyInstance, overrides?: Record<string, any>) {
-  return {
+  const ctx = {
     server,
     logger: { trace: vi.fn(), debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     serviceRegistry: {
@@ -43,7 +44,7 @@ function makeCtx(server: FastifyInstance, overrides?: Record<string, any>) {
     },
     protocolAdapters: {
       createAdapter: vi.fn().mockResolvedValue(makeAdapter()),
-    },
+    } as any,
     configManager: { config: {} },
     middlewares: [],
     middlewareChain: undefined as any,
@@ -59,6 +60,14 @@ function makeCtx(server: FastifyInstance, overrides?: Record<string, any>) {
     canAcceptSseClient: vi.fn(() => true),
     ...overrides,
   } as any;
+  if (!ctx.protocolAdapters.withAdapter) {
+    ctx.protocolAdapters.withAdapter = vi.fn(async (cfg: any, fn: any) => {
+      const a = await ctx.protocolAdapters.createAdapter(cfg);
+      await a.connect();
+      try { return await fn(a); } finally { ctx.protocolAdapters.releaseAdapter?.(cfg, a); }
+    });
+  }
+  return ctx;
 }
 
 /* ------------------------------------------------------------------ */

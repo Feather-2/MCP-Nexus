@@ -27,8 +27,15 @@ const {
       send: vi.fn().mockResolvedValue({ jsonrpc: '2.0', id: 'x', result: { tools: [] } }),
       sendAndReceive: vi.fn().mockResolvedValue({ jsonrpc: '2.0', id: 'x', result: { tools: [] } }),
       isConnected: vi.fn().mockReturnValue(true)
-    })
+    }),
+    releaseAdapter: vi.fn(),
+    withAdapter: vi.fn()
   };
+  adaptersStub.withAdapter.mockImplementation(async (config: any, fn: any) => {
+    const a = await adaptersStub.createAdapter(config);
+    await a.connect();
+    try { return await fn(a); } finally { adaptersStub.releaseAdapter(config, a); }
+  });
   return {
     mockStaticPlugin: vi.fn((_instance: any, _opts: any, done?: (err?: Error) => void) => done?.()),
     mockCorsPlugin: vi.fn((_instance: any, _opts: any, done?: (err?: Error) => void) => done?.()),
@@ -45,7 +52,14 @@ vi.mock('@fastify/cors', () => ({ default: mockCorsPlugin }));
 vi.mock('../../../gateway/ServiceRegistryImpl.js', () => ({ ServiceRegistryImpl }));
 vi.mock('../../../auth/AuthenticationLayerImpl.js', () => ({ AuthenticationLayerImpl }));
 vi.mock('../../../routing/GatewayRouterImpl.js', () => ({ GatewayRouterImpl }));
-vi.mock('../../../adapters/ProtocolAdaptersImpl.js', () => ({ ProtocolAdaptersImpl }));
+vi.mock('../../../adapters/ProtocolAdaptersImpl.js', () => ({
+  ProtocolAdaptersImpl,
+  sendRequest: async (adapter: any, message: any) => {
+    if (typeof adapter.sendAndReceive === 'function') return adapter.sendAndReceive(message);
+    await adapter.send(message);
+    return adapter.receive?.();
+  }
+}));
 
 describe('LocalMcpProxyRoutes - input validation and flow', () => {
   const config: GatewayConfig = {

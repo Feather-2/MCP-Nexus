@@ -22,7 +22,8 @@ describe('RoutingRoutes – branch coverage', () => {
     const adapter = {
       connect: vi.fn().mockResolvedValue(undefined),
       disconnect: vi.fn().mockResolvedValue(undefined),
-      send: vi.fn().mockResolvedValue({ jsonrpc: '2.0', id: 1, result: { tools: [] } }),
+      send: vi.fn().mockResolvedValue(undefined),
+      receive: vi.fn().mockResolvedValue({ jsonrpc: '2.0', id: 1, result: { tools: [] } }),
       sendAndReceive: vi.fn().mockResolvedValue({ jsonrpc: '2.0', id: 1, result: { tools: [] } }),
       on: vi.fn(),
       ...overrides.adapter
@@ -39,7 +40,17 @@ describe('RoutingRoutes – branch coverage', () => {
       },
       authLayer: {} as any,
       router: { route: vi.fn().mockResolvedValue({ success: false, error: 'no services' }), ...overrides.router },
-      protocolAdapters: { createAdapter: vi.fn().mockResolvedValue(adapter), ...overrides.protocolAdapters },
+      protocolAdapters: (() => {
+        const pa: any = { createAdapter: vi.fn().mockResolvedValue(adapter), ...overrides.protocolAdapters };
+        if (!pa.withAdapter) {
+          pa.withAdapter = vi.fn(async (cfg: any, fn: any) => {
+            const a = await pa.createAdapter(cfg);
+            await a.connect();
+            try { return await fn(a); } finally { pa.releaseAdapter?.(cfg, a); }
+          });
+        }
+        return pa;
+      })(),
       configManager: { getConfig: vi.fn().mockReturnValue({ corsOrigins: [] }), config: { corsOrigins: [] }, ...overrides.configManager },
       middlewareChain: overrides.middlewareChain ?? new MiddlewareChain([]),
       middlewares: overrides.middlewares,
@@ -304,7 +315,8 @@ describe('RoutingRoutes – branch coverage', () => {
       const adapter = {
         connect: vi.fn().mockResolvedValue(undefined),
         disconnect: vi.fn().mockResolvedValue(undefined),
-        send: vi.fn().mockResolvedValue({ jsonrpc: '2.0', id: 1, result: {} }),
+        send: vi.fn().mockResolvedValue(undefined),
+        receive: vi.fn().mockResolvedValue({ jsonrpc: '2.0', id: 1, result: {} }),
         on: vi.fn()
       };
       const ctx = makeCtx(server, {

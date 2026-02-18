@@ -27,7 +27,12 @@ const {
       sendAndReceive: vi.fn().mockResolvedValue({ jsonrpc: '2.0', id: 'x', result: { tools: [] } }),
       isConnected: vi.fn().mockReturnValue(true)
     }),
-    releaseAdapter: vi.fn()
+    releaseAdapter: vi.fn(),
+    withAdapter: vi.fn(async (cfg: any, fn: any) => {
+      const a = await adaptersStub.createAdapter(cfg);
+      await a.connect();
+      try { return await fn(a); } finally { adaptersStub.releaseAdapter(cfg, a); }
+    })
   };
   return {
     mockStaticPlugin: vi.fn((_instance: any, _opts: any, done?: (err?: Error) => void) => done?.()),
@@ -45,7 +50,14 @@ vi.mock('@fastify/cors', () => ({ default: mockCorsPlugin }));
 vi.mock('../../../gateway/ServiceRegistryImpl.js', () => ({ ServiceRegistryImpl }));
 vi.mock('../../../auth/AuthenticationLayerImpl.js', () => ({ AuthenticationLayerImpl }));
 vi.mock('../../../routing/GatewayRouterImpl.js', () => ({ GatewayRouterImpl }));
-vi.mock('../../../adapters/ProtocolAdaptersImpl.js', () => ({ ProtocolAdaptersImpl }));
+vi.mock('../../../adapters/ProtocolAdaptersImpl.js', () => ({
+  ProtocolAdaptersImpl,
+  sendRequest: async (adapter: any, message: any) => {
+    if (typeof adapter.sendAndReceive === 'function') return adapter.sendAndReceive(message);
+    await adapter.send(message);
+    return adapter.receive?.();
+  }
+}));
 
 describe('OrchestratorRoutes - execute', () => {
   const config: GatewayConfig = {
@@ -159,11 +171,16 @@ describe('OrchestratorRoutes - execute', () => {
       })
     };
 
-    const localAdapters = {
+    const localAdapters: any = {
       ...adaptersStub,
       createAdapter: vi.fn().mockResolvedValue(adapter),
       releaseAdapter: vi.fn()
     };
+    localAdapters.withAdapter = vi.fn(async (cfg: any, fn: any) => {
+      const a = await localAdapters.createAdapter(cfg);
+      await a.connect();
+      try { return await fn(a); } finally { localAdapters.releaseAdapter(cfg, a); }
+    });
 
     const orchestratorManagerStub = {
       getConfig: vi.fn().mockReturnValue({

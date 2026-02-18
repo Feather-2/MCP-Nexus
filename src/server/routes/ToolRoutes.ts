@@ -4,6 +4,7 @@ import { BaseRouteHandler, RouteContext } from './RouteContext.js';
 import { McpServiceConfig, McpMessage } from '../../types/index.js';
 import { MiddlewareChain } from '../../middleware/chain.js';
 import { sleepBackoff } from '../../utils/async.js';
+import { sendRequest } from '../../adapters/ProtocolAdaptersImpl.js';
 
 // Schema definitions
 const ToolExecuteBodySchema = z.object({
@@ -356,19 +357,14 @@ export class ToolRoutes extends BaseRouteHandler {
     }
 
     try {
-      const adapter = await this.ctx.protocolAdapters.createAdapter(template);
-      try {
-        await adapter.connect();
+      return await this.ctx.protocolAdapters.withAdapter(template, async (adapter) => {
         const msg: McpMessage = {
           jsonrpc: '2.0',
           id: `info-${Date.now()}`,
           method: 'tools/list',
           params: {}
         };
-        const sendReceive = (adapter as unknown as { sendAndReceive?: (msg: unknown) => Promise<unknown> }).sendAndReceive;
-        const res = sendReceive
-          ? await sendReceive(msg)
-          : await adapter.send(msg);
+        const res = await sendRequest(adapter, msg);
 
         const r = res as Record<string, unknown> | undefined;
         const tools = ((r?.result as Record<string, unknown>)?.tools as unknown[]) || [];
@@ -383,9 +379,7 @@ export class ToolRoutes extends BaseRouteHandler {
           tools,
           toolCount: tools.length
         };
-      } finally {
-        this.ctx.protocolAdapters.releaseAdapter(template, adapter);
-      }
+      });
     } catch {
       return { toolCount: 0 };
     }
@@ -411,9 +405,7 @@ export class ToolRoutes extends BaseRouteHandler {
           throw new Error(`Tool not found: ${toolId}`);
         }
 
-        const adapter = await this.ctx.protocolAdapters.createAdapter(template);
-        try {
-          await adapter.connect();
+        return await this.ctx.protocolAdapters.withAdapter(template, async (adapter) => {
           const msg: McpMessage = {
             jsonrpc: '2.0',
             id: `tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -425,10 +417,7 @@ export class ToolRoutes extends BaseRouteHandler {
           };
 
           // Execute with timeout
-          const sr = (adapter as unknown as { sendAndReceive?: (msg: unknown) => Promise<unknown> }).sendAndReceive;
-          const execPromise = sr
-            ? sr(msg)
-            : adapter.send(msg);
+          const execPromise = sendRequest(adapter, msg);
 
           let timeoutId: ReturnType<typeof setTimeout>;
           const timeoutPromise = new Promise((_, reject) => {
@@ -447,9 +436,7 @@ export class ToolRoutes extends BaseRouteHandler {
           }
 
           return res?.result ?? res;
-        } finally {
-          this.ctx.protocolAdapters.releaseAdapter(template, adapter);
-        }
+        });
       } catch (error) {
         lastError = error as Error;
         if (attempt < maxRetries) {

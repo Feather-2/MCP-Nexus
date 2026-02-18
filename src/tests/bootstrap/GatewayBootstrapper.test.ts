@@ -123,7 +123,15 @@ describe('GatewayBootstrapper', () => {
       sendAndReceive: vi.fn().mockResolvedValue({ jsonrpc: '2.0', id: 'x', result: { tools: [] } })
     };
 
-    const protocolAdapters = { createAdapter: vi.fn().mockResolvedValue(adapter), releaseAdapter: vi.fn() } as any;
+    const protocolAdapters = {
+      createAdapter: vi.fn().mockResolvedValue(adapter),
+      releaseAdapter: vi.fn(),
+      withAdapter: vi.fn(async (config: any, fn: any) => {
+        const a = await protocolAdapters.createAdapter(config);
+        await a.connect();
+        try { return await fn(a); } finally { protocolAdapters.releaseAdapter(config, a); }
+      })
+    } as any;
 
     const bootstrapper = new GatewayBootstrapper({
       overrides: {

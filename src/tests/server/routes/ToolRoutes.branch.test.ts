@@ -24,7 +24,15 @@ const {
     listTemplates: vi.fn().mockResolvedValue([{ name: 'test-tool', version: '1', transport: 'stdio' }]),
     getTemplate: vi.fn().mockResolvedValue({ name: 'test-tool', version: '1', transport: 'stdio', command: 'echo' })
   };
-  const adaptersStub = { createAdapter: vi.fn().mockResolvedValue(adapterStub), releaseAdapter: vi.fn() };
+  const adaptersStub = {
+    createAdapter: vi.fn().mockResolvedValue(adapterStub),
+    releaseAdapter: vi.fn(),
+    withAdapter: vi.fn(async (cfg: any, fn: any) => {
+      const a = await adaptersStub.createAdapter(cfg);
+      await a.connect();
+      try { return await fn(a); } finally { adaptersStub.releaseAdapter(cfg, a); }
+    })
+  };
   return {
     mockStaticPlugin: vi.fn((_i: any, _o: any, done?: (e?: Error) => void) => done?.()),
     mockCorsPlugin: vi.fn((_i: any, _o: any, done?: (e?: Error) => void) => done?.()),
@@ -41,7 +49,14 @@ vi.mock('@fastify/cors', () => ({ default: mockCorsPlugin }));
 vi.mock('../../../gateway/ServiceRegistryImpl.js', () => ({ ServiceRegistryImpl }));
 vi.mock('../../../auth/AuthenticationLayerImpl.js', () => ({ AuthenticationLayerImpl }));
 vi.mock('../../../routing/GatewayRouterImpl.js', () => ({ GatewayRouterImpl }));
-vi.mock('../../../adapters/ProtocolAdaptersImpl.js', () => ({ ProtocolAdaptersImpl }));
+vi.mock('../../../adapters/ProtocolAdaptersImpl.js', () => ({
+  ProtocolAdaptersImpl,
+  sendRequest: async (adapter: any, message: any) => {
+    if (typeof adapter.sendAndReceive === 'function') return adapter.sendAndReceive(message);
+    await adapter.send(message);
+    return adapter.receive?.();
+  }
+}));
 
 describe('ToolRoutes \u2013 branch coverage', () => {
   const config: GatewayConfig = {
@@ -147,7 +162,7 @@ describe('ToolRoutes \u2013 branch coverage', () => {
     });
 
     it('uses adapter.send when sendAndReceive not available', async () => {
-      const noSendReceive = { connect: vi.fn().mockResolvedValue(undefined), disconnect: vi.fn().mockResolvedValue(undefined), send: vi.fn().mockResolvedValue({ jsonrpc: '2.0', id: 1, result: 'ok' }) };
+      const noSendReceive = { connect: vi.fn().mockResolvedValue(undefined), disconnect: vi.fn().mockResolvedValue(undefined), send: vi.fn().mockResolvedValue(undefined), receive: vi.fn().mockResolvedValue({ jsonrpc: '2.0', id: 1, result: 'ok' }) };
       adaptersStub.createAdapter.mockResolvedValueOnce(noSendReceive);
       const res = await (server as any).server.inject({
         method: 'POST', url: '/api/tools/execute',

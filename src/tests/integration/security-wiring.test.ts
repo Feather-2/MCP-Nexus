@@ -76,7 +76,12 @@ describe('security wiring integration', () => {
 
     const mockProtocolAdapters = {
       createAdapter: vi.fn().mockResolvedValue(mockAdapter),
-      releaseAdapter: vi.fn()
+      releaseAdapter: vi.fn(),
+      withAdapter: vi.fn(async (config: any, fn: any) => {
+        const a = await mockProtocolAdapters.createAdapter(config);
+        await a.connect();
+        try { return await fn(a); } finally { mockProtocolAdapters.releaseAdapter(config, a); }
+      })
     };
 
     const auditor = new SkillAuditor({

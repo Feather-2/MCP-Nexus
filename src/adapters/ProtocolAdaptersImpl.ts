@@ -2,6 +2,7 @@ import {
   ProtocolAdapters,
   TransportAdapter,
   McpServiceConfig,
+  McpMessage,
   TransportType,
   Logger,
   GatewayConfig
@@ -199,4 +200,26 @@ export class ProtocolAdaptersImpl implements ProtocolAdapters {
       adapter.disconnect().catch(() => {});
     }
   }
+
+  async withAdapter<T>(config: McpServiceConfig, fn: (adapter: TransportAdapter) => Promise<T>): Promise<T> {
+    const adapter = await this.createAdapter(config);
+    await adapter.connect();
+    try {
+      return await fn(adapter);
+    } finally {
+      this.releaseAdapter(config, adapter);
+    }
+  }
+}
+
+/**
+ * Normalized send-and-receive: uses adapter.sendAndReceive if available,
+ * otherwise falls back to send() + receive().
+ */
+export async function sendRequest(adapter: TransportAdapter, message: McpMessage): Promise<unknown> {
+  if (typeof adapter.sendAndReceive === 'function') {
+    return adapter.sendAndReceive(message);
+  }
+  await adapter.send(message);
+  return adapter.receive();
 }

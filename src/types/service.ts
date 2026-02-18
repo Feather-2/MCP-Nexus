@@ -151,6 +151,9 @@ export interface ProtocolAdapters {
   createStdioAdapter(config: McpServiceConfig): Promise<TransportAdapter>;
   createHttpAdapter(config: McpServiceConfig): Promise<TransportAdapter>;
   createStreamableAdapter(config: McpServiceConfig): Promise<TransportAdapter>;
+  createAdapter(config: McpServiceConfig): Promise<TransportAdapter>;
+  releaseAdapter(config: McpServiceConfig, adapter: TransportAdapter): void;
+  withAdapter<T>(config: McpServiceConfig, fn: (adapter: TransportAdapter) => Promise<T>): Promise<T>;
   detectProtocol(endpoint: string): Promise<TransportType>;
   validateProtocol(adapter: TransportAdapter, version: McpVersion): Promise<boolean>;
 }
@@ -163,6 +166,7 @@ export interface TransportAdapter {
   send(message: McpMessage): Promise<void>;
   receive(): Promise<McpMessage>;
   isConnected(): boolean;
+  sendAndReceive?(message: McpMessage): Promise<unknown>;
 }
 
 export interface AuthenticationLayer {

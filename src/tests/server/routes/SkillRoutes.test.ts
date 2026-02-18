@@ -83,6 +83,12 @@ describe('SkillRoutes', () => {
         send: vi.fn().mockResolvedValue({ jsonrpc: '2.0', id: 'x', result: { tools: [] } }),
         sendAndReceive: vi.fn().mockResolvedValue({ jsonrpc: '2.0', id: 'x', result: { tools: [] } }),
         isConnected: vi.fn().mockReturnValue(true)
+      }),
+      releaseAdapter: vi.fn(),
+      withAdapter: vi.fn(async (cfg: any, fn: any) => {
+        const a = await adaptersStub.createAdapter(cfg);
+        await a.connect();
+        try { return await fn(a); } finally { adaptersStub.releaseAdapter(cfg, a); }
       })
     };
 

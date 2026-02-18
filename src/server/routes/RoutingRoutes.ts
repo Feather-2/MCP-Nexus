@@ -5,6 +5,7 @@ import { RouteRequest, ServiceHealth, HealthCheckResult } from '../../types/inde
 import { MiddlewareChain } from '../../middleware/chain.js';
 import { SELECTED_INSTANCE_STATE_KEY } from '../../gateway/load-balancer.middleware.js';
 import { unrefTimer } from '../../utils/async.js';
+import { sendRequest } from '../../adapters/ProtocolAdaptersImpl.js';
 
 interface _RouteRequestBody {
   method: string;
@@ -156,10 +157,7 @@ export class RoutingRoutes extends BaseRouteHandler {
           return this.respondError(reply, 404, 'Service not found', { code: 'NOT_FOUND', recoverable: true });
         }
 
-        const adapter = await this.ctx.protocolAdapters.createAdapter(service.config);
-        try {
-          await adapter.connect();
-
+        await this.ctx.protocolAdapters.withAdapter(service.config, async (adapter) => {
           // Wire adapter events into log buffer
           const emitter = adapter as unknown as { on?: (event: string, fn: (...args: unknown[]) => void) => void };
           emitter.on?.('stderr', (line: unknown) => {
@@ -182,8 +180,7 @@ export class RoutingRoutes extends BaseRouteHandler {
             this.ctx.addLogEntry('debug', `params: ${preview}${preview.length === 800 ? '…' : ''}`, serviceId);
           } catch { /* ignored */ }
 
-          const sendReceive = (adapter as unknown as { sendAndReceive?: (msg: unknown) => Promise<unknown> }).sendAndReceive;
-          const response = await (sendReceive?.(mcpMessage) ?? adapter.send(mcpMessage));
+          const response = await sendRequest(adapter, mcpMessage);
           const duration = Date.now() - startTs;
           this.ctx.addLogEntry('info', `Proxy response ${mcpMessage?.method || 'unknown'} (id=${mcpMessage?.id ?? 'auto'}) in ${duration}ms`, serviceId, { response });
           try { this.ctx.serviceRegistry.reportHeartbeat(serviceId, { healthy: true, latency: duration }); } catch {}
@@ -193,9 +190,7 @@ export class RoutingRoutes extends BaseRouteHandler {
             this.ctx.addLogEntry('debug', `result: ${preview}${preview.length === 800 ? '…' : ''}`, serviceId);
           } catch { /* ignored */ }
           reply.send(response);
-        } finally {
-          this.ctx.protocolAdapters.releaseAdapter(service.config, adapter);
-        }
+        });
       } catch (error) {
         try { this.ctx.serviceRegistry.reportHeartbeat(serviceId, { healthy: false, error: (error as Error)?.message || 'proxy failed' }); } catch {}
         this.ctx.addLogEntry('error', `Proxy failed: ${(error as Error)?.message || 'unknown error'}`, (request.params as Record<string, unknown>)?.serviceId as string);
@@ -234,15 +229,10 @@ export class RoutingRoutes extends BaseRouteHandler {
         }
 
         const service = running[0];
-        const adapter = await this.ctx.protocolAdapters.createAdapter(service.config);
-        try {
-          await adapter.connect();
-          const sr = (adapter as unknown as { sendAndReceive?: (msg: unknown) => Promise<unknown> }).sendAndReceive;
-          const response = await (sr?.(mcpMessage) ?? adapter.send(mcpMessage));
+        await this.ctx.protocolAdapters.withAdapter(service.config, async (adapter) => {
+          const response = await sendRequest(adapter, mcpMessage);
           reply.send(response);
-        } finally {
-          this.ctx.protocolAdapters.releaseAdapter(service.config, adapter);
-        }
+        });
       } catch (error) {
         return this.respondError(reply, 500, error instanceof Error ? error.message : 'MCP request failed', { code: 'MCP_ERROR' });
       }

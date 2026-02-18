@@ -15,7 +15,7 @@ import {
 import { ServiceRegistryImpl } from '../gateway/ServiceRegistryImpl.js';
 import { AuthenticationLayerImpl } from '../auth/AuthenticationLayerImpl.js';
 import { GatewayRouterImpl } from '../routing/GatewayRouterImpl.js';
-import { ProtocolAdaptersImpl } from '../adapters/ProtocolAdaptersImpl.js';
+import { ProtocolAdaptersImpl, sendRequest } from '../adapters/ProtocolAdaptersImpl.js';
 import type { OrchestratorStatus, OrchestratorManager } from '../orchestrator/OrchestratorManager.js';
 import { OrchestratorEngine } from '../orchestrator/OrchestratorEngine.js';
 import { SubagentLoader } from '../orchestrator/SubagentLoader.js';
@@ -175,26 +175,19 @@ export class HttpApiServer implements Disposable {
         }
         const start = Date.now();
         try {
-          const adapter = await this.protocolAdapters.createAdapter(service.config);
-          await adapter.connect();
-          try {
+          const result = await this.protocolAdapters.withAdapter(service.config, async (adapter) => {
             const msg = { jsonrpc: '2.0' as const, id: `health-${Date.now()}`, method: 'tools/list', params: {} };
-            const sendReceive = (adapter as unknown as { sendAndReceive?: (m: unknown) => Promise<unknown> }).sendAndReceive;
-            const res = sendReceive
-              ? await sendReceive(msg)
-              : await adapter.send(msg);
-            const latency = Date.now() - start;
-            const r = res as Record<string, unknown> | null;
-            const ok = !!(r && r.result);
-            if (!ok && (r?.error as Record<string, unknown>)?.message) {
-              try {
-                await this.serviceRegistry.setInstanceMetadata(serviceId, 'lastProbeError', String((r!.error as Record<string, unknown>).message));
-              } catch {}
-            }
-            return { healthy: ok, latency, timestamp: new Date() };
-          } finally {
-            this.protocolAdapters.releaseAdapter(service.config, adapter);
+            return sendRequest(adapter, msg);
+          });
+          const latency = Date.now() - start;
+          const r = result as Record<string, unknown> | null;
+          const ok = !!(r && r.result);
+          if (!ok && (r?.error as Record<string, unknown>)?.message) {
+            try {
+              await this.serviceRegistry.setInstanceMetadata(serviceId, 'lastProbeError', String((r!.error as Record<string, unknown>).message));
+            } catch {}
           }
+          return { healthy: ok, latency, timestamp: new Date() };
         } catch (e: unknown) {
           const errMsg = (e as Error)?.message || 'probe failed';
           try {

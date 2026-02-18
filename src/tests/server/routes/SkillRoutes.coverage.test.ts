@@ -37,7 +37,15 @@ describe('SkillRoutes – extended coverage', () => {
     };
     const authStub = { authenticate: vi.fn().mockResolvedValue({ success: true }), getActiveTokenCount: vi.fn().mockReturnValue(0), getActiveApiKeyCount: vi.fn().mockReturnValue(0) };
     const routerStub = { getMetrics: vi.fn().mockReturnValue({}) };
-    const adapterStub = { createAdapter: vi.fn().mockResolvedValue({ connect: vi.fn(), disconnect: vi.fn(), send: vi.fn(), sendAndReceive: vi.fn(), isConnected: vi.fn().mockReturnValue(true) }) };
+    const adapterStub = {
+      createAdapter: vi.fn().mockResolvedValue({ connect: vi.fn(), disconnect: vi.fn(), send: vi.fn(), sendAndReceive: vi.fn(), isConnected: vi.fn().mockReturnValue(true) }),
+      releaseAdapter: vi.fn(),
+      withAdapter: vi.fn(async (cfg: any, fn: any) => {
+        const a = await adapterStub.createAdapter(cfg);
+        await a.connect();
+        try { return await fn(a); } finally { adapterStub.releaseAdapter(cfg, a); }
+      })
+    };
     server = new HttpApiServer(config, logger, cfgStub, { serviceRegistry: svcStub as any, authLayer: authStub as any, router: routerStub as any, protocolAdapters: adapterStub as any });
   });
 

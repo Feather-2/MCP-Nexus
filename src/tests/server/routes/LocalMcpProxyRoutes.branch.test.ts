@@ -3,6 +3,20 @@ import { LocalMcpProxyRoutes } from '../../../server/routes/LocalMcpProxyRoutes.
 import { createHash, createHmac, pbkdf2Sync } from 'crypto';
 
 function makeCtx(server: FastifyInstance, overrides?: any) {
+  const pa: any = {
+    createAdapter: vi.fn().mockResolvedValue({
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+      send: vi.fn().mockResolvedValue({ result: { tools: [] } }),
+      sendAndReceive: vi.fn().mockResolvedValue({ result: { tools: [] } }),
+    }),
+    releaseAdapter: vi.fn(),
+  };
+  pa.withAdapter = vi.fn(async (config: any, fn: any) => {
+    const a = await pa.createAdapter(config);
+    await a.connect();
+    try { return await fn(a); } finally { pa.releaseAdapter(config, a); }
+  });
   return {
     server,
     logger: { trace: vi.fn(), debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -12,14 +26,7 @@ function makeCtx(server: FastifyInstance, overrides?: any) {
     } as any,
     authLayer: {} as any,
     router: {} as any,
-    protocolAdapters: {
-      createAdapter: vi.fn().mockResolvedValue({
-        connect: vi.fn(),
-        disconnect: vi.fn(),
-        send: vi.fn().mockResolvedValue({ result: { tools: [] } }),
-        sendAndReceive: vi.fn().mockResolvedValue({ result: { tools: [] } }),
-      }),
-    } as any,
+    protocolAdapters: pa,
     configManager: { config: {} } as any,
     logBuffer: [],
     logStreamClients: new Set(),
@@ -398,7 +405,8 @@ describe('LocalMcpProxyRoutes - branch coverage', () => {
       ctx.protocolAdapters.createAdapter.mockResolvedValueOnce({
         connect: vi.fn(),
         disconnect: vi.fn(),
-        send: vi.fn().mockResolvedValue({ result: { tools: ['t1'] } }),
+        send: vi.fn().mockResolvedValue(undefined),
+        receive: vi.fn().mockResolvedValue({ result: { tools: ['t1'] } }),
       });
       const res = await app.inject({
         method: 'GET', url: '/tools',

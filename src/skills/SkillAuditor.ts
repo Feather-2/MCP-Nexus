@@ -12,6 +12,7 @@ import { RiskScorer } from '../security/RiskScorer.js';
 import { EntropyAnalyzer } from '../security/analyzers/EntropyAnalyzer.js';
 import { PermissionAnalyzer } from '../security/analyzers/PermissionAnalyzer.js';
 import type { ProtocolAdaptersImpl } from '../adapters/ProtocolAdaptersImpl.js';
+import { sendRequest } from '../adapters/ProtocolAdaptersImpl.js';
 import type { EventBus } from '../events/bus.js';
 import type { AuditResult, Skill } from './types.js';
 
@@ -207,21 +208,16 @@ export class SkillAuditor {
       const start = Date.now();
       try {
         const { config } = applyGatewaySandboxPolicy(template, gatewayConfig);
-        const adapter = await this.opts.protocolAdapters.createAdapter(config);
-        await withTimeout(adapter.connect(), timeoutMs, `connect(${toolId})`);
-        try {
-          const msg: import('../types/index.js').McpMessage = { jsonrpc: '2.0', id: `dryrun-${Date.now()}`, method: 'tools/list', params: {} };
-          const sr = (adapter as unknown as { sendAndReceive?: (m: unknown) => Promise<unknown> }).sendAndReceive;
-          const res = await withTimeout(
-            (sr?.(msg) ?? adapter.send(msg)),
-            timeoutMs,
-            `tools/list(${toolId})`
-          );
-          const ok = Boolean((res as Record<string, unknown>)?.result);
-          dryRunResults.push({ tool: toolId, success: ok, latency: Date.now() - start });
-        } finally {
-          this.opts.protocolAdapters.releaseAdapter(config, adapter);
-        }
+        await withTimeout(
+          this.opts.protocolAdapters.withAdapter(config, async (adapter) => {
+            const msg: import('../types/index.js').McpMessage = { jsonrpc: '2.0', id: `dryrun-${Date.now()}`, method: 'tools/list', params: {} };
+            const res = await sendRequest(adapter, msg);
+            const ok = Boolean((res as Record<string, unknown>)?.result);
+            dryRunResults.push({ tool: toolId, success: ok, latency: Date.now() - start });
+          }),
+          timeoutMs,
+          `dryrun(${toolId})`
+        );
       } catch (e: unknown) {
         dryRunResults.push({
           tool: toolId,

@@ -8,7 +8,7 @@ import type {
 } from '../types/index.js';
 import { ConfigManagerImpl } from '../config/ConfigManagerImpl.js';
 import { AdapterPool } from '../adapters/AdapterPool.js';
-import { ProtocolAdaptersImpl } from '../adapters/ProtocolAdaptersImpl.js';
+import { ProtocolAdaptersImpl, sendRequest } from '../adapters/ProtocolAdaptersImpl.js';
 import { ToolListCache } from '../gateway/ToolListCache.js';
 import { ServiceRegistryImpl } from '../gateway/ServiceRegistryImpl.js';
 import { AuthenticationLayerImpl } from '../auth/AuthenticationLayerImpl.js';
@@ -270,14 +270,9 @@ export class GatewayBootstrapper {
       }
     }
 
-    runtime.toolListCache.shutdown();
-    await runtime.adapterPool.shutdown();
-
-    // Destroy router to clear MetricsCollector interval
-    if (typeof (runtime as Record<string, unknown>).router === 'object') {
-      const router = runtime.router as { destroy?: () => void };
-      router.destroy?.();
-    }
+    // Dispose all registered components in reverse order
+    // (handles toolListCache, adapterPool, router, healthChecker, authLayer, etc.)
+    await this.container.destroyAll();
 
     runtime.logger.info('PB MCP Nexus stopped successfully');
     await shutdownOpenTelemetry(runtime.logger);
@@ -392,26 +387,19 @@ export class GatewayBootstrapper {
         }
         const start = Date.now();
         try {
-          const adapter = await runtime.protocolAdapters.createAdapter(service.config);
-          await adapter.connect();
-          try {
+          const result = await runtime.protocolAdapters.withAdapter(service.config, async (adapter) => {
             const msg: import('../types/index.js').McpMessage = { jsonrpc: '2.0', id: `health-${Date.now()}`, method: 'tools/list', params: {} };
-            const sr = (adapter as unknown as { sendAndReceive?: (msg: unknown) => Promise<unknown> }).sendAndReceive;
-            const res = sr
-              ? await sr(msg)
-              : await adapter.send(msg);
-            const latency = Date.now() - start;
-            const r = res as Record<string, unknown> | undefined;
-            const ok = !!(res && r?.result);
-            if (!ok && (r?.error as Record<string, unknown>)?.message) {
-              try {
-                await runtime.serviceRegistry.setInstanceMetadata(serviceId, 'lastProbeError', (r?.error as Record<string, unknown>).message as string);
-              } catch {}
-            }
-            return { healthy: ok, latency, timestamp: new Date() };
-          } finally {
-            runtime.protocolAdapters.releaseAdapter(service.config, adapter);
+            return sendRequest(adapter, msg);
+          });
+          const latency = Date.now() - start;
+          const r = result as Record<string, unknown> | undefined;
+          const ok = !!(result && r?.result);
+          if (!ok && (r?.error as Record<string, unknown>)?.message) {
+            try {
+              await runtime.serviceRegistry.setInstanceMetadata(serviceId, 'lastProbeError', (r?.error as Record<string, unknown>).message as string);
+            } catch {}
           }
+          return { healthy: ok, latency, timestamp: new Date() };
         } catch (e: unknown) {
           const errMsg = (e as Error)?.message || 'probe failed';
           try {

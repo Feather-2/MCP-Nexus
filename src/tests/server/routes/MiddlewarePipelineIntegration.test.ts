@@ -119,7 +119,12 @@ describe('Routes middleware pipeline integration', () => {
       };
       const protocolAdapters = {
         createAdapter: vi.fn().mockResolvedValue(adapter),
-        releaseAdapter: vi.fn()
+        releaseAdapter: vi.fn(),
+        withAdapter: vi.fn(async (cfg: any, fn: any) => {
+          const a = await protocolAdapters.createAdapter(cfg);
+          await a.connect();
+          try { return await fn(a); } finally { protocolAdapters.releaseAdapter(cfg, a); }
+        })
       } as any;
 
       const ctx = {
@@ -179,7 +184,12 @@ describe('Routes middleware pipeline integration', () => {
       };
       const protocolAdapters = {
         createAdapter: vi.fn().mockResolvedValue(adapter),
-        releaseAdapter: vi.fn()
+        releaseAdapter: vi.fn(),
+        withAdapter: vi.fn(async (cfg: any, fn: any) => {
+          const a = await protocolAdapters.createAdapter(cfg);
+          await a.connect();
+          try { return await fn(a); } finally { protocolAdapters.releaseAdapter(cfg, a); }
+        })
       } as any;
 
       const ctx = {
