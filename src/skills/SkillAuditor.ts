@@ -3,6 +3,7 @@ import path from 'path';
 import type { GatewayConfig, Logger, McpServiceConfig } from '../types/index.js';
 import { applyGatewaySandboxPolicy } from '../security/SandboxPolicy.js';
 import { AuditPipeline, type AiAnalyzer, type AuditResult as SecurityAuditResult, type BehaviorAnalyzer } from '../security/AuditPipeline.js';
+import type { AiAuditResult } from '../security/AiAuditor.js';
 import type { AuditDecomposer } from '../security/AuditDecomposer.js';
 import type { AuditSkillRouter } from '../security/AuditSkillRouter.js';
 import { setupCanaries, checkCanaryAccess } from '../security/CanarySystem.js';
@@ -11,6 +12,7 @@ import { RiskScorer } from '../security/RiskScorer.js';
 import { EntropyAnalyzer } from '../security/analyzers/EntropyAnalyzer.js';
 import { PermissionAnalyzer } from '../security/analyzers/PermissionAnalyzer.js';
 import type { ProtocolAdaptersImpl } from '../adapters/ProtocolAdaptersImpl.js';
+import type { EventBus } from '../events/bus.js';
 import type { AuditResult, Skill } from './types.js';
 
 export interface TemplateProvider {
@@ -27,6 +29,7 @@ export interface SkillAuditorOptions {
   behaviorAnalyzer?: BehaviorAnalyzer;
   decomposer?: AuditDecomposer;
   auditRouter?: AuditSkillRouter;
+  eventBus?: EventBus;
 }
 
 type TrustLevel = 'trusted' | 'partner' | 'untrusted';
@@ -72,10 +75,42 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
   return Promise.race([promise, timeout]);
 }
 
+function wrapAiAnalyzerWithEvents(analyzer: AiAnalyzer, eventBus: EventBus): AiAnalyzer {
+  return {
+    async auditSkill(skill: Skill): Promise<AiAuditResult> {
+      const t0 = Date.now();
+      try {
+        const result = await analyzer.auditSkill(skill);
+        eventBus.publish({
+          type: 'aiauditor:llm:call',
+          component: 'AiAuditor',
+          payload: { operation: 'auditSkill', durationMs: Date.now() - t0, success: true }
+        });
+        return result;
+      } catch (error) {
+        eventBus.publish({
+          type: 'aiauditor:llm:call',
+          component: 'AiAuditor',
+          payload: {
+            operation: 'auditSkill',
+            durationMs: Date.now() - t0,
+            success: false,
+            error: error instanceof Error ? error.message : String(error)
+          }
+        });
+        throw error;
+      }
+    }
+  };
+}
+
 export class SkillAuditor {
   private readonly pipeline: AuditPipeline;
 
   constructor(private opts: SkillAuditorOptions) {
+    const aiAuditor = opts.aiAuditor && opts.eventBus
+      ? wrapAiAnalyzerWithEvents(opts.aiAuditor, opts.eventBus)
+      : opts.aiAuditor;
     this.pipeline =
       opts.auditPipeline ??
       new AuditPipeline({
@@ -83,7 +118,7 @@ export class SkillAuditor {
         entropyAnalyzer: new EntropyAnalyzer(),
         permissionAnalyzer: new PermissionAnalyzer(),
         riskScorer: new RiskScorer(),
-        aiAuditor: opts.aiAuditor,
+        aiAuditor,
         behaviorAnalyzer: opts.behaviorAnalyzer,
         decomposer: opts.decomposer,
         auditRouter: opts.auditRouter

@@ -124,4 +124,56 @@ describe('PrometheusExporter', () => {
     metrics = await exporter.getMetrics();
     expect(metrics).toContain('orchestrator_concurrent_executions 1');
   });
+
+  it('should record LLM calls via aiauditor:llm:call event', async () => {
+    eventBus.publish({
+      type: 'aiauditor:llm:call',
+      payload: { operation: 'auditSkill', model: 'claude-3', durationMs: 500, success: true, tokensUsed: 800 }
+    });
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    const metrics = await exporter.getMetrics();
+    expect(metrics).toContain('llm_call_total{model="claude-3"} 1');
+    expect(metrics).toContain('llm_call_success_total 1');
+    expect(metrics).toContain('llm_tokens_used_total 800');
+  });
+
+  it('should record failed LLM call via event', async () => {
+    eventBus.publish({
+      type: 'aiauditor:llm:call',
+      payload: { operation: 'auditSkill', durationMs: 200, success: false, error: 'timeout' }
+    });
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    const metrics = await exporter.getMetrics();
+    expect(metrics).toContain('llm_call_total{model="unknown"} 1');
+    expect(metrics).toContain('llm_call_success_total 0');
+  });
+
+  it('should record errors via orchestrator:execute:error event', async () => {
+    eventBus.publish({
+      type: 'orchestrator:execute:error',
+      payload: { error: 'scheduler crashed', stepsCompleted: 2, durationMs: 5000 }
+    });
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    const metrics = await exporter.getMetrics();
+    expect(metrics).toContain('errors_total{category="orchestrator",severity="critical",recoverable="false"} 1');
+  });
+
+  it('should record errors via orchestrator:step:error event', async () => {
+    eventBus.publish({
+      type: 'orchestrator:step:error',
+      payload: { stepId: 'step-1', error: 'tool failed' }
+    });
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    const metrics = await exporter.getMetrics();
+    expect(metrics).toContain('orchestrator_step_error_total 1');
+    expect(metrics).toContain('errors_total{category="orchestrator",severity="high",recoverable="true"} 1');
+  });
 });

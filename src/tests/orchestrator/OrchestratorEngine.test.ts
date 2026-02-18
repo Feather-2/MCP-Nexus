@@ -1,4 +1,5 @@
 import { OrchestratorEngine } from '../../orchestrator/OrchestratorEngine.js';
+import { EventBus } from '../../events/bus.js';
 
 function makeLogger() {
   return {
@@ -112,6 +113,69 @@ describe('OrchestratorEngine', () => {
     const calls = (adapter.sendAndReceive as any).mock.calls.map((c: any[]) => c[0]);
     const toolCall = calls.find((m: any) => m?.method === 'tools/call');
     expect(toolCall?.params?.name).toBe('alpha');
+  });
+
+  it('emits orchestrator:step:error and execute:end events on failed steps', async () => {
+    const adapter = {
+      connect: vi.fn().mockRejectedValue(new Error('connection refused')),
+      disconnect: vi.fn().mockResolvedValue(undefined),
+      sendAndReceive: vi.fn()
+    };
+    const protocolAdapters = {
+      createAdapter: vi.fn().mockResolvedValue(adapter),
+      releaseAdapter: vi.fn()
+    };
+    const registry = {
+      listTemplates: vi.fn().mockResolvedValue([{ name: 'brave-search', transport: 'http' }]),
+      getTemplate: vi.fn().mockResolvedValue({ name: 'brave-search', transport: 'http' })
+    };
+    const orchestratorManager = {
+      getConfig: vi.fn().mockReturnValue({
+        enabled: true,
+        planner: { provider: 'local', maxSteps: 8 },
+        budget: { maxTimeMs: 5_000, concurrency: { global: 4, perSubagent: 2 } }
+      })
+    };
+    const subagentLoader = {
+      loadAll: vi.fn().mockResolvedValue(new Map()),
+      list: vi.fn().mockReturnValue([{ name: 'search', tools: ['brave-search'] }]),
+      get: vi.fn().mockReturnValue({ name: 'search', tools: ['brave-search'] })
+    };
+
+    const eventBus = new EventBus();
+    const stepErrors: Array<unknown> = [];
+    const executeEnds: Array<unknown> = [];
+    eventBus.subscribe('orchestrator:step:error', (evt) => {
+      stepErrors.push(evt.payload);
+    });
+    eventBus.subscribe('orchestrator:execute:end', (evt) => {
+      executeEnds.push(evt.payload);
+    });
+
+    const engine = new OrchestratorEngine({
+      logger: makeLogger() as any,
+      serviceRegistry: registry as any,
+      protocolAdapters: protocolAdapters as any,
+      orchestratorManager: orchestratorManager as any,
+      subagentLoader: subagentLoader as any,
+      eventBus
+    });
+
+    const res = await engine.execute({ steps: [{ template: 'brave-search', tool: 'search', params: {} }] });
+    expect(res.success).toBe(false);
+    expect(res.results[0]?.ok).toBe(false);
+    expect(res.results[0]?.error).toContain('connection refused');
+
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    expect(stepErrors.length).toBe(1);
+    const p = stepErrors[0] as Record<string, unknown>;
+    expect(p.error).toContain('connection refused');
+
+    expect(executeEnds.length).toBe(1);
+    const e = executeEnds[0] as Record<string, unknown>;
+    expect(e.success).toBe(false);
+    expect(e.stepsFailed).toBe(1);
   });
 });
 

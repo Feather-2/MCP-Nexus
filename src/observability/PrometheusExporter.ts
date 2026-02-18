@@ -162,6 +162,7 @@ export class PrometheusExporter {
 
     eventBus.subscribe('orchestrator:step:error', () => {
       this.stepError.inc();
+      this.recordError('orchestrator', 'high', true);
     });
 
     eventBus.subscribe('eventbus:backpressure:drop', () => {
@@ -178,6 +179,25 @@ export class PrometheusExporter {
 
     eventBus.subscribe('eventbus:handler:timeout', () => {
       this.eventbusHandlerTimeouts.inc();
+    });
+
+    // Wire recordLlmCall via aiauditor:llm:call events
+    eventBus.subscribe('aiauditor:llm:call', (event) => {
+      const p = event.payload as Record<string, unknown> | undefined;
+      if (!p) return;
+      this.recordLlmCall(
+        (p.model as string) || 'unknown',
+        (p.durationMs as number) || 0,
+        (p.success as boolean) ?? true,
+        p.tokensUsed as number | undefined
+      );
+    });
+
+    // Wire recordError via orchestrator error events
+    eventBus.subscribe('orchestrator:execute:error', (event) => {
+      const p = event.payload as Record<string, unknown> | undefined;
+      this.recordError('orchestrator', 'critical', false);
+      if (p?.error) this.stepError.inc();
     });
   }
 

@@ -61,7 +61,8 @@ export class SkillRoutes extends BaseRouteHandler {
       logger: this.ctx.logger,
       getGatewayConfig: () => this.ctx.configManager.getConfig(),
       templates: this.ctx.serviceRegistry,
-      protocolAdapters: this.ctx.protocolAdapters
+      protocolAdapters: this.ctx.protocolAdapters,
+      eventBus: this.ctx.eventBus
     });
 
     this.supportLoader = new SkillLoader({

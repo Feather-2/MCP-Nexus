@@ -73,7 +73,18 @@ export class OrchestratorEngine {
       eventBus: this.eventBus
     });
 
-    const scheduled = await scheduler.run(finalPlan, (s) => this.runStepWithEvents(s, runId), { parallel: req.parallel });
+    let scheduled;
+    try {
+      scheduled = await scheduler.run(finalPlan, (s) => this.runStepWithEvents(s, runId), { parallel: req.parallel });
+    } catch (error) {
+      const durationMs = Date.now() - startedAt;
+      this.emit(OrchestratorEvents.EXECUTE_ERROR, runId, {
+        error: error instanceof Error ? error.message : String(error),
+        stepsCompleted: 0,
+        durationMs
+      });
+      throw error;
+    }
     const results: ExecuteResult['results'] = scheduled.map((r) => ({
       step: r.step,
       ok: r.ok,
