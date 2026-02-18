@@ -1,5 +1,6 @@
 import { TransportAdapter, McpServiceConfig, McpMessage, Logger, McpVersion } from '../types/index.js';
 import { EventEmitter } from 'events';
+import { validateNotPrivateUrl } from './ssrf-guard.js';
 
 export class StreamableHttpAdapter extends EventEmitter implements TransportAdapter {
   private static readonly MAX_QUEUE_SIZE = 1000;
@@ -276,22 +277,6 @@ export class StreamableHttpAdapter extends EventEmitter implements TransportAdap
     }
   }
 
-  private static readonly BLOCKED_HOST_PATTERNS = [
-    /^127\./, /^10\./, /^172\.(1[6-9]|2\d|3[01])\./, /^192\.168\./,
-    /^169\.254\./, /^0\./, /^localhost$/i, /^\[?::1\]?$/, /^\[?::ffff:127\./
-  ];
-
-  private validateNotPrivate(urlStr: string): void {
-    try {
-      const host = new URL(urlStr).hostname;
-      if (StreamableHttpAdapter.BLOCKED_HOST_PATTERNS.some(p => p.test(host))) {
-        throw new Error(`Blocked private/metadata URL target: ${host}`);
-      }
-    } catch (e) {
-      if (e instanceof Error && e.message.startsWith('Blocked')) throw e;
-    }
-  }
-
   private extractUrlFromConfig(config: McpServiceConfig): string {
     let url: string | undefined;
     let fromConfig = false;
@@ -316,7 +301,7 @@ export class StreamableHttpAdapter extends EventEmitter implements TransportAdap
       }
     }
 
-    if (fromConfig) this.validateNotPrivate(url);
+    if (fromConfig) validateNotPrivateUrl(url);
     return url;
   }
 

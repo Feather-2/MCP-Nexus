@@ -1,4 +1,5 @@
 import { TransportAdapter, McpServiceConfig, McpMessage, Logger, McpVersion } from '../types/index.js';
+import { validateNotPrivateUrl, isValidHttpUrl } from './ssrf-guard.js';
 import { EventEmitter } from 'events';
 
 export class HttpTransportAdapter extends EventEmitter implements TransportAdapter {
@@ -188,12 +189,12 @@ export class HttpTransportAdapter extends EventEmitter implements TransportAdapt
       const protocol = config.env.MCP_HTTPS === 'true' ? 'https' : 'http';
       url = `${protocol}://${config.env.MCP_HOST}:${config.env.MCP_PORT}`;
       fromConfig = true;
-    } else if (config.command?.startsWith('http') && this.isValidUrl(config.command)) {
+    } else if (config.command?.startsWith('http') && isValidHttpUrl(config.command)) {
       url = config.command;
       // command is admin-set, not env-injected — skip SSRF check
     } else {
       const fallback = config.env?.MCP_BASE_URL;
-      if (fallback && this.isValidUrl(fallback)) {
+      if (fallback && isValidHttpUrl(fallback)) {
         url = fallback;
         fromConfig = true;
       } else {
@@ -202,33 +203,8 @@ export class HttpTransportAdapter extends EventEmitter implements TransportAdapt
     }
 
     // Guard against SSRF to private/metadata IPs (only for user-supplied URLs)
-    if (fromConfig) this.validateNotPrivate(url);
+    if (fromConfig) validateNotPrivateUrl(url);
     return url;
-  }
-
-  private static readonly BLOCKED_HOST_PATTERNS = [
-    /^127\./, /^10\./, /^172\.(1[6-9]|2\d|3[01])\./, /^192\.168\./,
-    /^169\.254\./, /^0\./, /^localhost$/i, /^\[?::1\]?$/, /^\[?::ffff:127\./
-  ];
-
-  private validateNotPrivate(urlStr: string): void {
-    try {
-      const host = new URL(urlStr).hostname;
-      if (HttpTransportAdapter.BLOCKED_HOST_PATTERNS.some(p => p.test(host))) {
-        throw new Error(`Blocked private/metadata URL target: ${host}`);
-      }
-    } catch (e) {
-      if (e instanceof Error && e.message.startsWith('Blocked')) throw e;
-    }
-  }
-
-  private isValidUrl(urlStr: string): boolean {
-    try {
-      const u = new URL(urlStr);
-      return u.protocol === 'http:' || u.protocol === 'https:';
-    } catch {
-      return false;
-    }
   }
 
   // Utility method for health checks
