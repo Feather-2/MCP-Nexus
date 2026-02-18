@@ -57,12 +57,13 @@ export function withTimeout<T>(
   timeoutMs: number,
   errorMessage = 'Operation timed out'
 ): Promise<T> {
-  return Promise.race([
-    fn(),
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(errorMessage)), timeoutMs)
-    )
-  ]);
+  let timeoutId: ReturnType<typeof setTimeout>;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(errorMessage)), timeoutMs);
+  });
+  return Promise.race([fn(), timeoutPromise]).finally(() => {
+    clearTimeout(timeoutId);
+  });
 }
 
 /**

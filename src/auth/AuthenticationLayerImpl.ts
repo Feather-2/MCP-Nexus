@@ -390,7 +390,6 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
         mode: 'external-secure' as const,
         userId: tokenData.userId,
         permissions: tokenData.permissions,
-        token,
         expiresAt: tokenData.expiresAt,
         trusted: false
       }
@@ -417,8 +416,7 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
         mode: 'external-secure' as const,
         userId: `api-key:${keyData.name}`,
         permissions: keyData.permissions,
-        trusted: false,
-        apiKey // Add the API key to context for tests
+        trusted: false
       }
     };
   }
@@ -593,18 +591,21 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
   // API Key management methods
   listApiKeys(): Array<{ id: string; name: string; key: string; permissions: string[]; createdAt: string; lastUsed: string }> {
     const result: Array<{ id: string; name: string; key: string; permissions: string[]; createdAt: string; lastUsed: string }> = [];
-    
+
     for (const [apiKey, data] of this.apiKeys) {
+      const masked = apiKey.length > 12
+        ? apiKey.substring(0, 4) + '***' + apiKey.substring(apiKey.length - 4)
+        : '***';
       result.push({
-        id: apiKey.substring(0, 8), // Use first 8 chars as ID
+        id: apiKey.substring(0, 8),
         name: data.name,
-        key: apiKey,
+        key: masked,
         permissions: data.permissions,
         createdAt: data.createdAt.toISOString(),
         lastUsed: data.lastUsed.toISOString()
       });
     }
-    
+
     return result;
   }
 

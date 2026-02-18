@@ -149,7 +149,7 @@ describe('AuthenticationLayerImpl', () => {
       const response = await authLayer.authenticate(request);
 
       expect(response.success).toBe(true);
-      expect(response.context?.apiKey).toBe(testApiKey);
+      expect(response.context?.apiKey).toBeUndefined();
       expect(response.context?.permissions).toContain('*');
     });
 
@@ -252,7 +252,7 @@ describe('AuthenticationLayerImpl', () => {
       const response = await authLayer.authenticate(request);
 
       expect(response.success).toBe(true);
-      expect(response.context?.apiKey).toBe(testApiKey);
+      expect(response.context?.apiKey).toBeUndefined();
     });
 
     it('should reject public IP without credentials', async () => {

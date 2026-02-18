@@ -347,11 +347,16 @@ export class HttpApiServer {
       if (this.sseCleanupTimer) clearInterval(this.sseCleanupTimer);
 
       // 30秒超时保护
+      let shutdownTimer: ReturnType<typeof setTimeout>;
       const timeout = new Promise<void>((_, reject) => {
-        setTimeout(() => reject(new Error('Server shutdown timeout after 30s')), 30000);
+        shutdownTimer = setTimeout(() => reject(new Error('Server shutdown timeout after 30s')), 30000);
       });
 
-      await Promise.race([this.server.close(), timeout]);
+      try {
+        await Promise.race([this.server.close(), timeout]);
+      } finally {
+        clearTimeout(shutdownTimer!);
+      }
       this.logger.info('HTTP API server stopped');
     } catch (error) {
       if (error instanceof Error && error.message.includes('timeout')) {
@@ -645,9 +650,12 @@ export class HttpApiServer {
       };
       this.logger.error('HTTP API error:', errorDetails);
 
+      const safeMessage = process.env.NODE_ENV === 'production'
+        ? 'Internal Server Error'
+        : (error as Error).message;
       reply.code(500).send({
         error: 'Internal Server Error',
-        message: (error as Error).message,
+        message: safeMessage,
         timestamp: new Date().toISOString()
       });
     });

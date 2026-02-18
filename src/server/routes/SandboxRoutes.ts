@@ -327,9 +327,9 @@ export class SandboxRoutes extends BaseRouteHandler {
             await run('unzip', ['-q', '-o', archivePath, '-d', extractPath]);
           } catch {
             try {
-              const dynamicImport = new Function('m', 'return import(m)') as (m: string) => Promise<Record<string, unknown>>;
-              const AdmZipMod = await dynamicImport('adm-zip');
-              const AdmZip = (AdmZipMod?.default || AdmZipMod) as new (path: string) => { extractAllTo: (target: string, overwrite: boolean) => void };
+              const admZipPkg = 'adm-zip';
+              const AdmZipMod = await import(admZipPkg);
+              const AdmZip = (AdmZipMod?.default || AdmZipMod) as unknown as new (path: string) => { extractAllTo: (target: string, overwrite: boolean) => void };
               const zip = new AdmZip(archivePath);
               zip.extractAllTo(extractPath, true);
             } catch (e) {
@@ -342,9 +342,9 @@ export class SandboxRoutes extends BaseRouteHandler {
           await run('tar', ['-xzf', archivePath, '-C', extractPath, '--strip-components=1']);
         } catch {
           try {
-            const dynamicImport = new Function('m', 'return import(m)') as (m: string) => Promise<Record<string, unknown>>;
-            const tar = await dynamicImport('tar');
-            await (tar as { extract: (opts: Record<string, unknown>) => Promise<void> }).extract({ file: archivePath, cwd: extractPath, strip: 1 });
+            const tarPkg = 'tar';
+            const tar = await import(tarPkg);
+            await (tar as unknown as { extract: (opts: Record<string, unknown>) => Promise<void> }).extract({ file: archivePath, cwd: extractPath, strip: 1 });
           } catch (e) {
             throw new Error('无法解压 TAR.GZ：需要 tar 或 npm 包 tar');
           }

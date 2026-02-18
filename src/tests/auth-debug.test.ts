@@ -70,7 +70,7 @@ describe('AuthenticationLayerImpl API Key Fix', () => {
     console.log('API Key used:', apiKey);
 
     expect(response.success).toBe(true);
-    expect(response.context?.apiKey).toBe(apiKey);
+    expect(response.context?.apiKey).toBeUndefined();
     expect(response.context?.permissions).toContain('*');
   });
 });
