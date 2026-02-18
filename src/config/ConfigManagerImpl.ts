@@ -5,8 +5,9 @@ import {
   Logger,
   ServiceTemplate
 } from '../types/index.js';
-import { readFile, writeFile, mkdir, access } from 'fs/promises';
+import { readFile, writeFile, mkdir, access, rename } from 'fs/promises';
 import { join, dirname } from 'path';
+import { randomBytes } from 'crypto';
 import { EventEmitter } from 'events';
 import { constants } from 'fs';
 import { ConfigValidator } from './ConfigValidator.js';
@@ -137,9 +138,11 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
         }
       }
 
-      // Save config with pretty formatting
+      // Save config atomically: write to temp file then rename
       const configJson = JSON.stringify(config, null, 2);
-      await writeFile(this.configPath, configJson);
+      const tmpPath = `${this.configPath}.${randomBytes(4).toString('hex')}.tmp`;
+      await writeFile(tmpPath, configJson);
+      await rename(tmpPath, this.configPath);
 
       this.currentConfig = config;
 

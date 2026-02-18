@@ -114,12 +114,19 @@ export class McpProtocolStackImpl implements McpProtocolStack {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         process.stdout!.off('data', onData);
+        process.off('exit', onExit);
         reject(new Error(`Timeout waiting for message from ${serviceId}`));
       }, timeoutMs);
 
       const parser = new JsonRpcStreamParser<McpMessage>({
         throwOnParseError: true
       });
+
+      const onExit = () => {
+        clearTimeout(timeout);
+        process.stdout!.off('data', onData);
+        reject(new Error(`Process exited while waiting for message from ${serviceId}`));
+      };
 
       const onData = (data: Buffer) => {
         try {
@@ -130,16 +137,19 @@ export class McpProtocolStackImpl implements McpProtocolStack {
             if ((message as unknown as Record<string, unknown>).id === undefined && !(message as unknown as Record<string, unknown>).method) continue;
             clearTimeout(timeout);
             process.stdout!.off('data', onData);
+            process.off('exit', onExit);
             resolve(message);
             return;
           }
         } catch (error) {
           clearTimeout(timeout);
           process.stdout!.off('data', onData);
+          process.off('exit', onExit);
           reject(error instanceof Error ? error : new Error(String(error)));
         }
       };
 
+      process.once('exit', onExit);
       process.stdout?.on('data', onData);
     });
   }
@@ -152,7 +162,7 @@ export class McpProtocolStackImpl implements McpProtocolStack {
     const negotiatedVersion = await this.negotiateVersion(serviceId, [...MCP_VERSIONS]);
     const initMessage: McpMessage = {
       jsonrpc: '2.0',
-      id: Date.now(),
+      id: `init-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       method: 'initialize',
       params: {
         protocolVersion: negotiatedVersion,

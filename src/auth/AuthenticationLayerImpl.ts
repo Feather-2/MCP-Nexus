@@ -28,6 +28,13 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
 
   private cleanupTimer?: ReturnType<typeof setInterval>;
 
+  destroy(): void {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = undefined;
+    }
+  }
+
   private trustedLocalNetworks = [
     '127.0.0.1',
     '::1',

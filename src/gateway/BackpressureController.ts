@@ -223,12 +223,15 @@ export class BackpressureController {
       // Try to fulfill queued requests (re-check circuit breaker for stale items)
       while (service.queue.length > 0 && service.circuitBreaker.allowRequest() && service.tokenBucket.tryAcquire()) {
         const item = service.queue.shift();
-        if (item && item.deadline > now) {
-          item.resolve({
-            serviceId,
-            acquiredAt: now
-          });
+        if (!item) continue;
+        if (item.deadline <= now) {
+          item.reject(new Error(`Timeout waiting for service ${serviceId}`));
+          continue;
         }
+        item.resolve({
+          serviceId,
+          acquiredAt: now
+        });
       }
     }
   }

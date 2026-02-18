@@ -132,16 +132,19 @@ function createSubscriptionEntry(
                 handlerError = err instanceof Error ? err : new Error(String(err));
               });
 
+            let timer: NodeJS.Timeout | undefined;
             const timeoutPromise = timeoutMs > 0
               ? new Promise<void>((resolve) => {
-                  setTimeout(() => {
+                  timer = setTimeout(() => {
                     timedOut = true;
                     resolve();
                   }, timeoutMs);
                 })
-              : Promise.race([]);
+              : undefined;
 
-            await Promise.race([task, timeoutPromise, entry.closeSignal]);
+            const races: Array<Promise<void>> = [task, entry.closeSignal];
+            if (timeoutPromise) races.push(timeoutPromise);
+            await Promise.race(races).finally(() => { if (timer) clearTimeout(timer); });
 
             if (timedOut && !handlerError) {
               onHandlerTimeout(id, next, timeoutMs);

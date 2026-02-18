@@ -170,8 +170,8 @@ export class OrchestratorEngine {
     if (!template) throw new Error(`Template not found: ${templateName}`);
 
     const adapter = await this.adapters.createAdapter(template as McpServiceConfig);
-    await adapter.connect();
     try {
+      await adapter.connect();
       const toolName = await this.resolveToolName(adapter, step.tool);
       const msg: McpMessage = {
         jsonrpc: '2.0',

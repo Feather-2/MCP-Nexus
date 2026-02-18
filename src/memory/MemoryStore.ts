@@ -14,14 +14,22 @@ export interface RecallResult {
 
 export class MemoryStore {
   private readonly records = new Map<string, MemoryRecord>();
+  private readonly maxRecords: number;
 
-  constructor(private readonly vectorStore: VectorStore) {}
+  constructor(private readonly vectorStore: VectorStore, maxRecords = 10000) {
+    this.maxRecords = Math.max(1, maxRecords);
+  }
 
   async remember(input: { id?: string; text: string; metadata?: Record<string, unknown> }): Promise<MemoryRecord> {
     const createdAt = new Date().toISOString();
     const id = await this.vectorStore.upsert({ id: input.id, text: input.text, metadata: input.metadata });
     const record: MemoryRecord = { id, text: input.text, metadata: input.metadata, createdAt };
     this.records.set(id, record);
+    // Evict oldest if over capacity
+    if (this.records.size > this.maxRecords) {
+      const oldest = this.records.keys().next().value;
+      if (oldest !== undefined) this.records.delete(oldest);
+    }
     return record;
   }
 

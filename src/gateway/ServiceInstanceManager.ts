@@ -1,4 +1,5 @@
 import { ServiceInstance, McpServiceConfig, Logger } from '../types/index.js';
+import { randomBytes } from 'crypto';
 
 export class ServiceInstanceManager {
   private instances = new Map<string, ServiceInstance>();
@@ -116,7 +117,7 @@ export class ServiceInstanceManager {
 
   private generateInstanceId(templateName: string): string {
     const timestamp = Date.now();
-    const random = Math.random().toString(36).substring(2, 8);
+    const random = randomBytes(6).toString('hex');
     return `${templateName}-${timestamp}-${random}`;
   }
 
