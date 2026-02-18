@@ -371,7 +371,12 @@ export class EventBus {
     }
   }
 
+  private emittingGovernance = false;
+
   private emitGovernanceEvent<T>(type: string, payload: T): void {
+    if (this.emittingGovernance) return; // break recursion
+    this.emittingGovernance = true;
+    try {
     // 治理事件直接发射，不经过队列（避免递归）
     const evt: Event = {
       id: `evt-${this.nextEventId++}`,
@@ -419,6 +424,9 @@ export class EventBus {
           })();
         }
       }
+    }
+    } finally {
+      this.emittingGovernance = false;
     }
   }
 }

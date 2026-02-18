@@ -147,13 +147,16 @@ export class ProtocolAdaptersImpl implements ProtocolAdapters {
   }
 
   private async isStreamableHttp(endpoint: string): Promise<boolean> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
     try {
       const response = await fetch(endpoint, {
         method: 'GET',
         headers: {
           'Accept': 'text/event-stream',
           'Cache-Control': 'no-cache'
-        }
+        },
+        signal: controller.signal
       });
 
       const contentType = response.headers.get('content-type');
@@ -161,6 +164,8 @@ export class ProtocolAdaptersImpl implements ProtocolAdapters {
     } catch (e) {
       this.logger?.warn?.('SSE endpoint check failed', { error: (e as Error).message });
       return false;
+    } finally {
+      clearTimeout(timer);
     }
   }
 

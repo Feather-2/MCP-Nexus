@@ -181,8 +181,16 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
       const newInstances: ServiceInstance[] = [];
 
       for (let i = 0; i < instancesToCreate; i++) {
-        const instance = await this.createInstance(templateName);
-        newInstances.push(instance);
+        try {
+          const instance = await this.createInstance(templateName);
+          newInstances.push(instance);
+        } catch (e) {
+          this.logger.error(`Failed to create instance ${i + 1}/${instancesToCreate} for ${templateName}`, e);
+        }
+      }
+
+      if (newInstances.length === 0 && instancesToCreate > 0) {
+        throw new Error(`Failed to create any instances for ${templateName}`);
       }
 
       return [...currentInstances, ...newInstances];

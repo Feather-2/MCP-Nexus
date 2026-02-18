@@ -58,7 +58,7 @@ export class TokenBucket {
 
       if (waitMs <= 0) break;
 
-      await new Promise(resolve => setTimeout(resolve, Math.min(waitMs, 100)));
+      await new Promise(resolve => setTimeout(resolve, waitMs));
     }
 
     return false;
