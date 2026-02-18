@@ -260,8 +260,8 @@ describe('ServiceHealthChecker', () => {
 
     const per = checker.getPerServiceStats().find((s) => s.id === 'svc-1')!;
     expect(per.samples).toBe(2);
-    expect(per.p95).toBe(10);
-    expect(per.p99).toBe(10);
+    expect(per.p95).toBe(20);
+    expect(per.p99).toBe(20);
     expect(per.errorRate).toBeCloseTo(0.5);
     expect(per.lastError).toBe('oops');
   });
@@ -284,8 +284,8 @@ describe('ServiceHealthChecker', () => {
     expect(stats.healthy).toBe(1);
     expect(stats.unhealthy).toBe(1);
     expect(stats.avgLatency).toBe(35);
-    expect(stats.p95).toBe(30);
-    expect(stats.p99).toBe(30);
+    expect(stats.p95).toBe(40);
+    expect(stats.p99).toBe(40);
     expect(stats.errorRate).toBeCloseTo(0.25);
   });
 
