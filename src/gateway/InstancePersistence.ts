@@ -111,7 +111,9 @@ export class InstancePersistence implements Disposable {
       try {
         const dir = path.dirname(this.filePath);
         await fs.mkdir(dir, { recursive: true });
-        await fs.writeFile(this.filePath, snapshot, 'utf-8');
+        const tmpPath = this.filePath + '.tmp';
+        await fs.writeFile(tmpPath, snapshot, 'utf-8');
+        await fs.rename(tmpPath, this.filePath);
         this.dirty = false;
       } catch (err) {
         // keep dirty=true so next flush retries
@@ -125,5 +127,6 @@ export class InstancePersistence implements Disposable {
     await this.flush();
   }
 
-  async dispose(): Promise<void> { await this.shutdown(); }
+  private disposed = false;
+  async dispose(): Promise<void> { if (this.disposed) return; this.disposed = true; await this.shutdown(); }
 }

@@ -29,7 +29,8 @@ export class ServiceHealthChecker implements Disposable {
     clearInterval(this.periodicTimer);
   }
 
-  dispose(): void { this.destroy(); }
+  private disposed = false;
+  dispose(): void { if (this.disposed) return; this.disposed = true; this.destroy(); }
 
   setProbe(fn: (serviceId: string) => Promise<HealthCheckResult>): void {
     this.probe = fn;
@@ -252,16 +253,14 @@ export class ServiceHealthChecker implements Disposable {
     limit: number,
     worker: (item: T) => Promise<void>
   ): Promise<void> {
+    const queue = [...items];
     const max = Math.max(1, Math.floor(limit || 1));
-    let idx = 0;
-
-    const runners = Array.from({ length: Math.min(max, items.length) }).map(async () => {
-      while (idx < items.length) {
-        const i = idx++;
-        await worker(items[i]!);
+    const runners = Array.from({ length: Math.min(max, queue.length) }).map(async () => {
+      while (queue.length > 0) {
+        const item = queue.shift();
+        if (item !== undefined) await worker(item);
       }
     });
-
     await Promise.all(runners);
   }
 }

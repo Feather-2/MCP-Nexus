@@ -15,6 +15,7 @@ import { AdapterPool } from './AdapterPool.js';
 import { mcpRequest } from '../core/mcpMessage.js';
 import { applyGatewaySandboxPolicy } from '../security/SandboxPolicy.js';
 import { resolveMcpServiceConfigEnvRefs } from '../security/secrets.js';
+import { validateNotPrivateUrl } from './ssrf-guard.js';
 
 export class ProtocolAdaptersImpl implements ProtocolAdapters {
   constructor(
@@ -144,6 +145,7 @@ export class ProtocolAdaptersImpl implements ProtocolAdapters {
   }
 
   private async isStreamableHttp(endpoint: string): Promise<boolean> {
+    validateNotPrivateUrl(endpoint);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 5000);
     try {
@@ -199,7 +201,9 @@ export class ProtocolAdaptersImpl implements ProtocolAdapters {
 
   async withAdapter<T>(config: McpServiceConfig, fn: (adapter: TransportAdapter) => Promise<T>): Promise<T> {
     const adapter = await this.createAdapter(config);
-    await adapter.connect();
+    if (!adapter.isConnected()) {
+      await adapter.connect();
+    }
     try {
       return await fn(adapter);
     } finally {

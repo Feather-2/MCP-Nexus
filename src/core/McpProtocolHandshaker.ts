@@ -93,7 +93,7 @@ export class McpProtocolHandshaker {
     }
   }
 
-  async getServerCapabilities(serviceId: string, protocolStack: McpProtocolStack): Promise<any> {
+  async getServerCapabilities(serviceId: string, protocolStack: McpProtocolStack): Promise<Record<string, unknown>> {
     const negotiatedVersion = await this.negotiateVersion(serviceId, [...MCP_VERSIONS]);
     const message: McpMessage = {
       jsonrpc: '2.0',

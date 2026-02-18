@@ -36,7 +36,8 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
     }
   }
 
-  dispose(): void { this.destroy(); }
+  private disposed = false;
+  dispose(): void { if (this.disposed) return; this.disposed = true; this.destroy(); }
 
   private trustedLocalNetworks = [
     '127.0.0.1',

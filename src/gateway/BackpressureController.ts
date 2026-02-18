@@ -191,7 +191,8 @@ export class BackpressureController implements Disposable {
     }
   }
 
-  dispose(): void { this.stop(); }
+  private disposed = false;
+  dispose(): void { if (this.disposed) return; this.disposed = true; this.stop(); }
 
   private getOrCreateService(serviceId: string): ServiceBackpressure {
     let service = this.services.get(serviceId);

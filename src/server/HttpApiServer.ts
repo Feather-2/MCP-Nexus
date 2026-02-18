@@ -313,6 +313,13 @@ export class HttpApiServer implements Disposable {
       }
       this.sandboxStreamClients.clear();
 
+      // Shutdown middleware resources (e.g. Redis clients)
+      for (const mw of this.middlewares) {
+        if (typeof (mw as unknown as { shutdown?: () => Promise<void> }).shutdown === 'function') {
+          try { await (mw as unknown as { shutdown: () => Promise<void> }).shutdown(); } catch { /* best-effort */ }
+        }
+      }
+
       // Clean up LocalMcpProxy timers
       this.localMcpProxy?.cleanup();
 
@@ -338,7 +345,8 @@ export class HttpApiServer implements Disposable {
     }
   }
 
-  async dispose(): Promise<void> { await this.stop(); }
+  private disposed = false;
+  async dispose(): Promise<void> { if (this.disposed) return; this.disposed = true; await this.stop(); }
 
   /**
    * Create route context for modular route handlers

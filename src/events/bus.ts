@@ -49,25 +49,6 @@ type SubscriptionEntry = {
   enqueue: (evt: Event) => void;
 };
 
-function withTimeoutOrCancel(task: Promise<void>, timeoutMs: number, cancel: Promise<void>): Promise<void> {
-  const guardedTask = task.catch(() => {});
-
-  const races: Array<Promise<void>> = [guardedTask, cancel];
-
-  let timer: NodeJS.Timeout | undefined;
-  if (timeoutMs > 0) {
-    races.push(
-      new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, timeoutMs);
-      })
-    );
-  }
-
-  return Promise.race(races).finally(() => {
-    if (timer) clearTimeout(timer);
-  });
-}
-
 function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
   if (typeof value !== 'object' || value === null) return false;
   const then = (value as { then?: unknown }).then;

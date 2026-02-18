@@ -340,5 +340,6 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter, Di
     this.removeAllListeners();
   }
 
-  dispose(): void { this.destroy(); }
+  private disposed = false;
+  dispose(): void { if (this.disposed) return; this.disposed = true; this.destroy(); }
 }

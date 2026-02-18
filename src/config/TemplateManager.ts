@@ -1,4 +1,5 @@
 import { ServiceTemplate, Logger } from '../types/index.js';
+import { createHash } from 'crypto';
 import { readFile, writeFile, mkdir, readdir, unlink } from 'fs/promises';
 import { join } from 'path';
 import { EventEmitter } from 'events';
@@ -188,8 +189,7 @@ export class TemplateManager extends EventEmitter {
       .replace(/\.\.+/g, '.')
       .slice(0, 200);
     if (!sanitized) {
-      const { createHash } = require('crypto');
-      return (createHash('sha256') as import('crypto').Hash).update(name).digest('hex').slice(0, 32);
+      return createHash('sha256').update(name).digest('hex').slice(0, 32);
     }
     return sanitized;
   }

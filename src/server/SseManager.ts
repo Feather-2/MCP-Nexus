@@ -128,5 +128,6 @@ export class SseManager implements Disposable {
     this.clients.clear();
   }
 
-  dispose(): void { this.close(); }
+  private disposed = false;
+  dispose(): void { if (this.disposed) return; this.disposed = true; this.close(); }
 }

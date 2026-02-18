@@ -110,7 +110,8 @@ export class AdapterPool implements Disposable {
     this.logger.debug('AdapterPool shutdown complete');
   }
 
-  async dispose(): Promise<void> { await this.shutdown(); }
+  private disposed = false;
+  async dispose(): Promise<void> { if (this.disposed) return; this.disposed = true; await this.shutdown(); }
 
   getStats(): { size: number; maxSize: number } {
     return {

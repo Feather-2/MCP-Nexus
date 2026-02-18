@@ -15,13 +15,14 @@ const BLOCKED_HOST_PATTERNS: ReadonlyArray<RegExp> = [
  * Only call for user-supplied URLs (env vars), not admin-set commands.
  */
 export function validateNotPrivateUrl(urlStr: string): void {
+  let host: string;
   try {
-    const host = new URL(urlStr).hostname;
-    if (BLOCKED_HOST_PATTERNS.some(p => p.test(host))) {
-      throw new Error(`Blocked private/metadata URL target: ${host}`);
-    }
-  } catch (error) {
-    if (error instanceof Error && error.message.startsWith('Blocked')) throw error;
+    host = new URL(urlStr).hostname;
+  } catch {
+    throw new Error(`Blocked: unable to parse URL for SSRF validation: ${urlStr}`);
+  }
+  if (BLOCKED_HOST_PATTERNS.some(p => p.test(host))) {
+    throw new Error(`Blocked private/metadata URL target: ${host}`);
   }
 }
 

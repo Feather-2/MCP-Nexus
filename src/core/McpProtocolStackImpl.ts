@@ -448,11 +448,15 @@ export class McpProtocolStackImpl implements McpProtocolStack {
   }
 
   private async cleanupProcess(serviceId: string, killOrphan = false): Promise<void> {
+    const proc = this.processes.get(serviceId);
     if (killOrphan) {
-      const proc = this.processes.get(serviceId);
       if (proc && !proc.killed && proc.exitCode == null) {
         try { proc.kill('SIGKILL'); } catch { /* already dead */ }
       }
+    }
+    if (proc) {
+      proc.removeAllListeners();
+      proc.stderr?.removeAllListeners();
     }
     // Remove from maps
     this.instances.delete(serviceId);

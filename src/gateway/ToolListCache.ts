@@ -107,7 +107,8 @@ export class ToolListCache implements Disposable {
     this.logger.debug('ToolListCache shutdown complete');
   }
 
-  dispose(): void { this.shutdown(); }
+  private disposed = false;
+  dispose(): void { if (this.disposed) return; this.disposed = true; this.shutdown(); }
 
   private cleanup(): void {
     const now = Date.now();
