@@ -97,20 +97,28 @@ export class InstancePersistence {
     unrefTimer(this.flushTimer);
   }
 
+  private flushLock: Promise<void> = Promise.resolve();
+
   async flush(): Promise<void> {
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
     }
     if (!this.dirty) return;
-    this.dirty = false;
-    try {
-      const dir = path.dirname(this.filePath);
-      await fs.mkdir(dir, { recursive: true });
-      await fs.writeFile(this.filePath, JSON.stringify(this.data, null, 2), 'utf-8');
-    } catch (err) {
-      this.logger.error('failed to persist instances', { err });
-    }
+    this.flushLock = this.flushLock.then(async () => {
+      if (!this.dirty) return;
+      const snapshot = JSON.stringify(this.data, null, 2);
+      try {
+        const dir = path.dirname(this.filePath);
+        await fs.mkdir(dir, { recursive: true });
+        await fs.writeFile(this.filePath, snapshot, 'utf-8');
+        this.dirty = false;
+      } catch (err) {
+        // keep dirty=true so next flush retries
+        this.logger.error('failed to persist instances', { err });
+      }
+    });
+    return this.flushLock;
   }
 
   async shutdown(): Promise<void> {

@@ -220,8 +220,8 @@ export class BackpressureController {
         }
       }
 
-      // Try to fulfill queued requests
-      while (service.queue.length > 0 && service.tokenBucket.tryAcquire()) {
+      // Try to fulfill queued requests (re-check circuit breaker for stale items)
+      while (service.queue.length > 0 && service.circuitBreaker.allowRequest() && service.tokenBucket.tryAcquire()) {
         const item = service.queue.shift();
         if (item && item.deadline > now) {
           item.resolve({

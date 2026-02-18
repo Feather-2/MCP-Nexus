@@ -41,7 +41,7 @@ export class IntelligentLoadBalancer {
 
   private nextCursor(key: string): number {
     const cursor = this.rrCursorByKey.get(key) ?? 0;
-    this.rrCursorByKey.set(key, cursor + 1);
+    this.rrCursorByKey.set(key, (cursor + 1) % 0x7FFFFFFF);
     return cursor;
   }
 

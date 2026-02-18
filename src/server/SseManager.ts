@@ -121,6 +121,9 @@ export class SseManager {
    */
   close(): void {
     this.stopCleanup();
+    for (const client of this.clients) {
+      try { client.raw.end(); } catch { /* already closed */ }
+    }
     this.clients.clear();
   }
 }

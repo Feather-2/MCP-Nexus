@@ -178,26 +178,48 @@ export class HttpTransportAdapter extends EventEmitter implements TransportAdapt
 
   private extractUrlFromConfig(config: McpServiceConfig): string {
     // Try to extract URL from various possible config locations
-    
-    // Check if there's a direct url in env
+    let url: string | undefined;
+    let fromConfig = false;
+
     if (config.env?.MCP_SERVER_URL) {
-      return config.env.MCP_SERVER_URL;
-    }
-    
-    // Check if the command itself is a URL
-    if (config.command?.startsWith('http')) {
-      if (this.isValidUrl(config.command)) return config.command;
-    }
-    
-    // Try to construct from host and port in env
-    if (config.env?.MCP_HOST && config.env?.MCP_PORT) {
+      url = config.env.MCP_SERVER_URL;
+      fromConfig = true;
+    } else if (config.env?.MCP_HOST && config.env?.MCP_PORT) {
       const protocol = config.env.MCP_HTTPS === 'true' ? 'https' : 'http';
-      return `${protocol}://${config.env.MCP_HOST}:${config.env.MCP_PORT}`;
+      url = `${protocol}://${config.env.MCP_HOST}:${config.env.MCP_PORT}`;
+      fromConfig = true;
+    } else if (config.command?.startsWith('http') && this.isValidUrl(config.command)) {
+      url = config.command;
+      // command is admin-set, not env-injected — skip SSRF check
+    } else {
+      const fallback = config.env?.MCP_BASE_URL;
+      if (fallback && this.isValidUrl(fallback)) {
+        url = fallback;
+        fromConfig = true;
+      } else {
+        url = 'http://localhost:3000';
+      }
     }
-    
-    // Default fallback
-    const fallback = config.env?.MCP_BASE_URL || 'http://localhost:3000';
-    return this.isValidUrl(fallback) ? fallback : 'http://localhost:3000';
+
+    // Guard against SSRF to private/metadata IPs (only for user-supplied URLs)
+    if (fromConfig) this.validateNotPrivate(url);
+    return url;
+  }
+
+  private static readonly BLOCKED_HOST_PATTERNS = [
+    /^127\./, /^10\./, /^172\.(1[6-9]|2\d|3[01])\./, /^192\.168\./,
+    /^169\.254\./, /^0\./, /^localhost$/i, /^\[?::1\]?$/, /^\[?::ffff:127\./
+  ];
+
+  private validateNotPrivate(urlStr: string): void {
+    try {
+      const host = new URL(urlStr).hostname;
+      if (HttpTransportAdapter.BLOCKED_HOST_PATTERNS.some(p => p.test(host))) {
+        throw new Error(`Blocked private/metadata URL target: ${host}`);
+      }
+    } catch (e) {
+      if (e instanceof Error && e.message.startsWith('Blocked')) throw e;
+    }
   }
 
   private isValidUrl(urlStr: string): boolean {

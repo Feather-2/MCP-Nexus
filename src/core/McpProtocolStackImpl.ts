@@ -221,8 +221,8 @@ export class McpProtocolStackImpl implements McpProtocolStack {
     } catch (error) {
       this.errorHandler.handleError(error as Error, { serviceId, config });
 
-      // Cleanup on failure
-      await this.cleanupProcess(serviceId);
+      // Cleanup on failure — kill orphaned process
+      await this.cleanupProcess(serviceId, true);
 
       throw error;
     }
@@ -259,7 +259,7 @@ export class McpProtocolStackImpl implements McpProtocolStack {
         });
       });
 
-      await this.cleanupProcess(serviceId);
+      await this.cleanupProcess(serviceId, false);
 
       this.logger.info(`Service ${serviceId} stopped successfully`);
       this.eventEmitter.emit('service-stopped', { serviceId });
@@ -437,7 +437,13 @@ export class McpProtocolStackImpl implements McpProtocolStack {
     }
   }
 
-  private async cleanupProcess(serviceId: string): Promise<void> {
+  private async cleanupProcess(serviceId: string, killOrphan = false): Promise<void> {
+    if (killOrphan) {
+      const proc = this.processes.get(serviceId);
+      if (proc && !proc.killed && proc.exitCode == null) {
+        try { proc.kill('SIGKILL'); } catch { /* already dead */ }
+      }
+    }
     // Remove from maps
     this.instances.delete(serviceId);
     this.processes.delete(serviceId);

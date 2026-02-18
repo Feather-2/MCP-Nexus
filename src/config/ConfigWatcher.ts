@@ -32,6 +32,7 @@ export class ConfigWatcher extends EventEmitter {
       (async () => {
         try {
           for await (const event of watcher) {
+            if (!this.watchEnabled) break;
             if (event.eventType === 'change') {
               try {
                 onChange();
@@ -41,7 +42,9 @@ export class ConfigWatcher extends EventEmitter {
             }
           }
         } catch (e) {
-          this.logger.warn('Failed to watch configuration file:', e);
+          if (this.watchEnabled) {
+            this.logger.warn('Failed to watch configuration file:', e);
+          }
         }
       })();
     } catch (e) {
@@ -65,6 +68,7 @@ export class ConfigWatcher extends EventEmitter {
       (async () => {
         try {
           for await (const event of watcher) {
+            if (!this.watchEnabled) break;
             const filename = typeof event.filename === 'string' ? event.filename : undefined;
             const eventType = event.eventType;
 
@@ -88,7 +92,9 @@ export class ConfigWatcher extends EventEmitter {
             }
           }
         } catch (e) {
-          this.logger.warn('Failed to watch templates directory:', e);
+          if (this.watchEnabled) {
+            this.logger.warn('Failed to watch templates directory:', e);
+          }
         }
       })();
     } catch (e) {

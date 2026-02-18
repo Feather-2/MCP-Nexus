@@ -11,16 +11,22 @@ export class ServiceHealthChecker {
   private inFlightChecks = new Map<string, Promise<HealthCheckResult>>();
   private readonly concurrency = 8;
 
+  private periodicTimer: ReturnType<typeof setInterval>;
+
   constructor(
     private logger: Logger,
     private store: ServiceObservationStore
   ) {
     // Start periodic health checks
-    const t = setInterval(() => {
+    this.periodicTimer = setInterval(() => {
       void this.performPeriodicChecks();
     }, this.checkInterval);
     // Don't keep the process alive solely for background health probes (important for tests/CLI).
-    (t as unknown as { unref?: () => void }).unref?.();
+    (this.periodicTimer as unknown as { unref?: () => void }).unref?.();
+  }
+
+  destroy(): void {
+    clearInterval(this.periodicTimer);
   }
 
   setProbe(fn: (serviceId: string) => Promise<HealthCheckResult>): void {
@@ -38,6 +44,8 @@ export class ServiceHealthChecker {
     if (serviceId) {
       this.monitoringServices.delete(serviceId);
       this.store.removeHealth(serviceId);
+      this.latencies.delete(serviceId);
+      this.counters.delete(serviceId);
       this.logger.debug(`Stopped health monitoring for: ${serviceId}`);
     }
   }

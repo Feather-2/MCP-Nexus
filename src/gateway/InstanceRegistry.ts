@@ -1,6 +1,7 @@
 import { ServiceInstance, McpServiceConfig, RoutingStrategy, Logger } from '../types/index.js';
 import { ServiceObservationStore } from './service-state.js';
 import { IntelligentLoadBalancer } from './IntelligentLoadBalancer.js';
+import { randomBytes } from 'crypto';
 
 export class InstanceRegistry {
   private loadBalancer: IntelligentLoadBalancer;
@@ -137,7 +138,7 @@ export class InstanceRegistry {
 
   private generateInstanceId(templateName: string): string {
     const timestamp = Date.now();
-    const random = Math.random().toString(36).substring(2, 8);
+    const random = randomBytes(6).toString('hex');
     return `${templateName}-${timestamp}-${random}`;
   }
 }

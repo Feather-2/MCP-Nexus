@@ -362,7 +362,9 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
       this.responseCallbacks.clear();
 
       // Graceful shutdown
-      this.process.kill('SIGTERM');
+      if (!this.process.killed && this.process.exitCode == null) {
+        try { this.process.kill('SIGTERM'); } catch { /* already dead */ }
+      }
 
       // Force kill after timeout
       const forceKillTimeout = setTimeout(() => {
@@ -372,12 +374,13 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
       }, 5000);
 
       await new Promise<void>((resolve) => {
-        if (!this.process) {
+        if (!this.process || this.process.killed || this.process.exitCode != null) {
+          clearTimeout(forceKillTimeout);
           resolve();
           return;
         }
 
-        this.process.on('exit', () => {
+        this.process.once('exit', () => {
           clearTimeout(forceKillTimeout);
           resolve();
         });
