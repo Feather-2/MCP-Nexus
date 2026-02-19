@@ -87,6 +87,8 @@ export class SkillRoutes extends BaseRouteHandler {
 
     this.initPromise = this.registry.reload().then(() => {
       this.registryVersion += 1;
+    }).catch((error) => {
+      this.ctx.logger.error('Skill registry initial load failed', { error: (error as Error).message });
     });
   }
 

@@ -15,6 +15,7 @@ function makeAdapter(overrides?: Record<string, any>) {
     receive: vi.fn().mockResolvedValue({ jsonrpc: '2.0', id: 1, result: {} }),
     sendAndReceive: vi.fn().mockResolvedValue({ jsonrpc: '2.0', id: 1, result: {} }),
     on: vi.fn(),
+    once: vi.fn(),
     ...overrides,
   };
 }
@@ -346,22 +347,22 @@ describe('RoutingRoutes – branch coverage', () => {
       new RoutingRoutes(ctx).setupRoutes();
       await server.inject({ method: 'POST', url: '/api/proxy/ev-1', payload: { method: 'tools/list', id: 1 } });
 
-      // Verify on() was called for stderr, sent, message
-      const onCalls = adapter.on.mock.calls.map((c: any[]) => c[0]);
-      expect(onCalls).toContain('stderr');
-      expect(onCalls).toContain('sent');
-      expect(onCalls).toContain('message');
+      // Verify once() was called for stderr, sent, message
+      const onceCalls = adapter.once.mock.calls.map((c: any[]) => c[0]);
+      expect(onceCalls).toContain('stderr');
+      expect(onceCalls).toContain('sent');
+      expect(onceCalls).toContain('message');
 
       // Trigger the callbacks to cover their branches
-      const stderrCb = adapter.on.mock.calls.find((c: any[]) => c[0] === 'stderr')![1];
+      const stderrCb = adapter.once.mock.calls.find((c: any[]) => c[0] === 'stderr')![1];
       stderrCb('some error line');
       expect(ctx.addLogEntry).toHaveBeenCalledWith('warn', expect.stringContaining('stderr'), 'ev-1');
 
-      const sentCb = adapter.on.mock.calls.find((c: any[]) => c[0] === 'sent')![1];
+      const sentCb = adapter.once.mock.calls.find((c: any[]) => c[0] === 'sent')![1];
       sentCb({ method: 'tools/list', id: 42 });
       sentCb(undefined); // no method/id branch
 
-      const msgCb = adapter.on.mock.calls.find((c: any[]) => c[0] === 'message')![1];
+      const msgCb = adapter.once.mock.calls.find((c: any[]) => c[0] === 'message')![1];
       msgCb({ result: 'ok', id: 7 });
       msgCb({ method: 'notification' });
       msgCb(undefined); // no method/result branch

@@ -52,7 +52,13 @@ export class MetricsCollector {
   }
 
   updateServiceMetrics(serviceId: string, metrics: Partial<ServiceLoadMetrics> & Record<string, unknown>): void {
-    this.serviceMetrics.set(serviceId, metrics as ServiceLoadMetrics);
+    const existing = this.serviceMetrics.get(serviceId) || {
+      requestCount: 0,
+      successRate: 1,
+      averageResponseTime: 0,
+      lastUsed: new Date()
+    };
+    this.serviceMetrics.set(serviceId, { ...existing, ...metrics } as ServiceLoadMetrics);
   }
 
   updateServiceHealth(serviceId: string, health: ServiceHealth): void {

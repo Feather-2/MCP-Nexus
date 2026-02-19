@@ -158,16 +158,16 @@ export class RoutingRoutes extends BaseRouteHandler {
         }
 
         await this.ctx.protocolAdapters.withAdapter(service.config, async (adapter) => {
-          // Wire adapter events into log buffer
-          const emitter = adapter as unknown as { on?: (event: string, fn: (...args: unknown[]) => void) => void };
-          emitter.on?.('stderr', (line: unknown) => {
+          // Wire adapter events into log buffer (use .once to prevent listener accumulation on pooled adapters)
+          const emitter = adapter as unknown as { once?: (event: string, fn: (...args: unknown[]) => void) => void };
+          emitter.once?.('stderr', (line: unknown) => {
             this.ctx.addLogEntry('warn', `stderr: ${line}`, serviceId);
           });
-          emitter.on?.('sent', (msg: unknown) => {
+          emitter.once?.('sent', (msg: unknown) => {
             const m = msg as Record<string, unknown> | undefined;
             this.ctx.addLogEntry('debug', `${m?.method || 'unknown'} id=${m?.id ?? 'auto'}`, serviceId);
           });
-          emitter.on?.('message', (msg: unknown) => {
+          emitter.once?.('message', (msg: unknown) => {
             const m = msg as Record<string, unknown> | undefined;
             this.ctx.addLogEntry('debug', `${m?.method || (m?.result ? 'result' : 'message')} id=${m?.id ?? 'n/a'}`, serviceId);
           });

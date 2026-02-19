@@ -128,6 +128,9 @@ export class RuleManager extends EventEmitter {
         action
       } as RoutingRule;
     }
+    if (!input.name || !input.condition || !input.action) {
+      throw new Error('Invalid routing rule: missing required fields (name, condition, action)');
+    }
     return input as unknown as RoutingRule;
   }
 

@@ -370,7 +370,7 @@ describe('GatewayRouterImpl', () => {
       router.updateServiceMetrics('test-service', metrics);
       
       const retrieved = router.getServiceMetrics('test-service');
-      expect(retrieved).toEqual(metrics);
+      expect(retrieved).toMatchObject(metrics);
     });
 
     it('should update and retrieve cost metrics', () => {

@@ -97,30 +97,29 @@ export class InstancePersistence implements Disposable {
     unrefTimer(this.flushTimer);
   }
 
-  private flushLock: Promise<void> = Promise.resolve();
+  private flushing = false;
 
   async flush(): Promise<void> {
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
     }
-    if (!this.dirty) return;
-    this.flushLock = this.flushLock.then(async () => {
-      if (!this.dirty) return;
+    if (!this.dirty || this.flushing) return;
+    this.flushing = true;
+    try {
       const snapshot = JSON.stringify(this.data, null, 2);
-      try {
-        const dir = path.dirname(this.filePath);
-        await fs.mkdir(dir, { recursive: true });
-        const tmpPath = this.filePath + '.tmp';
-        await fs.writeFile(tmpPath, snapshot, 'utf-8');
-        await fs.rename(tmpPath, this.filePath);
-        this.dirty = false;
-      } catch (err) {
-        // keep dirty=true so next flush retries
-        this.logger.error('failed to persist instances', { err });
-      }
-    });
-    return this.flushLock;
+      const dir = path.dirname(this.filePath);
+      await fs.mkdir(dir, { recursive: true });
+      const tmpPath = this.filePath + '.tmp';
+      await fs.writeFile(tmpPath, snapshot, 'utf-8');
+      await fs.rename(tmpPath, this.filePath);
+      this.dirty = false;
+    } catch (err) {
+      // keep dirty=true so next flush retries
+      this.logger.error('failed to persist instances', { err });
+    } finally {
+      this.flushing = false;
+    }
   }
 
   async shutdown(): Promise<void> {

@@ -188,7 +188,7 @@ export class TemplateRoutes extends BaseRouteHandler {
     // Repair templates
     server.post('/api/templates/repair', async (_request: FastifyRequest, reply: FastifyReply) => {
       try {
-        await (this.ctx.serviceRegistry as unknown as { templateManager: { initializeDefaults(): Promise<void> } }).templateManager.initializeDefaults();
+        await this.ctx.serviceRegistry.getTemplateManager().initializeDefaults();
         reply.send({ success: true });
       } catch (error) {
         return this.respondError(reply, 500, (error as Error).message || 'Repair templates failed', { code: 'TEMPLATE_REPAIR_FAILED' });

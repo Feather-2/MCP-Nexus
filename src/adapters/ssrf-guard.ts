@@ -43,17 +43,21 @@ export function extractHttpUrl(config: McpServiceConfig): string {
   let url: string | undefined;
   let fromConfig = false;
 
-  if (config.env?.MCP_SERVER_URL) {
-    url = config.env.MCP_SERVER_URL;
+  const serverUrl = config.env?.MCP_SERVER_URL?.trim();
+  const mcpHost = config.env?.MCP_HOST?.trim();
+  const mcpPort = config.env?.MCP_PORT?.trim();
+
+  if (serverUrl) {
+    url = serverUrl;
     fromConfig = true;
-  } else if (config.env?.MCP_HOST && config.env?.MCP_PORT) {
-    const protocol = config.env.MCP_HTTPS === 'true' ? 'https' : 'http';
-    url = `${protocol}://${config.env.MCP_HOST}:${config.env.MCP_PORT}`;
+  } else if (mcpHost && mcpPort) {
+    const protocol = config.env?.MCP_HTTPS === 'true' ? 'https' : 'http';
+    url = `${protocol}://${mcpHost}:${mcpPort}`;
     fromConfig = true;
   } else if (config.command?.startsWith('http') && isValidHttpUrl(config.command)) {
     url = config.command;
   } else {
-    const fallback = config.env?.MCP_BASE_URL;
+    const fallback = config.env?.MCP_BASE_URL?.trim();
     if (fallback && isValidHttpUrl(fallback)) {
       url = fallback;
       fromConfig = true;

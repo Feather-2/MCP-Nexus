@@ -110,10 +110,11 @@ describe('TemplateRoutes - validation & operations', () => {
   });
 
   it('POST /api/templates/repair calls templateManager.initializeDefaults', async () => {
-    (serviceRegistryStub as any).templateManager = { initializeDefaults: vi.fn().mockResolvedValue(undefined) };
+    const mockInitDefaults = vi.fn().mockResolvedValue(undefined);
+    (serviceRegistryStub as any).getTemplateManager = vi.fn().mockReturnValue({ initializeDefaults: mockInitDefaults });
     const res = await (server as any).server.inject({ method: 'POST', url: '/api/templates/repair' });
     expect(res.statusCode).toBe(200);
-    expect((serviceRegistryStub as any).templateManager.initializeDefaults).toHaveBeenCalled();
+    expect(mockInitDefaults).toHaveBeenCalled();
   });
 
   it('POST /api/templates/repair-images repairs missing image based on command', async () => {
