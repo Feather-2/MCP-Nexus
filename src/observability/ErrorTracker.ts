@@ -96,10 +96,10 @@ export class ErrorTracker {
     };
   }
 
-  private extractCauseChain(envelope: ErrorEnvelope, chain: ErrorEnvelope[]): void {
+  private extractCauseChain(envelope: ErrorEnvelope, chain: ErrorEnvelope[], maxDepth = 20): void {
     chain.push(envelope);
-    if (envelope.cause) {
-      this.extractCauseChain(envelope.cause, chain);
+    if (envelope.cause && maxDepth > 0) {
+      this.extractCauseChain(envelope.cause, chain, maxDepth - 1);
     }
   }
 }

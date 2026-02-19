@@ -112,7 +112,7 @@ export class SkillRegistry {
 
   constructor(options?: { logger?: Logger; roots?: string[]; managedRoot?: string; loader?: SkillLoader }) {
     this.logger = options?.logger;
-    this.roots = options?.roots && options.roots.length ? options.roots : undefined as unknown as string[];
+    this.roots = options?.roots && options.roots.length ? options.roots : [];
     this.managedRoot = options?.managedRoot ?? path.resolve(process.cwd(), 'config', 'skills');
     this.loader = options?.loader ?? new SkillLoader({ logger: this.logger });
     const baseRoots = options?.roots && options.roots.length ? options.roots : this.loader.getDefaultRoots();

@@ -4,6 +4,9 @@ import type { HookEventType, HookPayload, HookResult, ShellHook } from './types.
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
+/** Env keys that could be used for process injection; filtered from hook env. */
+const BLOCKED_ENV_KEYS = new Set(['LD_PRELOAD', 'LD_LIBRARY_PATH', 'DYLD_INSERT_LIBRARIES']);
+
 export interface ExecutorOptions {
   timeout?: number; // 默认 30000ms
   onError?: (event: HookEventType, error: Error) => void;
@@ -184,7 +187,12 @@ export class HookExecutor {
     }
 
     const timeoutMs = effectiveTimeoutMs(hook.timeout, this.options.timeout);
-    const env = { ...process.env, ...(hook.env ?? {}) };
+    const hookEnv = hook.env ?? {};
+    const filteredHookEnv: Record<string, string | undefined> = {};
+    for (const [k, v] of Object.entries(hookEnv)) {
+      if (!BLOCKED_ENV_KEYS.has(k)) filteredHookEnv[k] = v;
+    }
+    const env = { ...process.env, ...filteredHookEnv };
 
     return await new Promise<HookResult>((resolve) => {
       // Use platform shell for portability (sh on *nix, cmd on Windows)

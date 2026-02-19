@@ -48,7 +48,12 @@ function computeHash(input: Omit<AuditLogEntry, 'hash'>): string {
 
 function parseEntry(line: string): AuditLogEntry | null {
   if (!line.trim()) return null;
-  const parsed = JSON.parse(line) as Partial<AuditLogEntry>;
+  let parsed: Partial<AuditLogEntry>;
+  try {
+    parsed = JSON.parse(line) as Partial<AuditLogEntry>;
+  } catch {
+    return null;
+  }
   if (
     typeof parsed.timestamp !== 'string' ||
     typeof parsed.action !== 'string' ||
@@ -58,7 +63,7 @@ function parseEntry(line: string): AuditLogEntry | null {
     typeof parsed.prevHash !== 'string' ||
     typeof parsed.hash !== 'string'
   ) {
-    throw new Error('Invalid audit log entry format');
+    return null;
   }
   return parsed as AuditLogEntry;
 }

@@ -130,7 +130,12 @@ export async function setupCanaries(sandboxRoot: string): Promise<CanarySetup> {
 
 async function loadState(sandboxRoot: string): Promise<CanaryStateV1> {
   const raw = await readFile(statePathForRoot(sandboxRoot), { encoding: 'utf8' });
-  const parsed = JSON.parse(raw) as Partial<CanaryStateV1>;
+  let parsed: Partial<CanaryStateV1>;
+  try {
+    parsed = JSON.parse(raw) as Partial<CanaryStateV1>;
+  } catch {
+    throw new Error('invalid canary state: malformed JSON');
+  }
   if (parsed.version !== 1 || !Array.isArray(parsed.canaries)) {
     throw new Error('invalid canary state');
   }

@@ -6,11 +6,14 @@ export type Locale = 'en' | 'zh';
 
 const LOCALE_DIR = join(dirname(fileURLToPath(import.meta.url)), 'locales');
 const cache: Partial<Record<Locale, Record<string, string>>> = {};
+const VALID_LOCALES = new Set<string>(['en', 'zh']);
 
 let currentLocale: Locale = 'en';
 let dictionary = loadLocale(currentLocale);
 
 export function loadLocale(locale: Locale): Record<string, string> {
+  if (!VALID_LOCALES.has(locale)) throw new Error(`Invalid locale: ${locale}`);
+
   const cached = cache[locale];
   if (cached) {
     return cached;

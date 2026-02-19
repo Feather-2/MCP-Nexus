@@ -28,7 +28,10 @@ export class MemoryStore {
     // Evict oldest if over capacity
     if (this.records.size > this.maxRecords) {
       const oldest = this.records.keys().next().value;
-      if (oldest !== undefined) this.records.delete(oldest);
+      if (oldest !== undefined) {
+        this.records.delete(oldest);
+        this.vectorStore.delete(oldest).catch(() => { /* best-effort */ });
+      }
     }
     return record;
   }

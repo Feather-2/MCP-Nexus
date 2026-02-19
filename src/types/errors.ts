@@ -160,12 +160,14 @@ export function serializeError(envelope: ErrorEnvelope): string {
 /**
  * 错误反序列化
  */
-export function deserializeError(json: string): ErrorEnvelope {
+export function deserializeError(json: string, maxDepth = 10): ErrorEnvelope {
   const obj = JSON.parse(json);
   return {
     ...obj,
     timestamp: new Date(obj.timestamp),
-    cause: obj.cause ? deserializeError(JSON.stringify(obj.cause)) : undefined
+    cause: obj.cause && maxDepth > 0
+      ? deserializeError(JSON.stringify(obj.cause), maxDepth - 1)
+      : undefined
   };
 }
 

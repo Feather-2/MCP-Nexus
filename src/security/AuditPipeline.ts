@@ -147,6 +147,7 @@ export class AuditPipeline {
   private readonly aiQueue: Array<{ skill: Skill; requestId: string }> = [];
   private aiConcurrency = 0;
   private readonly maxAiConcurrency = 3;
+  private static readonly MAX_PENDING_AUDITS = 1000;
 
   constructor(options: AuditPipelineOptions) {
     this.hardRuleEngine = options.hardRuleEngine;
@@ -442,9 +443,11 @@ export class AuditPipeline {
       pending.status = 'completed';
       pending.result = result;
       pending.resolve(result);
+      this.evictStalePendingAudits();
     } catch (error) {
       pending.status = 'failed';
       pending.reject(error instanceof Error ? error : new Error(String(error)));
+      this.evictStalePendingAudits();
     }
   }
 
@@ -457,6 +460,17 @@ export class AuditPipeline {
       return { status: 'not_found' };
     }
     return { status: pending.status, result: pending.result };
+  }
+
+  /** Remove completed/failed entries when the map exceeds the cap. */
+  private evictStalePendingAudits(): void {
+    if (this.pendingAudits.size <= AuditPipeline.MAX_PENDING_AUDITS) return;
+    for (const [id, entry] of this.pendingAudits) {
+      if (entry.status === 'completed' || entry.status === 'failed') {
+        this.pendingAudits.delete(id);
+      }
+      if (this.pendingAudits.size <= AuditPipeline.MAX_PENDING_AUDITS) break;
+    }
   }
 
   async audit(skill: Skill): Promise<AuditResult> {
