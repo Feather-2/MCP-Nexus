@@ -213,14 +213,11 @@ export class BackpressureController implements Disposable {
     const now = Date.now();
 
     for (const [serviceId, service] of this.services) {
-      // Process expired items first
-      while (service.queue.length > 0) {
-        const first = service.queue[0];
-        if (first.deadline <= now) {
-          service.queue.shift();
-          first.reject(new Error(`Timeout waiting for service ${serviceId}`));
-        } else {
-          break;
+      // Sweep ALL expired items (deadlines may not be strictly ordered)
+      for (let i = service.queue.length - 1; i >= 0; i--) {
+        if (service.queue[i].deadline <= now) {
+          const [expired] = service.queue.splice(i, 1);
+          expired.reject(new Error(`Timeout waiting for service ${serviceId}`));
         }
       }
 
@@ -228,10 +225,6 @@ export class BackpressureController implements Disposable {
       while (service.queue.length > 0 && service.circuitBreaker.allowRequest() && service.tokenBucket.tryAcquire()) {
         const item = service.queue.shift();
         if (!item) continue;
-        if (item.deadline <= now) {
-          item.reject(new Error(`Timeout waiting for service ${serviceId}`));
-          continue;
-        }
         item.resolve({
           serviceId,
           acquiredAt: now
