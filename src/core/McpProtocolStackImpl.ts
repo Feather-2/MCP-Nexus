@@ -262,6 +262,8 @@ export class McpProtocolStackImpl implements McpProtocolStack {
           process.kill('SIGKILL');
           resolve();
         }, 5000);
+        // Don't keep the Node process alive solely for this fallback kill timer
+        (timeout as unknown as { unref?: () => void }).unref?.();
 
         process.once('exit', () => {
           clearTimeout(timeout);
@@ -369,8 +371,13 @@ export class McpProtocolStackImpl implements McpProtocolStack {
           NO_PROXY: 'localhost,127.0.0.1', no_proxy: 'localhost,127.0.0.1'
         };
 
-        // Merge user overrides last
+        // Merge user overrides, but protect sandbox-critical keys from being overridden
+        const SANDBOX_PROTECTED_KEYS = new Set([
+          'PATH', 'HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy',
+          'NO_PROXY', 'no_proxy', 'LD_PRELOAD', 'LD_LIBRARY_PATH', 'DYLD_INSERT_LIBRARIES'
+        ]);
         for (const [k, v] of Object.entries(overrideEnv)) {
+          if (SANDBOX_PROTECTED_KEYS.has(k)) continue;
           (patched as Record<string, string>)[k] = String(v);
         }
         return patched;

@@ -344,6 +344,7 @@ export class SkillLoader {
   private readonly loadSupportFiles: boolean;
   private readonly maxSupportFileBytes: number;
   private readonly cache = new Map<string, CachedSkill>();
+  private static readonly MAX_CACHE_SIZE = 500;
   private readonly versionTracker?: SkillVersionTracker;
   private readonly diffAnalyzer?: SkillDiffAnalyzer;
   private readonly riskAccumulator?: SkillRiskAccumulator;
@@ -538,6 +539,11 @@ export class SkillLoader {
         }
       }
 
+      // Evict oldest cache entries when exceeding size limit
+      if (this.cache.size >= SkillLoader.MAX_CACHE_SIZE && !this.cache.has(skillMdPath)) {
+        const oldest = this.cache.keys().next().value;
+        if (oldest !== undefined) this.cache.delete(oldest);
+      }
       this.cache.set(skillMdPath, { hash, skill });
       return skill;
     } catch (error) {

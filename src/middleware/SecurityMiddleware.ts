@@ -31,6 +31,7 @@ export class SecurityMiddleware implements Middleware {
   readonly name = 'SecurityMiddleware';
   private config: SecurityConfig;
   private globalPatterns: RegExp[];
+  private cachedAllowedDir?: string;
 
   constructor(config?: Partial<SecurityConfig>) {
     this.config = {
@@ -108,17 +109,21 @@ export class SecurityMiddleware implements Middleware {
     }
   }
 
+  private async resolveAllowedDir(): Promise<string> {
+    if (this.cachedAllowedDir) return this.cachedAllowedDir;
+    const cwd = process.cwd();
+    const realCwd = await realpath(cwd);
+    this.cachedAllowedDir = process.env.ALLOWED_DIRECTORY
+      ? await realpath(resolve(process.env.ALLOWED_DIRECTORY))
+      : realCwd;
+    return this.cachedAllowedDir;
+  }
+
   private async validatePath(filePath: string): Promise<void> {
     try {
       const resolvedPath = resolve(filePath);
       const realPath = await realpath(resolvedPath);
-
-      const cwd = process.cwd();
-      const realCwd = await realpath(cwd);
-
-      const allowedDir = process.env.ALLOWED_DIRECTORY
-        ? await realpath(resolve(process.env.ALLOWED_DIRECTORY))
-        : realCwd;
+      const allowedDir = await this.resolveAllowedDir();
 
       if (!realPath.startsWith(allowedDir)) {
         throw new Error(`Security Guard: Access denied to path outside allowed directory: ${filePath}`);

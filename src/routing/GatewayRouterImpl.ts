@@ -110,8 +110,7 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter, Di
           );
       }
 
-      // Store preferred services on request for selectService to use
-      (request as unknown as Record<string, unknown>)._preferredServiceIds = preferredServiceIds;
+      // _preferredServiceIds already set on request by applyRoutingRules
 
       // Select best service using load balancing strategy (call this.selectService for test compatibility)
       const selectedService = this.selectService(filteredServices, request);
@@ -148,10 +147,6 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter, Di
         strategy: this.loadBalancingStrategy,
         request
       });
-
-      // Store applied rules and preferred services on request for compatibility
-      (request as unknown as Record<string, unknown>)._appliedRules = appliedRules;
-      (request as unknown as Record<string, unknown>)._preferredServiceIds = preferredServiceIds;
 
       this.emit('requestRouted', { serviceId: selectedService.id, request, timestamp: Date.now() });
 

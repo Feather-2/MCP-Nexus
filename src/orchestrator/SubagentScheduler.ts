@@ -288,9 +288,21 @@ export class SubagentScheduler {
     }
   }
 
+  private static readonly MAX_PER_SEMAPHORES = 128;
+
   private getPerSemaphore(key: string): AsyncSemaphore {
     const existing = this.perSem.get(key);
     if (existing) return existing;
+
+    // Evict oldest entries when the map exceeds the cap
+    if (this.perSem.size >= SubagentScheduler.MAX_PER_SEMAPHORES) {
+      for (const [k] of this.perSem) {
+        if (k === '__default__') continue;
+        this.perSem.delete(k);
+        if (this.perSem.size < SubagentScheduler.MAX_PER_SEMAPHORES) break;
+      }
+    }
+
     const per = Math.max(1, Math.floor(this.opts.concurrency.perSubagent || 1));
     const sem = new AsyncSemaphore(per, this.eventBus, key);
     this.perSem.set(key, sem);
