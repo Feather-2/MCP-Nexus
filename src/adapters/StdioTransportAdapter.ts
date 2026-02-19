@@ -336,8 +336,13 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
         no_proxy: 'localhost,127.0.0.1'
       };
 
-      // Merge user-provided environment overrides last
+      // Merge user-provided environment overrides, but protect sandbox-critical keys
+      const SANDBOX_PROTECTED_KEYS = new Set([
+        'PATH', 'HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy',
+        'NO_PROXY', 'no_proxy', 'LD_PRELOAD', 'LD_LIBRARY_PATH', 'DYLD_INSERT_LIBRARIES'
+      ]);
       for (const [k, v] of Object.entries(overrideEnv)) {
+        if (SANDBOX_PROTECTED_KEYS.has(k)) continue;
         sanitized[k] = String(v);
       }
 
@@ -372,6 +377,8 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
           this.process.kill('SIGKILL');
         }
       }, 5000);
+      // Don't keep the Node process alive solely for this fallback kill timer
+      (forceKillTimeout as unknown as { unref?: () => void }).unref?.();
 
       await new Promise<void>((resolve) => {
         if (!this.process || this.process.killed || this.process.exitCode != null) {

@@ -148,7 +148,7 @@ export class HttpTransportAdapter extends EventEmitter implements TransportAdapt
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), this.config.timeout || 30000);
+      const timeoutId = setTimeout(() => controller.abort(), this.requestTimeoutMs);
 
       const response = await fetch(this.baseUrl, {
         method: 'POST',

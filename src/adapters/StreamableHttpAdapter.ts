@@ -137,11 +137,15 @@ export class StreamableHttpAdapter extends EventEmitter implements TransportAdap
       throw new Error('Adapter not connected');
     }
 
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.config.timeout || 30000);
+
     try {
       const response = await fetch(this.baseUrl, {
         method: 'POST',
         headers: this.headers,
-        body: JSON.stringify(message)
+        body: JSON.stringify(message),
+        signal: controller.signal
       });
 
       if (!response.ok) {
@@ -150,8 +154,13 @@ export class StreamableHttpAdapter extends EventEmitter implements TransportAdap
 
       this.logger.trace(`Sent StreamableHttp message:`, message);
     } catch (error) {
+      if ((error as Error).name === 'AbortError') {
+        throw new Error(`StreamableHttp send timeout for message ${message.id}`, { cause: error });
+      }
       this.logger.error(`Failed to send StreamableHttp message:`, error);
       throw error;
+    } finally {
+      clearTimeout(timer);
     }
   }
 
