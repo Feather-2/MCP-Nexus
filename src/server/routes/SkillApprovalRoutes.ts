@@ -1,14 +1,16 @@
 import path from 'path';
 import { FastifyRequest, FastifyReply } from 'fastify';
+import { z } from 'zod';
 import { BaseRouteHandler, RouteContext } from './RouteContext.js';
 import { SkillModificationApprover } from '../../skills/SkillModificationApprover.js';
 import { SkillResigner } from '../../skills/SkillResigner.js';
 import { AuditLogger } from '../../security/AuditLogger.js';
 
-interface ApprovalActionBody {
-  userId: string;
-  reason?: string;
-}
+const ApprovalIdParam = z.object({ id: z.string().min(1).max(128).regex(/^[A-Za-z0-9_.-]+$/) });
+const ApprovalActionBody = z.object({
+  userId: z.string().min(1).max(128),
+  reason: z.string().max(1024).optional()
+});
 
 export class SkillApprovalRoutes extends BaseRouteHandler {
   private approver?: SkillModificationApprover;
@@ -32,11 +34,11 @@ export class SkillApprovalRoutes extends BaseRouteHandler {
 
     this.ctx.server.get('/api/skills/approvals', this.listAll.bind(this));
     this.ctx.server.get('/api/skills/approvals/pending', this.listPending.bind(this));
-    this.ctx.server.post<{ Params: { id: string }; Body: ApprovalActionBody }>(
+    this.ctx.server.post(
       '/api/skills/approvals/:id/approve',
       this.approve.bind(this)
     );
-    this.ctx.server.post<{ Params: { id: string }; Body: ApprovalActionBody }>(
+    this.ctx.server.post(
       '/api/skills/approvals/:id/reject',
       this.reject.bind(this)
     );
@@ -53,15 +55,16 @@ export class SkillApprovalRoutes extends BaseRouteHandler {
   }
 
   private async approve(
-    request: FastifyRequest<{ Params: { id: string }; Body: ApprovalActionBody }>,
+    request: FastifyRequest,
     reply: FastifyReply
   ): Promise<void> {
-    const { id } = request.params;
-    const { userId, reason } = request.body;
+    const paramsParsed = ApprovalIdParam.safeParse(request.params);
+    if (!paramsParsed.success) return reply.status(400).send({ error: 'Invalid approval id', details: paramsParsed.error.issues }) as unknown as void;
+    const bodyParsed = ApprovalActionBody.safeParse(request.body);
+    if (!bodyParsed.success) return reply.status(400).send({ error: 'Invalid body', details: bodyParsed.error.issues }) as unknown as void;
 
-    if (!userId) {
-      return reply.status(400).send({ error: 'userId is required' });
-    }
+    const { id } = paramsParsed.data;
+    const { userId, reason } = bodyParsed.data;
 
     const record = await this.approver!.approve(id, userId, reason);
     if (!record) {
@@ -72,15 +75,16 @@ export class SkillApprovalRoutes extends BaseRouteHandler {
   }
 
   private async reject(
-    request: FastifyRequest<{ Params: { id: string }; Body: ApprovalActionBody }>,
+    request: FastifyRequest,
     reply: FastifyReply
   ): Promise<void> {
-    const { id } = request.params;
-    const { userId, reason } = request.body;
+    const paramsParsed = ApprovalIdParam.safeParse(request.params);
+    if (!paramsParsed.success) return reply.status(400).send({ error: 'Invalid approval id', details: paramsParsed.error.issues }) as unknown as void;
+    const bodyParsed = ApprovalActionBody.safeParse(request.body);
+    if (!bodyParsed.success) return reply.status(400).send({ error: 'Invalid body', details: bodyParsed.error.issues }) as unknown as void;
 
-    if (!userId) {
-      return reply.status(400).send({ error: 'userId is required' });
-    }
+    const { id } = paramsParsed.data;
+    const { userId, reason } = bodyParsed.data;
 
     const record = await this.approver!.reject(id, userId, reason);
     if (!record) {

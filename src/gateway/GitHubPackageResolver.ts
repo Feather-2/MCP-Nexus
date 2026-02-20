@@ -94,7 +94,9 @@ export class GitHubPackageResolver {
 
     // Read package.json
     const pkgJson = await this.readPackageJson(cloneDir);
-    const templateName = pkgJson?.name?.replace(/[/@ ]/g, '-').replace(/^-+|-+$/g, '') || repo;
+    const pkgName = typeof pkgJson?.name === 'string' ? pkgJson.name : '';
+    const pkgScripts = (pkgJson?.scripts && typeof pkgJson.scripts === 'object') ? pkgJson.scripts as Record<string, unknown> : null;
+    const templateName = pkgName.replace(/[/@ ]/g, '-').replace(/^-+|-+$/g, '') || repo;
 
     // Install dependencies
     const { nodeBin, npmArgs } = await resolveNpm();
@@ -103,7 +105,7 @@ export class GitHubPackageResolver {
     await execInSandbox(nodeBin, installArgs, cloneDir, installTimeout);
 
     // Build if build script exists
-    if (pkgJson?.scripts?.build) {
+    if (pkgScripts?.build) {
       this.logger.info('running build', { cloneDir });
       const buildArgs = [...npmArgs, 'run', 'build'];
       try {
@@ -123,7 +125,7 @@ export class GitHubPackageResolver {
     const transport = await this.detectTransport(cloneDir, pkgJson);
 
     return {
-      name: pkgJson?.name || repo,
+      name: pkgName || repo,
       templateName,
       command: entry.command,
       args: entry.args,
@@ -171,7 +173,11 @@ export class GitHubPackageResolver {
   private parseGitHub(source: string): { owner: string; repo: string; ref?: string } | null {
     // https://github.com/owner/repo(.git)?(#ref)?
     const httpsMatch = source.match(/github\.com\/([\w.-]+)\/(\w[\w.-]*)(?:\.git)?(?:#(.+))?/);
-    if (httpsMatch) return { owner: httpsMatch[1], repo: httpsMatch[2], ref: httpsMatch[3] };
+    if (httpsMatch) {
+      const ref = httpsMatch[3];
+      if (ref && !/^[\w.\/-]+$/.test(ref)) return null; // reject shell metacharacters in ref
+      return { owner: httpsMatch[1], repo: httpsMatch[2], ref };
+    }
 
     // owner/repo shorthand (must have exactly one slash, no dots/colons)
     if (/^[\w.-]+\/[\w.-]+$/.test(source) && !source.startsWith('@')) {
@@ -191,10 +197,17 @@ export class GitHubPackageResolver {
 
     // Check source files for http indicators
     try {
-      const files = await fs.readdir(path.join(dir, 'src')).catch(() => fs.readdir(dir));
+      let srcDir = path.join(dir, 'src');
+      let files: string[];
+      try {
+        files = await fs.readdir(srcDir);
+      } catch {
+        srcDir = dir;
+        files = await fs.readdir(dir);
+      }
       for (const f of files.slice(0, 10)) {
         if (!f.endsWith('.ts') && !f.endsWith('.js')) continue;
-        const content = await fs.readFile(path.join(dir, f), 'utf-8').catch(() => '');
+        const content = await fs.readFile(path.join(srcDir, f), 'utf-8').catch(() => '');
         if (content.includes('SSEServerTransport') || content.includes('StreamableHTTPServerTransport')) {
           return 'http';
         }
@@ -204,7 +217,7 @@ export class GitHubPackageResolver {
     return 'stdio';
   }
 
-  private async readPackageJson(dir: string): Promise<Record<string, any> | null> {
+  private async readPackageJson(dir: string): Promise<Record<string, unknown> | null> {
     try {
       const raw = await fs.readFile(path.join(dir, 'package.json'), 'utf-8');
       return JSON.parse(raw);

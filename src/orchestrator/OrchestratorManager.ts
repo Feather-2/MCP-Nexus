@@ -107,6 +107,7 @@ export class OrchestratorManager {
     if (!source) return target;
     const output: Record<string, unknown> = { ...target };
     for (const key of Object.keys(source)) {
+      if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
       const srcVal = source[key];
       if (srcVal === undefined) continue;
       const tgtVal = output[key];

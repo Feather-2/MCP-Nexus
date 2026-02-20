@@ -3,6 +3,24 @@ import { BaseRouteHandler, RouteContext } from './RouteContext.js';
 import { GatewayConfig, GatewayConfigSchema } from '../../types/index.js';
 import { z } from 'zod';
 
+const SENSITIVE_KEY_RE = /(?:password|secret|token|key|credential|private)/i;
+
+function redactConfig(config: unknown): unknown {
+  if (!config || typeof config !== 'object') return config;
+  if (Array.isArray(config)) return config.map(redactConfig);
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(config as Record<string, unknown>)) {
+    if (SENSITIVE_KEY_RE.test(k) && typeof v === 'string' && v.length > 0) {
+      out[k] = '***REDACTED***';
+    } else if (v && typeof v === 'object') {
+      out[k] = redactConfig(v);
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
 /**
  * Configuration management routes
  */
@@ -18,7 +36,7 @@ export class ConfigRoutes extends BaseRouteHandler {
     server.get('/api/config', async (_request: FastifyRequest, reply: FastifyReply) => {
       try {
         const config = this.ctx.configManager.getConfig();
-        reply.send(config);
+        reply.send(redactConfig(config));
       } catch (error) {
         return this.respondError(reply, 500, (error as Error).message || 'Failed to load config', { code: 'CONFIG_ERROR' });
       }
@@ -42,7 +60,7 @@ export class ConfigRoutes extends BaseRouteHandler {
     // Get specific configuration value
     server.get('/api/config/:key', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const Params = z.object({ key: z.string().min(1) });
+        const Params = z.object({ key: z.string().min(1).max(128).regex(/^[a-zA-Z0-9._-]+$/) });
         const { key } = Params.parse(request.params as Record<string, unknown>);
         const value = await this.ctx.configManager.get(key);
         if (value === null) {

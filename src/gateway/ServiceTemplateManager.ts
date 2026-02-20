@@ -5,6 +5,14 @@ import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as path from 'path';
 
+const SAFE_TEMPLATE_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/;
+
+function assertSafeTemplateName(name: string): void {
+  if (!SAFE_TEMPLATE_NAME_RE.test(name)) {
+    throw new Error(`Invalid template name: must match ${SAFE_TEMPLATE_NAME_RE}`);
+  }
+}
+
 export class ServiceTemplateManager {
   private templates = new Map<string, McpServiceConfig>();
   private templatesDir: string;
@@ -67,6 +75,7 @@ export class ServiceTemplateManager {
       allowInsecure: process.env.PB_ALLOW_PLAINTEXT_SECRETS === '1',
       label: 'ServiceTemplateManager'
     });
+    assertSafeTemplateName(validatedTemplate.name);
     this.templates.set(validatedTemplate.name, validatedTemplate);
     this.removedTemplates.delete(validatedTemplate.name);
 
@@ -111,6 +120,7 @@ export class ServiceTemplateManager {
   }
 
   async remove(name: string): Promise<void> {
+    assertSafeTemplateName(name);
     // Remove from memory
     this.templates.delete(name);
     this.removedTemplates.add(name);
@@ -138,6 +148,7 @@ export class ServiceTemplateManager {
   }
 
   private async loadFromDisk(name: string): Promise<McpServiceConfig | null> {
+    if (!SAFE_TEMPLATE_NAME_RE.test(name)) return null;
     const templatePath = path.join(this.templatesDir, `${name}.json`);
 
     try {
