@@ -16,7 +16,8 @@ function cloneValue(value: unknown): unknown {
   return value;
 }
 
-function mergeRecords(target: Record<string, unknown>, source: Record<string, unknown>): void {
+function mergeRecords(target: Record<string, unknown>, source: Record<string, unknown>, depth = 0): void {
+  if (depth > 32) return; // guard against deeply nested payloads
   for (const [key, sourceValue] of Object.entries(source)) {
     if (sourceValue === undefined) {
       continue;
@@ -30,7 +31,7 @@ function mergeRecords(target: Record<string, unknown>, source: Record<string, un
     }
 
     if (isObject(sourceValue) && isObject(targetValue)) {
-      mergeRecords(targetValue, sourceValue);
+      mergeRecords(targetValue, sourceValue, depth + 1);
       continue;
     }
 

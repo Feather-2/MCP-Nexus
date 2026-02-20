@@ -367,12 +367,11 @@ describe('ConfigRoutes and ServiceRoutes - validation', () => {
         expect(body[0].message).toBe('m1');
       });
 
-      it('returns demo logs when none available', async () => {
+      it('returns empty array when no logs available', async () => {
         const res = await inject({ method: 'GET', url: '/api/services/svc-empty/logs' });
         expect(res.statusCode).toBe(200);
         const body = res.json();
-        expect(body).toHaveLength(3);
-        expect(body[0].service).toBe('svc-empty');
+        expect(body).toHaveLength(0);
       });
 
       it('supports limit query parameter', async () => {

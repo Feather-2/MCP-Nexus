@@ -149,31 +149,7 @@ export class ServiceRoutes extends BaseRouteHandler {
           .filter(log => log.service === id)
           .slice(-logLimit);
 
-        if (serviceLogs.length === 0) {
-          const demoLogs = [
-            {
-              timestamp: new Date(Date.now() - 30000).toISOString(),
-              level: 'info',
-              message: '服务实例启动成功',
-              service: id
-            },
-            {
-              timestamp: new Date(Date.now() - 20000).toISOString(),
-              level: 'debug',
-              message: '初始化MCP连接',
-              service: id
-            },
-            {
-              timestamp: new Date(Date.now() - 10000).toISOString(),
-              level: 'info',
-              message: '服务就绪，等待请求',
-              service: id
-            }
-          ];
-          reply.send(demoLogs);
-        } else {
-          reply.send(serviceLogs);
-        }
+        reply.send(serviceLogs);
       } catch (error) {
         return this.respondError(reply, 500, error instanceof Error ? error.message : 'Failed to get service logs', { code: 'LOGS_FAILED' });
       }
