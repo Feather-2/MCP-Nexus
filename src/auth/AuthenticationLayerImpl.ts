@@ -319,7 +319,7 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
   }
 
   // Audit logging method
-  async auditLog(event: string, context: AuthContext, details?: any): Promise<void> {
+  async auditLog(event: string, context: AuthContext, details?: unknown): Promise<void> {
     this.logger.info('Audit log', {
       event,
       userId: context.userId,
@@ -630,7 +630,7 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
     const existed = this.apiKeys.has(apiKey);
     if (existed) {
       this.apiKeys.delete(apiKey);
-      this.logger.info(`API key deleted: ${apiKey.substring(0, 12)}...`);
+      this.logger.info(`API key deleted: ${apiKey.substring(0, 4)}...`);
     }
     return existed;
   }

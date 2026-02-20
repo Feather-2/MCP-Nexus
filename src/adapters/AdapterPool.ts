@@ -52,7 +52,7 @@ export class AdapterPool implements Disposable {
     // Don't pool adapters that are no longer connected
     if (!adapter.isConnected()) {
       this.logger.debug(`Rejecting unhealthy adapter for ${key}`);
-      try { adapter.disconnect(); } catch { /* best effort */ }
+      adapter.disconnect().catch(() => { /* best-effort */ });
       return;
     }
 
