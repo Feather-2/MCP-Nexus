@@ -30,6 +30,6 @@ export type ExecuteRequest = z.infer<typeof ExecuteRequestSchema>;
 export interface ExecuteResult {
   success: boolean;
   plan: OrchestratorStep[];
-  results: Array<{ step: OrchestratorStep; ok: boolean; response?: any; error?: string; durationMs: number }>;
+  results: Array<{ step: OrchestratorStep; ok: boolean; response?: unknown; error?: string; durationMs: number }>;
   used: { steps: number; durationMs: number };
 }

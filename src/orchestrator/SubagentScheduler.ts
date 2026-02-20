@@ -236,8 +236,8 @@ export class SubagentScheduler {
         try {
           const value = await withTimeout(runner(step), timeoutMs, `step(${subagentKey})`);
           return { step, ok: true, response: value, durationMs: Date.now() - t0 };
-        } catch (e: any) {
-          const msg = e?.message || String(e);
+        } catch (e: unknown) {
+          const msg = (e as Error)?.message || String(e);
 
           // 创建错误 envelope
           const envelope = toErrorEnvelope(
