@@ -10,6 +10,12 @@ export type JsonRpcStreamParserOptions = {
    */
   maxBufferSize?: number;
   /**
+   * Maximum nesting depth for JSON values. Protects against CPU abuse via
+   * deeply nested payloads that stress JSON.parse's recursive descent.
+   * Default: 128.
+   */
+  maxDepth?: number;
+  /**
    * Called when a framed payload cannot be JSON.parse'd or when the buffer limit is exceeded.
    */
   onError?: (error: Error, context: { raw?: string }) => void;
@@ -31,11 +37,13 @@ export class JsonRpcStreamParser<T = unknown> {
 
   private readonly throwOnParseError: boolean;
   private readonly maxBufferSize: number;
+  private readonly maxDepth: number;
   private readonly onError?: JsonRpcStreamParserOptions['onError'];
 
   constructor(options: JsonRpcStreamParserOptions = {}) {
     this.throwOnParseError = Boolean(options.throwOnParseError);
     this.maxBufferSize = options.maxBufferSize ?? 8 * 1024 * 1024; // chars ~ bytes for ASCII-heavy JSON
+    this.maxDepth = options.maxDepth ?? 128;
     this.onError = options.onError;
   }
 
@@ -98,6 +106,12 @@ export class JsonRpcStreamParser<T = unknown> {
 
       if (c === 0x7b /* { */ || c === 0x5b /* [ */) {
         this.depth++;
+        if (this.depth > this.maxDepth) {
+          const err = new Error(`JSON nesting depth exceeds limit (${this.maxDepth})`);
+          this.onError?.(err, { raw: undefined });
+          this.reset();
+          return messages;
+        }
         continue;
       }
 

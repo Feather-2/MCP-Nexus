@@ -44,13 +44,22 @@ export class LogRoutes extends BaseRouteHandler {
         // Add client to the set
         this.ctx.logStreamClients.add(reply);
 
+        // Heartbeat to keep connection alive through proxies
+        const heartbeat = setInterval(() => {
+          try { reply.raw.write(': heartbeat\n\n'); } catch { clearInterval(heartbeat); }
+        }, 30000);
+        (heartbeat as unknown as { unref?: () => void }).unref?.();
+
         // Send recent logs
         for (const log of this.ctx.logBuffer.slice(-10)) {
           reply.raw.write(`data: ${JSON.stringify(log)}\n\n`);
         }
 
         // Handle client disconnect
-        const cleanup = () => this.ctx.logStreamClients.delete(reply);
+        const cleanup = () => {
+          clearInterval(heartbeat);
+          this.ctx.logStreamClients.delete(reply);
+        };
         request.socket.on('close', cleanup);
         request.socket.on('end', cleanup);
         request.socket.on('error', cleanup);

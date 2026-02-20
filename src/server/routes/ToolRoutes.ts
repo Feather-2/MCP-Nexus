@@ -95,7 +95,10 @@ export class ToolRoutes extends BaseRouteHandler {
 
     // 获取单个工具详情
     server.get('/api/tools/:toolId', async (request: FastifyRequest, reply: FastifyReply) => {
-      const { toolId } = request.params as { toolId: string };
+      const ToolIdParam = z.object({ toolId: z.string().min(1).max(128).regex(/^[A-Za-z0-9._\-]+$/) });
+      const parsed = ToolIdParam.safeParse(request.params);
+      if (!parsed.success) return this.respondError(reply, 400, 'Invalid toolId', { code: 'BAD_REQUEST', recoverable: true, meta: parsed.error.issues });
+      const { toolId } = parsed.data;
 
       try {
         const template = await this.ctx.serviceRegistry.getTemplate(toolId);
@@ -318,9 +321,10 @@ export class ToolRoutes extends BaseRouteHandler {
 
     // 获取执行历史
     server.get('/api/tools/history', async (request: FastifyRequest, reply: FastifyReply) => {
-      const query = request.query as { limit?: string; toolId?: string };
-      const limit = Math.min(parseInt(query.limit || '20', 10), 100);
-      const toolIdFilter = query.toolId;
+      const HistoryQuery = z.object({ limit: z.coerce.number().int().positive().max(100).optional().default(20), toolId: z.string().max(128).optional() });
+      const parsed = HistoryQuery.safeParse(request.query);
+      if (!parsed.success) return this.respondError(reply, 400, 'Invalid query', { code: 'BAD_REQUEST', recoverable: true, meta: parsed.error.issues });
+      const { limit, toolId: toolIdFilter } = parsed.data;
 
       let history = [...this.executionHistory].reverse();
       if (toolIdFilter) {

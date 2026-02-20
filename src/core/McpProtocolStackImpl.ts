@@ -74,6 +74,7 @@ export class McpProtocolStackImpl implements McpProtocolStack {
         process.off('exit', onExit);
         reject(new Error(`Timeout waiting for response to message ${messageId} from ${serviceId}`));
       }, 30000);
+      (timeout as unknown as { unref?: () => void }).unref?.();
 
       const parser = new JsonRpcStreamParser<McpMessage>({
         onError: () => {
@@ -117,6 +118,7 @@ export class McpProtocolStackImpl implements McpProtocolStack {
         process.off('exit', onExit);
         reject(new Error(`Timeout waiting for message from ${serviceId}`));
       }, timeoutMs);
+      (timeout as unknown as { unref?: () => void }).unref?.();
 
       const parser = new JsonRpcStreamParser<McpMessage>({
         throwOnParseError: true
