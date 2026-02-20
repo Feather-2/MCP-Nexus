@@ -371,6 +371,16 @@ export class AuditPipeline {
     }
 
     // Create async handle
+    // Guard: reject if pending map is at capacity to prevent unbounded growth
+    if (this.pendingAudits.size >= AuditPipeline.MAX_PENDING_AUDITS) {
+      this.evictStalePendingAudits();
+      if (this.pendingAudits.size >= AuditPipeline.MAX_PENDING_AUDITS) {
+        syncResult.decision = 'review';
+        syncResult.reviewRequired = true;
+        return { syncResult };
+      }
+    }
+
     const requestId = `audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     let resolveAudit!: (result: AuditResult) => void;
