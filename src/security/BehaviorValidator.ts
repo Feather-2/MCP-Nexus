@@ -1,5 +1,6 @@
 import path from 'path';
 import type { SkillCapabilities } from './CapabilityManifest.js';
+import { basenameCrossPlatform } from '../utils/npm-helpers.js';
 
 export type FileAccessOperation = 'read' | 'write';
 
@@ -85,12 +86,6 @@ function hostMatchesAllowedEntry(allowedHost: string, actualHost: string): boole
   if (allowed === '*') return true;
   if (actual === allowed) return true;
   return actual.endsWith(`.${allowed}`);
-}
-
-function basenameCrossPlatform(cmd: string): string {
-  const normalized = String(cmd ?? '').trim().replace(/\\/g, '/');
-  const base = normalized.split('/').filter(Boolean).pop() ?? normalized;
-  return base.toLowerCase().replace(/\.(exe|cmd|bat|com)$/i, '');
 }
 
 function normalizeFsPath(raw: string): string {

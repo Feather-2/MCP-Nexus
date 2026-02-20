@@ -5,76 +5,7 @@ import { TransportAdapter, McpServiceConfig, McpMessage, Logger, McpVersion } fr
 import { EventEmitter } from 'events';
 import { JsonRpcStreamParser } from '../core/JsonRpcStreamParser.js';
 import { CommandValidator } from '../security/command-validator.js';
-
-function stripNpmVersion(spec: string): string {
-  const trimmed = spec.trim();
-  if (!trimmed) return trimmed;
-  if (trimmed.startsWith('.') || trimmed.startsWith('/') || trimmed.startsWith('file:') || trimmed.startsWith('git+')) return trimmed;
-
-  if (trimmed.startsWith('@')) {
-    const slash = trimmed.indexOf('/');
-    if (slash < 0) return trimmed;
-    const lastAt = trimmed.lastIndexOf('@');
-    if (lastAt > slash) return trimmed.slice(0, lastAt);
-    return trimmed;
-  }
-
-  const at = trimmed.indexOf('@');
-  if (at > 0) return trimmed.slice(0, at);
-  return trimmed;
-}
-
-function extractNpmExecPackage(args: string[]): string | undefined {
-  const idx = args.indexOf('exec');
-  if (idx < 0) return undefined;
-
-  for (let i = idx + 1; i < args.length; i++) {
-    const token = String(args[i] ?? '');
-    if (!token) continue;
-
-    if (token === '--package' || token === '-p') {
-      const next = String(args[i + 1] ?? '');
-      if (next) return stripNpmVersion(next);
-      continue;
-    }
-    if (token.startsWith('--package=')) return stripNpmVersion(token.slice('--package='.length));
-
-    if (token.startsWith('-')) continue;
-    return stripNpmVersion(token);
-  }
-
-  return undefined;
-}
-
-function extractNpxPackage(args: string[]): string | undefined {
-  for (let i = 0; i < args.length; i++) {
-    const token = String(args[i] ?? '');
-    if (!token) continue;
-
-    if (token === '--package' || token === '-p') {
-      const next = String(args[i + 1] ?? '');
-      if (next) return stripNpmVersion(next);
-      continue;
-    }
-    if (token.startsWith('--package=')) return stripNpmVersion(token.slice('--package='.length));
-    if (token.startsWith('-')) continue;
-    return stripNpmVersion(token);
-  }
-  return undefined;
-}
-
-function inferPortablePackagesDir(pkg?: string): string | undefined {
-  if (!pkg) return undefined;
-  const cleaned = stripNpmVersion(pkg);
-  if (!cleaned) return undefined;
-
-  const packagesRoot = path.resolve(process.cwd(), '../mcp-sandbox/packages');
-  if (cleaned.startsWith('@') && cleaned.includes('/')) {
-    const scope = cleaned.split('/')[0] as string;
-    return path.join(packagesRoot, scope);
-  }
-  return packagesRoot;
-}
+import { stripNpmVersion, extractNpmExecPackage, extractNpxPackage, inferPortablePackagesDir } from '../utils/npm-helpers.js';
 
 function isWithinPath(targetPath: string, rootPath: string): boolean {
   const rel = path.relative(rootPath, targetPath);

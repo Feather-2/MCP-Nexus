@@ -1,6 +1,7 @@
 import path from 'path';
 import type { GatewayConfig, McpServiceConfig } from '../types/index.js';
 import { ExecutableResolver } from './ExecutableResolver.js';
+import { basenameCrossPlatform, stripNpmVersion, extractNpmExecPackage, extractNpxPackage, inferPortablePackagesDir } from '../utils/npm-helpers.js';
 
 export type NormalizedSecurityProfile = 'dev' | 'default' | 'locked-down';
 export type NormalizedPortableNetworkPolicy = 'full' | 'local-only' | 'blocked';
@@ -59,88 +60,6 @@ const DEFAULT_ENV_SAFE_PREFIXES = [
   'NO_PROXY',
   'no_proxy'
 ];
-
-function basenameCrossPlatform(cmd: string): string {
-  const normalized = cmd.replace(/\\/g, '/');
-  const base = normalized.split('/').filter(Boolean).pop() ?? normalized;
-  return base.toLowerCase().replace(/\.(exe|cmd|bat|com)$/i, '');
-}
-
-function stripNpmVersion(spec: string): string {
-  const trimmed = spec.trim();
-  if (!trimmed) return trimmed;
-  // Ignore obvious non-package spec forms
-  if (trimmed.startsWith('.') || trimmed.startsWith('/') || trimmed.startsWith('file:') || trimmed.startsWith('git+')) return trimmed;
-
-  if (trimmed.startsWith('@')) {
-    const slash = trimmed.indexOf('/');
-    if (slash < 0) return trimmed;
-    const lastAt = trimmed.lastIndexOf('@');
-    if (lastAt > slash) return trimmed.slice(0, lastAt);
-    return trimmed;
-  }
-
-  const at = trimmed.indexOf('@');
-  if (at > 0) return trimmed.slice(0, at);
-  return trimmed;
-}
-
-function extractNpmExecPackage(args: string[]): string | undefined {
-  const idx = args.indexOf('exec');
-  if (idx < 0) return undefined;
-
-  for (let i = idx + 1; i < args.length; i++) {
-    const token = String(args[i] ?? '');
-    if (!token) continue;
-
-    // Common forms: npm exec -y <pkg> ...; npm exec --package <pkg> -- <cmd>
-    if (token === '--package' || token === '-p') {
-      const next = String(args[i + 1] ?? '');
-      if (next) return stripNpmVersion(next);
-      continue;
-    }
-    if (token.startsWith('--package=')) {
-      return stripNpmVersion(token.slice('--package='.length));
-    }
-
-    if (token.startsWith('-')) continue;
-    return stripNpmVersion(token);
-  }
-
-  return undefined;
-}
-
-function extractNpxPackage(args: string[]): string | undefined {
-  for (let i = 0; i < args.length; i++) {
-    const token = String(args[i] ?? '');
-    if (!token) continue;
-
-    if (token === '--package' || token === '-p') {
-      const next = String(args[i + 1] ?? '');
-      if (next) return stripNpmVersion(next);
-      continue;
-    }
-    if (token.startsWith('--package=')) {
-      return stripNpmVersion(token.slice('--package='.length));
-    }
-    if (token.startsWith('-')) continue;
-    return stripNpmVersion(token);
-  }
-  return undefined;
-}
-
-function inferPortablePackagesDir(pkg?: string): string | undefined {
-  if (!pkg) return undefined;
-  const cleaned = stripNpmVersion(pkg);
-  if (!cleaned) return undefined;
-
-  const packagesRoot = path.resolve(process.cwd(), '../mcp-sandbox/packages');
-  if (cleaned.startsWith('@') && cleaned.includes('/')) {
-    const scope = cleaned.split('/')[0] as string;
-    return path.join(packagesRoot, scope);
-  }
-  return packagesRoot;
-}
 
 function applyPortableSandboxPolicy(template: McpServiceConfig, policy: NormalizedSandboxPolicy, reasons: string[]): { config: McpServiceConfig; applied: boolean } {
   if (!policy.portable.enabled) return { config: template, applied: false };

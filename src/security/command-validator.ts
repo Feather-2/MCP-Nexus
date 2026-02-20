@@ -1,3 +1,5 @@
+import { basenameCrossPlatform } from '../utils/npm-helpers.js';
+
 export interface ValidatorOptions {
   maxCommandBytes?: number; // 默认 4096
   maxArgs?: number; // 默认 64
@@ -102,13 +104,6 @@ function splitCommand(input: string): string[] {
 
 function isEnvAssignment(token: string): boolean {
   return /^[A-Za-z_][A-Za-z0-9_]*=/.test(token);
-}
-
-function basenameCrossPlatform(token: string): string {
-  const normalized = token.replace(/\\/g, '/');
-  const last = normalized.split('/').filter(Boolean).pop() ?? normalized;
-  const lower = last.toLowerCase();
-  return lower.replace(/\.(exe|cmd|bat|com)$/i, '');
 }
 
 export class CommandValidator {
