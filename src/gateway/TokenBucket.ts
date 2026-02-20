@@ -58,7 +58,10 @@ export class TokenBucket {
 
       if (waitMs <= 0) break;
 
-      await new Promise(resolve => setTimeout(resolve, waitMs));
+      await new Promise(resolve => {
+        const t = setTimeout(resolve, waitMs);
+        (t as unknown as { unref?: () => void }).unref?.();
+      });
     }
 
     return false;

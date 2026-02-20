@@ -385,7 +385,8 @@ export class McpProtocolStackImpl implements McpProtocolStack {
     } catch (e) {
       this.logger.warn('Failed to build portable env', { error: (e as Error).message });
     }
-    return { ...baseEnv, ...overrideEnv };
+    // Fallback: return base env only — do NOT merge unprotected overrides
+    return { ...baseEnv };
   }
 
   private inferPortableCwd(workingDirectory?: string, args: string[] = [], env: Record<string, string> = {}): string | undefined {

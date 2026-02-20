@@ -44,6 +44,8 @@ class AsyncSemaphore {
     private readonly semaphoreId?: string
   ) {}
 
+  get isIdle(): boolean { return this.inUse === 0 && this.waiters.length === 0; }
+
   async acquire(): Promise<() => void> {
     if (this.capacity <= 0) {
       return () => {};
@@ -294,10 +296,11 @@ export class SubagentScheduler {
     const existing = this.perSem.get(key);
     if (existing) return existing;
 
-    // Evict oldest entries when the map exceeds the cap
+    // Evict oldest idle entries when the map exceeds the cap
     if (this.perSem.size >= SubagentScheduler.MAX_PER_SEMAPHORES) {
-      for (const [k] of this.perSem) {
+      for (const [k, sem] of this.perSem) {
         if (k === '__default__') continue;
+        if (!sem.isIdle) continue; // skip semaphores with in-flight work
         this.perSem.delete(k);
         if (this.perSem.size < SubagentScheduler.MAX_PER_SEMAPHORES) break;
       }

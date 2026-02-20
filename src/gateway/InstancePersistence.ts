@@ -57,6 +57,7 @@ export class InstancePersistence implements Disposable {
   }
 
   track(serviceId: string, templateName: string, overrides?: Record<string, unknown>, autostart = true): void {
+    if (this.disposed) return;
     this.data.instances[serviceId] = {
       templateName,
       overrides,
@@ -68,6 +69,7 @@ export class InstancePersistence implements Disposable {
   }
 
   untrack(serviceId: string): void {
+    if (this.disposed) return;
     if (this.data.instances[serviceId]) {
       delete this.data.instances[serviceId];
       this.scheduleSave();
@@ -91,6 +93,7 @@ export class InstancePersistence implements Disposable {
   }
 
   private scheduleSave(): void {
+    if (this.disposed) return;
     this.dirty = true;
     if (this.flushTimer) return;
     this.flushTimer = setTimeout(() => this.flush(), 500);
