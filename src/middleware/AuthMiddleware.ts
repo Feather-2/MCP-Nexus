@@ -1,6 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { AuthRequest, AuthResponse } from '../types/index.js';
 import type { Context, Middleware, State } from './types.js';
+import { extractBearerToken, extractApiKey } from './extractors.js';
 
 export type HttpErrorResponder = (
   reply: FastifyReply,
@@ -12,23 +13,6 @@ export type HttpErrorResponder = (
 export interface AuthMiddlewareOptions {
   requiresAuth?: (request: FastifyRequest) => boolean;
   respondError?: HttpErrorResponder;
-}
-
-function extractBearerToken(request: FastifyRequest): string | undefined {
-  const authHeader = request.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    return authHeader.substring(7);
-  }
-  return undefined;
-}
-
-function extractApiKey(request: FastifyRequest): string | undefined {
-  return (
-    (request.headers['x-api-key'] as string) ||
-    (request.headers['x-api-token'] as string) ||
-    (request.headers['apikey'] as string) ||
-    undefined
-  );
 }
 
 function defaultRespondError(

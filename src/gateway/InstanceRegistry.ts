@@ -106,7 +106,7 @@ export class InstanceRegistry {
     }
 
     if (targetCount > currentCount) {
-      this.logger.info(`Scaled up ${templateName}: ${currentCount} -> ${targetCount}`);
+      this.logger.info(`Scale-up requested for ${templateName}: ${currentCount} -> ${targetCount} (caller creates new instances)`);
       return currentInstances;
     } else {
       const instancesToKeep = currentInstances.slice(0, targetCount);
