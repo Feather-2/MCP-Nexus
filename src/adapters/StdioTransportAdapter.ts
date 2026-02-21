@@ -385,7 +385,7 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
   // Send a message and wait for response with matching ID
   async sendAndReceive(message: McpMessage): Promise<McpMessage> {
     if (!message.id) {
-      message.id = `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      message.id = `req-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
     }
 
     return new Promise<McpMessage>((resolve, reject) => {
