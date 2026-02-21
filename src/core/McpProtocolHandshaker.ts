@@ -1,6 +1,8 @@
 import { McpVersion, McpMessage, McpProtocolStack, Logger, MCP_VERSIONS } from '../types/index.js';
 
 export class McpProtocolHandshaker {
+  private readonly capabilitiesCache = new Map<string, Record<string, unknown>>();
+
   constructor(private logger: Logger) {}
 
   async negotiateVersion(serviceId: string, supportedVersions: McpVersion[]): Promise<McpVersion> {
@@ -44,8 +46,12 @@ export class McpProtocolHandshaker {
       const initResponse = await protocolStack.sendMessage(serviceId, initMessage);
 
       if (initResponse.error) {
-        throw new Error(`Initialize failed: ${initResponse.error.message}`);
+        throw new Error(`Initialize failed: ${initResponse.error.message}`, { cause: initResponse.error });
       }
+
+      // Cache server capabilities from the handshake response
+      const serverCaps = (initResponse.result as Record<string, unknown>)?.capabilities as Record<string, unknown> || {};
+      this.capabilitiesCache.set(serviceId, serverCaps);
 
       // Step 2: Send initialized notifications (兼容不同实现)
       const initializedMessage1: McpMessage = {
@@ -83,7 +89,7 @@ export class McpProtocolHandshaker {
       const response = await protocolStack.sendMessage(serviceId, pingMessage);
 
       if (response.error && response.error.code !== -32601) { // Method not found is acceptable
-        throw new Error(`Service verification failed: ${response.error.message}`);
+        throw new Error(`Service verification failed: ${response.error.message}`, { cause: response.error });
       }
 
       this.logger.debug(`Service ${serviceId} verified as ready`);
@@ -94,6 +100,14 @@ export class McpProtocolHandshaker {
   }
 
   async getServerCapabilities(serviceId: string, protocolStack: McpProtocolStack): Promise<Record<string, unknown>> {
+    // Return cached capabilities from the handshake to avoid sending a
+    // duplicate initialize (which violates the MCP protocol).
+    const cached = this.capabilitiesCache.get(serviceId);
+    if (cached) return cached;
+
+    // Fallback: if no cached data (e.g. called without prior handshake),
+    // still send initialize — but this should be avoided.
+    this.logger.warn(`No cached capabilities for ${serviceId}, sending initialize (protocol risk)`);
     const negotiatedVersion = await this.negotiateVersion(serviceId, [...MCP_VERSIONS]);
     const message: McpMessage = {
       jsonrpc: '2.0',

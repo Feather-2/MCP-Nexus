@@ -120,6 +120,7 @@ function createSubscriptionEntry(
                     timedOut = true;
                     resolve();
                   }, timeoutMs);
+                  (timer as unknown as { unref?: () => void }).unref?.();
                 })
               : undefined;
 

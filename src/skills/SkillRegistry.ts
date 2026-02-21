@@ -297,6 +297,7 @@ export class SkillRegistry {
         });
       });
     }, WATCH_DEBOUNCE_MS);
+    (this.reloadDebounceTimer as unknown as { unref?: () => void }).unref?.();
   }
 
   private async watchRoot(root: string): Promise<void> {
