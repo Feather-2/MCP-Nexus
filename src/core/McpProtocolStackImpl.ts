@@ -295,7 +295,7 @@ export class McpProtocolStackImpl implements McpProtocolStack {
       await this.stopProcess(serviceId);
       await this.startProcess(instance.config);
     } catch (error) {
-      this.errorHandler.handleError(error as Error, { serviceId, action: 'restart' });
+      this.errorHandler.handleError(error instanceof Error ? error : new Error(String(error)), { serviceId, action: 'restart' });
       throw error;
     }
   }
@@ -385,7 +385,7 @@ export class McpProtocolStackImpl implements McpProtocolStack {
         return patched;
       }
     } catch (e) {
-      this.logger.warn('Failed to build portable env', { error: (e as Error).message });
+      this.logger.warn('Failed to build portable env', { error: (e as Error)?.message || String(e) });
     }
     // Fallback: return base env only — do NOT merge unprotected overrides
     return { ...baseEnv };
@@ -402,7 +402,7 @@ export class McpProtocolStackImpl implements McpProtocolStack {
       const pkgDir = path.resolve(process.cwd(), '../mcp-sandbox/packages', pkg);
       return pkgDir;
     } catch (e) {
-      this.logger.warn('Failed to infer portable cwd', { error: (e as Error).message });
+      this.logger.warn('Failed to infer portable cwd', { error: (e as Error)?.message || String(e) });
       return undefined;
     }
   }

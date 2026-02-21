@@ -313,8 +313,8 @@ export class AiAuditor {
         success: true
       });
       return parseAiAuditResult(result.text);
-    } catch (e: any) {
-      const message = e?.message ? String(e.message) : String(e);
+    } catch (e: unknown) {
+      const message = (e instanceof Error) ? e.message : String(e);
       this.onLlmCall?.({
         operation: 'auditSkill',
         model: this.model,
