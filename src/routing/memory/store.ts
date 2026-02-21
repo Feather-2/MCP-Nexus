@@ -72,7 +72,7 @@ function jsonStringify(value: unknown): string {
     return encoded;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`MemoryStore: failed to JSON-serialize value: ${message}`);
+    throw new Error(`MemoryStore: failed to JSON-serialize value: ${message}`, { cause: error });
   }
 }
 

@@ -321,7 +321,7 @@ export class McpProtocolStackImpl implements McpProtocolStack {
     try {
       commandValidator.validate(command);
     } catch (e: unknown) {
-      throw new Error(`Command blocked by security policy: ${(e as Error)?.message || String(e)}`);
+      throw new Error(`Command blocked by security policy: ${(e as Error)?.message || String(e)}`, { cause: e });
     }
 
     const childProcess = spawn(command, args, {

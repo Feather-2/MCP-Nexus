@@ -152,7 +152,7 @@ export class ExecutableResolver {
       realPath = fs.realpathSync(candidate);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      throw new Error(`ExecutableResolver: failed to realpath ${candidate}: ${msg}`);
+      throw new Error(`ExecutableResolver: failed to realpath ${candidate}: ${msg}`, { cause: e });
     }
 
     const matchedAllowedRoot = this.allowedRoots.find((root) => isPathWithinRootCrossPlatform(realPath, root));

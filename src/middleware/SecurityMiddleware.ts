@@ -130,7 +130,7 @@ export class SecurityMiddleware implements Middleware {
       }
     } catch (err: unknown) {
       if ((err as Error)?.message?.includes('Security Guard')) throw err;
-      throw new Error(`Security Guard: Path validation failed: ${filePath}`);
+      throw new Error(`Security Guard: Path validation failed: ${filePath}`, { cause: err });
     }
   }
 }

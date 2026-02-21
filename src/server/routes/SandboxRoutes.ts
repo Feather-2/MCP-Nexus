@@ -334,7 +334,7 @@ export class SandboxRoutes extends BaseRouteHandler {
               const zip = new AdmZip(archivePath);
               zip.extractAllTo(extractPath, true);
             } catch (e) {
-              throw new Error('无法解压 ZIP：需要 unzip 或 adm-zip');
+              throw new Error('无法解压 ZIP：需要 unzip 或 adm-zip', { cause: e });
             }
           }
         }
@@ -347,7 +347,7 @@ export class SandboxRoutes extends BaseRouteHandler {
             const tar = await import(tarPkg);
             await (tar as unknown as { extract: (opts: Record<string, unknown>) => Promise<void> }).extract({ file: archivePath, cwd: extractPath, strip: 1 });
           } catch (e) {
-            throw new Error('无法解压 TAR.GZ：需要 tar 或 npm 包 tar');
+            throw new Error('无法解压 TAR.GZ：需要 tar 或 npm 包 tar', { cause: e });
           }
         }
       }
