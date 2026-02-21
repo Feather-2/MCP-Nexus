@@ -154,7 +154,7 @@ export class StreamableHttpAdapter extends EventEmitter implements TransportAdap
 
       this.logger.trace(`Sent StreamableHttp message:`, message);
     } catch (error) {
-      if ((error as Error).name === 'AbortError') {
+      if ((error as Error)?.name === 'AbortError') {
         throw new Error(`StreamableHttp send timeout for message ${message.id}`, { cause: error });
       }
       this.logger.error(`Failed to send StreamableHttp message:`, error);

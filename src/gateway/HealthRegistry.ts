@@ -24,7 +24,7 @@ export class HealthRegistry {
     try {
       (this.healthChecker as unknown as { reportHeartbeat?: (id: string, u: unknown) => void }).reportHeartbeat?.(serviceId, update);
     } catch (e) {
-      this.logger.warn('Heartbeat report failed', { serviceId, error: (e as Error).message });
+      this.logger.warn('Heartbeat report failed', { serviceId, error: (e as Error)?.message || String(e) });
     }
   }
 

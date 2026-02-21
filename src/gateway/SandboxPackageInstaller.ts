@@ -76,7 +76,7 @@ export class SandboxPackageInstaller {
         return await this.policy.withProcessSlot(doInstall);
       } catch (err) {
         // withProcessSlot throws when no slot available
-        return { success: false, packageName: packageSpec, installDir: '', error: (err as Error).message };
+        return { success: false, packageName: packageSpec, installDir: '', error: (err as Error)?.message || String(err) };
       }
     }
     return doInstall();

@@ -129,7 +129,7 @@ export class SecurityMiddleware implements Middleware {
         throw new Error(`Security Guard: Access denied to path outside allowed directory: ${filePath}`);
       }
     } catch (err: unknown) {
-      if ((err as Error).message?.includes('Security Guard')) throw err;
+      if ((err as Error)?.message?.includes('Security Guard')) throw err;
       throw new Error(`Security Guard: Path validation failed: ${filePath}`);
     }
   }

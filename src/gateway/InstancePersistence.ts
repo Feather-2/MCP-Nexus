@@ -40,7 +40,7 @@ export class InstancePersistence implements Disposable {
         this.logger.info('loaded persisted instances', { count: Object.keys(this.data.instances).length });
       }
     } catch (err: unknown) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
         this.logger.info('no persisted instances file, starting fresh');
       } else {
         this.logger.warn('failed to load persisted instances', { err });

@@ -75,7 +75,7 @@ export class HttpTransportAdapter extends EventEmitter implements TransportAdapt
       this.connected = true;
       this.logger.info(`HTTP adapter connected to ${this.baseUrl}`);
     } catch (error) {
-      if ((error as Error).name === 'AbortError') {
+      if ((error as Error)?.name === 'AbortError') {
         const timeoutError = new Error(`Request timeout after ${this.requestTimeoutMs}ms to ${this.baseUrl}`, { cause: error });
         this.logger.error(`Failed to connect HTTP adapter:`, timeoutError);
         throw timeoutError;
@@ -114,7 +114,7 @@ export class HttpTransportAdapter extends EventEmitter implements TransportAdapt
 
       this.logger.trace(`Sent HTTP message:`, message);
     } catch (error) {
-      if ((error as Error).name === 'AbortError') {
+      if ((error as Error)?.name === 'AbortError') {
         const timeoutError = new Error(`Request timeout after ${this.requestTimeoutMs}ms to ${this.baseUrl}`, { cause: error });
         this.logger.error(`Failed to send HTTP message:`, timeoutError);
         throw timeoutError;
