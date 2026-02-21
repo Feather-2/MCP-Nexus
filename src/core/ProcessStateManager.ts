@@ -40,7 +40,7 @@ export class ProcessStateManager {
   }
 
   getStateHistory(serviceId: string): Array<{ state: ServiceState; timestamp: Date }> {
-    return this.stateHistory.get(serviceId) || [];
+    return [...(this.stateHistory.get(serviceId) || [])];
   }
 
   removeService(serviceId: string): void {

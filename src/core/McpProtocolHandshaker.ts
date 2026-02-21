@@ -126,7 +126,7 @@ export class McpProtocolHandshaker {
     const response = await protocolStack.sendMessage(serviceId, message);
 
     if (response.error) {
-      throw new Error(`Failed to get server capabilities: ${response.error.message}`);
+      throw new Error(`Failed to get server capabilities: ${response.error.message}`, { cause: response.error });
     }
 
     return (response.result as Record<string, unknown>)?.capabilities as Record<string, unknown> || {};

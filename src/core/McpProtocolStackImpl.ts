@@ -57,7 +57,7 @@ export class McpProtocolStackImpl implements McpProtocolStack {
         return message;
       }
     } catch (error) {
-      this.errorHandler.handleError(error as Error, { serviceId, message });
+      this.errorHandler.handleError(error instanceof Error ? error : new Error(String(error)), { serviceId, message });
       throw error;
     }
   }
@@ -231,7 +231,7 @@ export class McpProtocolStackImpl implements McpProtocolStack {
 
       return instance;
     } catch (error) {
-      this.errorHandler.handleError(error as Error, { serviceId, config });
+      this.errorHandler.handleError(error instanceof Error ? error : new Error(String(error)), { serviceId, config });
 
       // Cleanup on failure — kill orphaned process
       await this.cleanupProcess(serviceId, true);
@@ -278,7 +278,7 @@ export class McpProtocolStackImpl implements McpProtocolStack {
       this.logger.info(`Service ${serviceId} stopped successfully`);
       this.eventEmitter.emit('service-stopped', { serviceId });
     } catch (error) {
-      this.errorHandler.handleError(error as Error, { serviceId });
+      this.errorHandler.handleError(error instanceof Error ? error : new Error(String(error)), { serviceId });
       throw error;
     }
   }
@@ -427,7 +427,7 @@ export class McpProtocolStackImpl implements McpProtocolStack {
     try {
       await this.handshaker.performHandshake(serviceId, this);
     } catch (error) {
-      throw new Error(`Handshake failed for ${serviceId}: ${error}`);
+      throw new Error(`Handshake failed for ${serviceId}`, { cause: error });
     }
   }
 
@@ -465,6 +465,8 @@ export class McpProtocolStackImpl implements McpProtocolStack {
       }
     }
     if (proc) {
+      proc.stdout?.removeAllListeners();
+      proc.stdin?.removeAllListeners?.();
       proc.removeAllListeners();
       proc.stderr?.removeAllListeners();
     }
