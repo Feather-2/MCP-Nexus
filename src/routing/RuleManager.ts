@@ -17,6 +17,10 @@ export class RuleManager extends EventEmitter {
     this.rebuildRuleIndex();
   }
 
+  destroy(): void {
+    this.removeAllListeners();
+  }
+
   async addRoutingRule(rule: RoutingRule): Promise<void> {
     const normalized = this.normalizeRule(rule as unknown as Record<string, unknown>);
     if (!normalized.name || !normalized.condition || !normalized.action) {

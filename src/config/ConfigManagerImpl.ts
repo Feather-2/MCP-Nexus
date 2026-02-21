@@ -347,6 +347,7 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
     this.configWatcher.stopWatching();
     this.logger.debug('Stopped watching configuration file');
     this.emit('watchStopped');
+    this.removeAllListeners();
   }
 
   async createBackup(): Promise<string> {

@@ -127,6 +127,7 @@ export class ConfigWatcher extends EventEmitter {
     this.templatesWatcher = undefined;
 
     this.logger.debug('Stopped watching configuration files');
+    this.removeAllListeners();
   }
 
   /**

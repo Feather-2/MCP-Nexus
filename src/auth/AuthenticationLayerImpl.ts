@@ -34,6 +34,7 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
       clearInterval(this.cleanupTimer);
       this.cleanupTimer = undefined;
     }
+    this.removeAllListeners();
   }
 
   private disposed = false;
