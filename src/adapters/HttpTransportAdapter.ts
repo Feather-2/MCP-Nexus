@@ -89,6 +89,7 @@ export class HttpTransportAdapter extends EventEmitter implements TransportAdapt
 
   async disconnect(): Promise<void> {
     this.connected = false;
+    this.removeAllListeners();
     this.logger.info(`HTTP adapter disconnected from ${this.baseUrl}`);
   }
 

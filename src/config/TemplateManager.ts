@@ -43,7 +43,7 @@ export class TemplateManager extends EventEmitter {
       this.emit('templatesLoaded', templates);
     } catch (error) {
       this.logger.error('Failed to load templates:', error);
-      throw new Error(`Failed to load templates: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error(`Failed to load templates: ${error instanceof Error ? error.message : 'Unknown error'}`, { cause: error });
     }
   }
 
@@ -82,7 +82,7 @@ export class TemplateManager extends EventEmitter {
       this.emit('templateSaved', template);
     } catch (error) {
       this.logger.error('Failed to save template:', error);
-      throw new Error(`Failed to save template: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error(`Failed to save template: ${error instanceof Error ? error.message : 'Unknown error'}`, { cause: error });
     }
   }
 

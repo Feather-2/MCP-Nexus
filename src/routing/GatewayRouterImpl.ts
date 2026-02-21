@@ -332,6 +332,7 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter, Di
 
   destroy(): void {
     this.metricsCollector.destroy();
+    this.ruleManager.removeAllListeners();
     this.removeAllListeners();
   }
 

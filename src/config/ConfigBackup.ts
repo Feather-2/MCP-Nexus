@@ -126,7 +126,7 @@ export class ConfigBackup {
       return result;
     } catch (error) {
       this.logger.error('Failed to import configuration:', error);
-      throw new Error(`Failed to import configuration: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error(`Failed to import configuration: ${error instanceof Error ? error.message : 'Unknown error'}`, { cause: error });
     }
   }
 

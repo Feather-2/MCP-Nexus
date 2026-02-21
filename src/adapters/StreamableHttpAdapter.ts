@@ -125,6 +125,7 @@ export class StreamableHttpAdapter extends EventEmitter implements TransportAdap
       }
 
       this.connected = false;
+      this.removeAllListeners();
       this.logger.info(`StreamableHttp adapter disconnected from ${this.baseUrl}`);
     } catch (error) {
       this.logger.error(`Error disconnecting StreamableHttp adapter:`, error);
