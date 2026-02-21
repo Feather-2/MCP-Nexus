@@ -33,7 +33,7 @@ export class OrchestratorManager {
       });
     } catch (error) {
       const err = error as NodeJS.ErrnoException;
-      if (err.code === 'ENOENT') {
+      if (err?.code === 'ENOENT') {
         this.logger.info('Orchestrator configuration not found, fallback to defaults', {
           configPath: this.configPath
         });

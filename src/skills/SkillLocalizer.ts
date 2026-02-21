@@ -351,7 +351,7 @@ export class SkillLocalizer {
       try {
         await unlink(targetPath);
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
           continue;
         }
 

@@ -637,7 +637,7 @@ export class SkillLoader {
         const raw = await readdir(dir, { withFileTypes: true });
         ents = raw.map((e) => ({ name: e.name, isDirectory: e.isDirectory(), isFile: e.isFile() }));
       } catch (e) {
-        this.logger?.warn?.('Failed to read directory during skill scan', { dir, error: (e as Error).message });
+        this.logger?.warn?.('Failed to read directory during skill scan', { dir, error: (e as Error)?.message || String(e) });
         continue;
       }
 

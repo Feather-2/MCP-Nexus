@@ -270,7 +270,7 @@ export class SkillRegistry {
       try {
         entry.watcher?.close?.();
       } catch (e) {
-        this.logger?.warn('Failed to close skill watcher', { error: (e as Error).message });
+        this.logger?.warn('Failed to close skill watcher', { error: (e as Error)?.message || String(e) });
       }
     }
     this.watchers.clear();
@@ -332,7 +332,7 @@ export class SkillRegistry {
       try {
         entries = await readdir(currentDir, { withFileTypes: true });
       } catch (e) {
-        this.logger?.warn('Failed to read directory during watch setup', { dir: currentDir, error: (e as Error).message });
+        this.logger?.warn('Failed to read directory during watch setup', { dir: currentDir, error: (e as Error)?.message || String(e) });
         continue;
       }
 
@@ -407,7 +407,7 @@ export class SkillRegistry {
         try {
           watcher?.close?.();
         } catch (e) {
-          this.logger?.warn('Failed to close watcher on cleanup', { dir: resolvedDir, error: (e as Error).message });
+          this.logger?.warn('Failed to close watcher on cleanup', { dir: resolvedDir, error: (e as Error)?.message || String(e) });
         }
       }
     })();
@@ -425,7 +425,7 @@ export class SkillRegistry {
     try {
       st = await stat(childPath);
     } catch (e) {
-      this.logger?.warn('Failed to stat child path', { path: childPath, error: (e as Error).message });
+      this.logger?.warn('Failed to stat child path', { path: childPath, error: (e as Error)?.message || String(e) });
       st = null;
     }
     if (!st || !st.isDirectory()) return;

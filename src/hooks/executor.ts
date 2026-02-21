@@ -248,6 +248,7 @@ export class HookExecutor {
         const stderrWithTimeout = `${stderr || 'err'}${stderr ? '\n' : ''}${err.message}`;
         finalize({ decision: 'error', exitCode: -1, stdout, stderr: stderrWithTimeout }, err);
       }, timeoutMs);
+      (timer as unknown as { unref?: () => void }).unref?.();
 
       child.on('close', (code: number | null, signal: NodeJS.Signals | null) => {
         if (settled) return;
