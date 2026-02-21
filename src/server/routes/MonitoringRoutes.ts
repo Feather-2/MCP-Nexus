@@ -136,7 +136,7 @@ export class MonitoringRoutes extends BaseRouteHandler {
         }
         return reply.send(info);
       } catch (error) {
-        return reply.code(500).send({ error: (error as Error).message });
+        return reply.code(500).send({ error: (error as Error)?.message });
       }
     });
 
@@ -184,7 +184,7 @@ export class MonitoringRoutes extends BaseRouteHandler {
         const agg = await this.ctx.serviceRegistry.getHealthAggregates();
         reply.send(agg);
       } catch (error) {
-        reply.code(500).send({ error: (error as Error).message });
+        reply.code(500).send({ error: (error as Error)?.message });
       }
     });
 
@@ -245,7 +245,7 @@ export class MonitoringRoutes extends BaseRouteHandler {
         await this.alertManager.checkAndAlert(alertMetrics);
         reply.send({ status: 'checked', metrics: alertMetrics });
       } catch (error) {
-        reply.code(500).send({ error: (error as Error).message });
+        reply.code(500).send({ error: (error as Error)?.message });
       }
     });
 

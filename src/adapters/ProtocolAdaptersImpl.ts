@@ -161,7 +161,7 @@ export class ProtocolAdaptersImpl implements ProtocolAdapters {
       const contentType = response.headers.get('content-type');
       return contentType?.includes('text/event-stream') || false;
     } catch (error) {
-      this.logger?.warn?.('SSE endpoint check failed', { error: (error as Error).message });
+      this.logger?.warn?.('SSE endpoint check failed', { error: (error as Error)?.message });
       return false;
     } finally {
       clearTimeout(timer);

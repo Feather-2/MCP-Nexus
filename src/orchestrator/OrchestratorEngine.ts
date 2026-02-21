@@ -56,7 +56,7 @@ export class OrchestratorEngine {
     });
 
     // Best-effort: keep subagent cache warm for planning/template selection.
-    try { await this.subagents.loadAll(); } catch (error) { this.logger.warn('Failed to load subagents', { error: (error as Error).message }); }
+    try { await this.subagents.loadAll(); } catch (error) { this.logger.warn('Failed to load subagents', { error: (error as Error)?.message }); }
 
     this.emit(OrchestratorEvents.PLAN_START, runId, { goal: req.goal });
     const plan = await this.buildPlan(req.goal, req.steps, config);

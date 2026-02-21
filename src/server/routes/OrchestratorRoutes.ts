@@ -74,7 +74,7 @@ export class OrchestratorRoutes extends BaseRouteHandler {
         const config = this.ctx.orchestratorManager.getConfig();
         reply.send({ config });
       } catch (error) {
-        reply.code(500).send({ error: (error as Error).message });
+        reply.code(500).send({ error: (error as Error)?.message });
       }
     });
 
@@ -92,7 +92,7 @@ export class OrchestratorRoutes extends BaseRouteHandler {
         if (error instanceof z.ZodError) {
           return this.respondError(reply, 400, 'Invalid orchestrator configuration', { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
         }
-        return this.respondError(reply, 400, (error as Error).message || 'Invalid orchestrator configuration', { code: 'BAD_REQUEST', recoverable: true });
+        return this.respondError(reply, 400, (error as Error)?.message || 'Invalid orchestrator configuration', { code: 'BAD_REQUEST', recoverable: true });
       }
     });
 
@@ -110,7 +110,7 @@ export class OrchestratorRoutes extends BaseRouteHandler {
         const subagents = await loader.loadAll();
         reply.send({ subagents });
       } catch (error) {
-        reply.code(500).send({ error: (error as Error).message });
+        reply.code(500).send({ error: (error as Error)?.message });
       }
     });
 
@@ -157,7 +157,7 @@ export class OrchestratorRoutes extends BaseRouteHandler {
         if (error instanceof z.ZodError) {
           return this.respondError(reply, 400, 'Invalid execution request', { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
         }
-        return this.respondError(reply, 500, (error as Error).message || 'Execute failed', { code: 'EXECUTE_FAILED' });
+        return this.respondError(reply, 500, (error as Error)?.message || 'Execute failed', { code: 'EXECUTE_FAILED' });
       }
     });
 
@@ -189,7 +189,7 @@ export class OrchestratorRoutes extends BaseRouteHandler {
         if (error instanceof z.ZodError) {
           return this.respondError(reply, 400, 'Invalid subagent config', { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
         }
-        return this.respondError(reply, 500, (error as Error).message || 'Save subagent failed', { code: 'SUBAGENT_SAVE_FAILED' });
+        return this.respondError(reply, 500, (error as Error)?.message || 'Save subagent failed', { code: 'SUBAGENT_SAVE_FAILED' });
       }
     });
 
@@ -225,7 +225,7 @@ export class OrchestratorRoutes extends BaseRouteHandler {
         if (error instanceof z.ZodError) {
           return this.respondError(reply, 400, 'Invalid subagent name', { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
         }
-        return this.respondError(reply, 500, (error as Error).message || 'Delete subagent failed', { code: 'SUBAGENT_DELETE_FAILED' });
+        return this.respondError(reply, 500, (error as Error)?.message || 'Delete subagent failed', { code: 'SUBAGENT_DELETE_FAILED' });
       }
     });
   }

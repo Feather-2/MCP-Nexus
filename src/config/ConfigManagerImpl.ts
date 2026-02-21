@@ -293,7 +293,7 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
       ConfigValidator.validateStrict(config);
       return true;
     } catch (error) {
-      this.logger.warn('Configuration validation failed:', (error as Error).message);
+      this.logger.warn('Configuration validation failed:', (error as Error)?.message);
       return false;
     }
   }

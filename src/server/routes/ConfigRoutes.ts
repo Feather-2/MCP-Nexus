@@ -38,7 +38,7 @@ export class ConfigRoutes extends BaseRouteHandler {
         const config = this.ctx.configManager.getConfig();
         reply.send(redactConfig(config));
       } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || 'Failed to load config', { code: 'CONFIG_ERROR' });
+        return this.respondError(reply, 500, (error as Error)?.message || 'Failed to load config', { code: 'CONFIG_ERROR' });
       }
     });
 
@@ -53,7 +53,7 @@ export class ConfigRoutes extends BaseRouteHandler {
         if (error instanceof z.ZodError) {
           return this.respondError(reply, 400, 'Invalid configuration payload', { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
         }
-        return this.respondError(reply, 500, (error as Error).message || 'Failed to update configuration', { code: 'CONFIG_ERROR' });
+        return this.respondError(reply, 500, (error as Error)?.message || 'Failed to update configuration', { code: 'CONFIG_ERROR' });
       }
     });
 
@@ -71,7 +71,7 @@ export class ConfigRoutes extends BaseRouteHandler {
         if (error instanceof z.ZodError) {
           return this.respondError(reply, 400, 'Invalid config key', { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
         }
-        return this.respondError(reply, 500, (error as Error).message || 'Failed to get configuration value', { code: 'CONFIG_ERROR' });
+        return this.respondError(reply, 500, (error as Error)?.message || 'Failed to get configuration value', { code: 'CONFIG_ERROR' });
       }
     });
   }

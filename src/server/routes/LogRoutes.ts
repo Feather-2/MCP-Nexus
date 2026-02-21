@@ -24,7 +24,7 @@ export class LogRoutes extends BaseRouteHandler {
         if (error instanceof z.ZodError) {
           return this.respondError(reply, 400, 'Invalid query', { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
         }
-        return this.respondError(reply, 500, (error as Error).message || 'Failed to get logs', { code: 'LOG_ERROR' });
+        return this.respondError(reply, 500, (error as Error)?.message || 'Failed to get logs', { code: 'LOG_ERROR' });
       }
     });
 
@@ -64,7 +64,7 @@ export class LogRoutes extends BaseRouteHandler {
         request.socket.on('end', cleanup);
         request.socket.on('error', cleanup);
       } catch (error) {
-        try { reply.raw.write(`data: ${JSON.stringify({ event: 'error', error: (error as Error).message })}\n\n`); } catch { /* ignored */ }
+        try { reply.raw.write(`data: ${JSON.stringify({ event: 'error', error: (error as Error)?.message })}\n\n`); } catch { /* ignored */ }
         try { reply.raw.end(); } catch { /* ignored */ }
       }
     });

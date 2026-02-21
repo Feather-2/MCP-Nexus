@@ -24,7 +24,7 @@ export class ExternalImportRoutes extends BaseRouteHandler {
         const discovered = await importer.discoverAll();
         reply.send({ success: true, discovered });
       } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || 'Import preview failed', { code: 'IMPORT_PREVIEW_FAILED' });
+        return this.respondError(reply, 500, (error as Error)?.message || 'Import preview failed', { code: 'IMPORT_PREVIEW_FAILED' });
       }
     });
 
@@ -46,7 +46,7 @@ export class ExternalImportRoutes extends BaseRouteHandler {
         }
         reply.send({ success: true, applied });
       } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || 'Import apply failed', { code: 'IMPORT_APPLY_FAILED' });
+        return this.respondError(reply, 500, (error as Error)?.message || 'Import apply failed', { code: 'IMPORT_APPLY_FAILED' });
       }
     });
   }

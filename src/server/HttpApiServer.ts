@@ -604,7 +604,7 @@ export class HttpApiServer implements Disposable {
           subagentLoader: this.subagentLoader
         });
       } catch (error) {
-        this.logger.warn('Failed to initialize orchestrator engine', { error: (error as Error).message });
+        this.logger.warn('Failed to initialize orchestrator engine', { error: (error as Error)?.message });
       }
     } else {
       this.orchestratorEngine = undefined;
@@ -634,7 +634,7 @@ export class HttpApiServer implements Disposable {
 
       const safeMessage = process.env.NODE_ENV === 'production'
         ? 'Internal Server Error'
-        : (error as Error).message;
+        : (error as Error)?.message;
       reply.code(500).send({
         error: 'Internal Server Error',
         message: safeMessage,

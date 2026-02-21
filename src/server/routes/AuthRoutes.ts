@@ -42,7 +42,7 @@ export class AuthRoutes extends BaseRouteHandler {
           : apiKeys;
         reply.send(masked);
       } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || t('errors.auth_list_failed'), { code: 'AUTH_LIST_FAILED' });
+        return this.respondError(reply, 500, (error as Error)?.message || t('errors.auth_list_failed'), { code: 'AUTH_LIST_FAILED' });
       }
     });
 
@@ -57,7 +57,7 @@ export class AuthRoutes extends BaseRouteHandler {
         const result = await this.ctx.authLayer.createApiKey(name, permissions);
         reply.code(201).send({ success: true, apiKey: result, message: 'API key created successfully' });
       } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || t('errors.auth_create_failed'), { code: 'AUTH_CREATE_FAILED' });
+        return this.respondError(reply, 500, (error as Error)?.message || t('errors.auth_create_failed'), { code: 'AUTH_CREATE_FAILED' });
       }
     });
 
@@ -71,7 +71,7 @@ export class AuthRoutes extends BaseRouteHandler {
         if (!success) return this.respondError(reply, 404, t('auth.api_key_not_found'), { code: 'NOT_FOUND', recoverable: true });
         reply.send({ success: true, message: 'API key deleted successfully' });
       } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || t('errors.auth_delete_failed'), { code: 'AUTH_DELETE_FAILED' });
+        return this.respondError(reply, 500, (error as Error)?.message || t('errors.auth_delete_failed'), { code: 'AUTH_DELETE_FAILED' });
       }
     });
 
@@ -81,7 +81,7 @@ export class AuthRoutes extends BaseRouteHandler {
         const tokens = this.ctx.authLayer.listTokens();
         reply.send(tokens);
       } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || t('errors.auth_list_failed'), { code: 'AUTH_LIST_FAILED' });
+        return this.respondError(reply, 500, (error as Error)?.message || t('errors.auth_list_failed'), { code: 'AUTH_LIST_FAILED' });
       }
     });
 
@@ -96,7 +96,7 @@ export class AuthRoutes extends BaseRouteHandler {
         const result = await this.ctx.authLayer.generateToken(userId, permissions, expiresInHours);
         reply.code(201).send({ success: true, token: result, message: 'Token generated successfully' });
       } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || t('errors.auth_token_failed'), { code: 'AUTH_TOKEN_FAILED' });
+        return this.respondError(reply, 500, (error as Error)?.message || t('errors.auth_token_failed'), { code: 'AUTH_TOKEN_FAILED' });
       }
     });
 
@@ -110,7 +110,7 @@ export class AuthRoutes extends BaseRouteHandler {
         if (!success) return this.respondError(reply, 404, t('auth.token_not_found'), { code: 'NOT_FOUND', recoverable: true });
         reply.send({ success: true, message: 'Token revoked successfully' });
       } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || t('errors.auth_revoke_failed'), { code: 'AUTH_REVOKE_FAILED' });
+        return this.respondError(reply, 500, (error as Error)?.message || t('errors.auth_revoke_failed'), { code: 'AUTH_REVOKE_FAILED' });
       }
     });
   }
