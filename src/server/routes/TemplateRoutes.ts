@@ -104,7 +104,7 @@ export class TemplateRoutes extends BaseRouteHandler {
           });
         }
       } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || 'Failed to get template', { code: 'TEMPLATE_GET_FAILED' });
+        return this.respondError(reply, 500, (error as Error)?.message || 'Failed to get template', { code: 'TEMPLATE_GET_FAILED' });
       }
     });
 
@@ -147,7 +147,7 @@ export class TemplateRoutes extends BaseRouteHandler {
         await this.ctx.serviceRegistry.registerTemplate(updated);
         reply.send({ success: true, message: 'Template env updated', name });
       } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || 'Failed to update template env', { code: 'TEMPLATE_UPDATE_FAILED' });
+        return this.respondError(reply, 500, (error as Error)?.message || 'Failed to update template env', { code: 'TEMPLATE_UPDATE_FAILED' });
       }
     });
 
@@ -191,7 +191,7 @@ export class TemplateRoutes extends BaseRouteHandler {
         await this.ctx.serviceRegistry.getTemplateManager().initializeDefaults();
         reply.send({ success: true });
       } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || 'Repair templates failed', { code: 'TEMPLATE_REPAIR_FAILED' });
+        return this.respondError(reply, 500, (error as Error)?.message || 'Repair templates failed', { code: 'TEMPLATE_REPAIR_FAILED' });
       }
     });
 
@@ -225,14 +225,14 @@ export class TemplateRoutes extends BaseRouteHandler {
               fixed += 1;
               updated.push(String(tpl.name));
             } catch (e) {
-              this.ctx.logger.warn('Failed to repair container image for template', { name: tpl.name, error: (e as Error).message });
+              this.ctx.logger.warn('Failed to repair container image for template', { name: tpl.name, error: (e as Error)?.message || String(e) });
             }
           }
         }
 
         reply.send({ success: true, fixed, updated });
       } catch (error) {
-        return this.respondError(reply, 500, (error as Error).message || 'Repair container images failed', { code: 'TEMPLATE_REPAIR_IMAGES_FAILED' });
+        return this.respondError(reply, 500, (error as Error)?.message || 'Repair container images failed', { code: 'TEMPLATE_REPAIR_IMAGES_FAILED' });
       }
     });
   }

@@ -35,7 +35,7 @@ export class SandboxRoutes extends BaseRouteHandler {
         reply.send({ success: true, result });
       } catch (error) {
         this.ctx.logger.error('Sandbox install failed:', error);
-        return this.respondError(reply, 500, (error as Error).message || 'Sandbox install failed');
+        return this.respondError(reply, 500, (error as Error)?.message || 'Sandbox install failed');
       } finally {
         this.ctx.sandboxInstalling = false;
       }
@@ -93,7 +93,7 @@ export class SandboxRoutes extends BaseRouteHandler {
             broadcast({ event: 'component_done', component: c, progress: Math.floor((done / total) * 100) });
           } catch (e: unknown) {
             this.ctx.logger.error('Streaming sandbox install component failed', e);
-            broadcast({ event: 'error', component: c, error: (e as Error).message });
+            broadcast({ event: 'error', component: c, error: (e as Error)?.message || String(e) });
             break;
           }
         }
@@ -111,7 +111,7 @@ export class SandboxRoutes extends BaseRouteHandler {
         this.ctx.logger.error('Sandbox streaming install failed:', error);
         this.sandboxProgress = undefined;
         this.ctx.sandboxInstalling = false;
-        try { reply.code(500).send({ success: false, error: (error as Error).message }); } catch { /* ignored */ }
+        try { reply.code(500).send({ success: false, error: (error as Error)?.message || 'Streaming install failed' }); } catch { /* ignored */ }
       }
     });
 
@@ -139,7 +139,7 @@ export class SandboxRoutes extends BaseRouteHandler {
         reply.send({ success: true, result });
       } catch (error) {
         this.ctx.logger.error('Sandbox repair failed:', error);
-        return this.respondError(reply, 500, (error as Error).message || 'Sandbox repair failed', { code: 'SANDBOX_REPAIR_FAILED' });
+        return this.respondError(reply, 500, (error as Error)?.message || 'Sandbox repair failed', { code: 'SANDBOX_REPAIR_FAILED' });
       } finally {
         this.ctx.sandboxInstalling = false;
       }
@@ -167,7 +167,7 @@ export class SandboxRoutes extends BaseRouteHandler {
         reply.send({ success: true, result: status });
       } catch (error) {
         this.ctx.logger.error('Sandbox cleanup failed:', error);
-        reply.code(500).send({ success: false, error: (error as Error).message });
+        reply.code(500).send({ success: false, error: (error as Error)?.message || 'Cleanup failed' });
       }
     });
   }
@@ -229,6 +229,7 @@ export class SandboxRoutes extends BaseRouteHandler {
             try { child.kill('SIGKILL'); } catch { /* ignored */ }
             resolve(undefined);
           }, timeoutMs);
+          (timer as unknown as { unref?: () => void }).unref?.();
           child.stdout?.on('data', (d) => { out += d.toString(); });
           child.stderr?.on('data', (d) => { err += d.toString(); });
           child.on('close', () => {
@@ -497,6 +498,9 @@ export class SandboxRoutes extends BaseRouteHandler {
 
         const downloadUrl = config.python.urls[platform];
         const fileName = downloadUrl.split('/').pop()!;
+        if (!/^[a-zA-Z0-9._+-]+$/.test(fileName)) {
+          throw new Error(`Unsafe archive filename: ${fileName}`);
+        }
         const archivePath = path.join(runtimeDir, fileName);
 
         logger.info(`下载Python ${config.python.version} for ${platformLabel}...`);
@@ -540,6 +544,9 @@ export class SandboxRoutes extends BaseRouteHandler {
 
         const downloadUrl = config.go.urls[platform];
         const fileName = downloadUrl.split('/').pop()!;
+        if (!/^[a-zA-Z0-9._+-]+$/.test(fileName)) {
+          throw new Error(`Unsafe archive filename: ${fileName}`);
+        }
         const archivePath = path.join(runtimeDir, fileName);
 
         logger.info(`下载Go ${config.go.version} for ${platformLabel}...`);
