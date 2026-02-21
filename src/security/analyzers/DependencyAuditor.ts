@@ -286,6 +286,7 @@ async function runNpmAuditJson(
       }
       reject(new Error('npm audit timed out'));
     }, opts.timeoutMs);
+    (timer as unknown as { unref?: () => void }).unref?.();
 
     const finalize = (fn: () => void) => {
       if (settled) return;

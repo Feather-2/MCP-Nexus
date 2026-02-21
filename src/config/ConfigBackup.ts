@@ -51,7 +51,7 @@ export class ConfigBackup {
       try {
         await readFile(this.configPath, 'utf-8');
       } catch (e) {
-        this.logger.warn('Config file read check failed', { error: (e as Error).message });
+        this.logger.warn('Config file read check failed', { error: (e as Error)?.message || String(e) });
       }
 
       const candidate = backupPath || `${this.configPath}.backup`;
@@ -70,7 +70,7 @@ export class ConfigBackup {
       try {
         parsed = JSON.parse(backupData) as unknown;
       } catch (e) {
-        this.logger.warn('Backup JSON parse failed', { error: (e as Error).message });
+        this.logger.warn('Backup JSON parse failed', { error: (e as Error)?.message || String(e) });
         parsed = null;
       }
 

@@ -269,7 +269,7 @@ export class ExternalMcpConfigImporter {
 
       return cfg;
     } catch (e) {
-      this.logger.warn('Failed to map external MCP server entry', { error: (e as Error).message });
+      this.logger.warn('Failed to map external MCP server entry', { error: (e as Error)?.message || String(e) });
       return null;
     }
   }

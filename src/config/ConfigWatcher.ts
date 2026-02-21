@@ -115,14 +115,14 @@ export class ConfigWatcher extends EventEmitter {
     try {
       this.configWatcher?.close?.();
     } catch (e) {
-      this.logger.warn('Failed to close config watcher', { error: (e as Error).message });
+      this.logger.warn('Failed to close config watcher', { error: (e as Error)?.message || String(e) });
     }
     this.configWatcher = undefined;
 
     try {
       this.templatesWatcher?.close?.();
     } catch (e) {
-      this.logger.warn('Failed to close templates watcher', { error: (e as Error).message });
+      this.logger.warn('Failed to close templates watcher', { error: (e as Error)?.message || String(e) });
     }
     this.templatesWatcher = undefined;
 
