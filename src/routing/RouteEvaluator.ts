@@ -31,6 +31,7 @@ export class RouteEvaluator {
 
       switch (rule.action.type) {
         case 'filter':
+          if (!rule.action.criteria) break;
           filteredServices = filteredServices.filter(service =>
             this.evaluateServiceFilter(rule.action.criteria!, service)
           );
@@ -39,6 +40,7 @@ export class RouteEvaluator {
           break;
 
         case 'prefer':
+          if (!rule.action.criteria) break;
           for (const service of filteredServices) {
             if (this.evaluateServiceFilter(rule.action.criteria!, service)) {
               preferredServiceIds.add(service.id);
@@ -47,6 +49,7 @@ export class RouteEvaluator {
           break;
 
         case 'reject':
+          if (!rule.action.criteria) break;
           filteredServices = filteredServices.filter(service =>
             !this.evaluateServiceFilter(rule.action.criteria!, service)
           );

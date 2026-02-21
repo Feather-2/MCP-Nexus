@@ -28,7 +28,7 @@ export function registerDefaultHealthProbe(
         const ok = !!(r && r.result);
         if (!ok && (r?.error as Record<string, unknown>)?.message) {
           try {
-            await serviceRegistry.setInstanceMetadata(serviceId, 'lastProbeError', String((r!.error as Record<string, unknown>).message));
+            await serviceRegistry.setInstanceMetadata(serviceId, 'lastProbeError', String((r?.error as Record<string, unknown>)?.message));
           } catch { /* best-effort metadata update */ }
         }
         return { healthy: ok, latency, timestamp: new Date() };
