@@ -96,7 +96,7 @@ export class UnifiedErrorHandler {
       try {
         return await fn(...args);
       } catch (error) {
-        this.handleError(error as Error, context);
+        this.handleError(error, context);
         throw error;
       }
     };
@@ -110,7 +110,7 @@ export class UnifiedErrorHandler {
       try {
         return fn(...args);
       } catch (error) {
-        this.handleError(error as Error, context);
+        this.handleError(error, context);
         throw error;
       }
     };
