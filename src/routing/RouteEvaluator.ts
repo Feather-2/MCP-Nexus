@@ -27,7 +27,7 @@ export class RouteEvaluator {
       if (!this.evaluateCondition(rule.condition, request)) continue;
 
       appliedRules.push(rule.name);
-      if (filterApplied) continue;
+      if (filterApplied && rule.action.type === 'filter') continue;
 
       switch (rule.action.type) {
         case 'filter':

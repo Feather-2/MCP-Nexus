@@ -280,6 +280,10 @@ export class TemplateManager extends EventEmitter {
     this.logger.debug(`Loaded ${builtInTemplates.length} built-in templates`);
   }
 
+  destroy(): void {
+    this.removeAllListeners();
+  }
+
   /**
    * Load templates from a directory
    */

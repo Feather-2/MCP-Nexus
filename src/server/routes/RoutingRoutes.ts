@@ -157,6 +157,10 @@ export class RoutingRoutes extends BaseRouteHandler {
           return this.respondError(reply, 404, 'Service not found', { code: 'NOT_FOUND', recoverable: true });
         }
 
+        if (service.state !== 'running') {
+          return this.respondError(reply, 503, `Service ${serviceId} is not running (state: ${service.state})`, { code: 'SERVICE_UNAVAILABLE', recoverable: true });
+        }
+
         await this.ctx.protocolAdapters.withAdapter(service.config, async (adapter) => {
           // Wire adapter events into log buffer (use .once to prevent listener accumulation on pooled adapters)
           const emitter = adapter as unknown as { once?: (event: string, fn: (...args: unknown[]) => void) => void };
@@ -200,7 +204,8 @@ export class RoutingRoutes extends BaseRouteHandler {
 
     // Generic MCP JSON-RPC endpoint for paper-burner transport discovery
     // Only allows standard MCP protocol methods to prevent internal method exposure
-    const MCP_ALLOWED_PREFIXES = ['tools/', 'resources/', 'prompts/', 'completion/', 'logging/', 'initialize', 'ping'];
+    const MCP_ALLOWED_METHODS = new Set(['initialize', 'ping']);
+    const MCP_ALLOWED_PREFIXES = ['tools/', 'resources/', 'prompts/', 'completion/', 'logging/'];
     server.post('/mcp', async (request: FastifyRequest, reply: FastifyReply) => {
       const McpMessageSchema = z.object({
         jsonrpc: z.literal('2.0').optional().default('2.0'),
@@ -217,7 +222,7 @@ export class RoutingRoutes extends BaseRouteHandler {
         return this.respondError(reply, 400, 'Invalid MCP message format', { code: 'BAD_REQUEST', recoverable: true, meta: zodErr.issues });
       }
 
-      if (!MCP_ALLOWED_PREFIXES.some(p => mcpMessage.method.startsWith(p))) {
+      if (!MCP_ALLOWED_METHODS.has(mcpMessage.method) && !MCP_ALLOWED_PREFIXES.some(p => mcpMessage.method.startsWith(p))) {
         return this.respondError(reply, 403, 'MCP method not allowed', { code: 'METHOD_NOT_ALLOWED', recoverable: true });
       }
 

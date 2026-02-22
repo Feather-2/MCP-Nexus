@@ -365,6 +365,7 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
     // Wait for next message
     return new Promise<McpMessage>((resolve, reject) => {
       const timeout = setTimeout(() => {
+        this.off('message', onMessage);
         reject(new Error('Receive timeout'));
       }, this.config.timeout || 30000);
 

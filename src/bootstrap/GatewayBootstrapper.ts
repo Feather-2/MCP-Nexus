@@ -132,6 +132,20 @@ export class GatewayBootstrapper {
     runtime.httpServer.setDeploymentComponents(runtime.instancePersistence, runtime.deploymentPolicy);
     runtime.httpServer.setPerformanceComponents(runtime.toolListCache, runtime.adapterPool);
 
+    // Invalidate tool cache when service instances change
+    runtime.serviceRegistry.getStore().subscribe((event) => {
+      if (event.type === 'instance:set' || event.type === 'instance:remove') {
+        const templateName = event.type === 'instance:set'
+          ? event.instance.config.name
+          : undefined;
+        if (templateName) {
+          runtime.toolListCache.invalidate(templateName);
+        } else {
+          runtime.toolListCache.clear();
+        }
+      }
+    });
+
     registerDefaultHealthProbe(runtime.serviceRegistry, runtime.protocolAdapters);
 
     this.runtime = runtime;

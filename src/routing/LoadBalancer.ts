@@ -9,7 +9,7 @@ import {
 } from '../types/index.js';
 
 export class LoadBalancer {
-  private rrCounter = 0;
+  private rrCounters = new Map<string, number>();
 
   selectService(
     services: ServiceInstance[],
@@ -28,8 +28,10 @@ export class LoadBalancer {
     if (healthyServices.length === 1) return healthyServices[0];
 
     switch (strategy) {
-      case 'round-robin':
-        return this.selectRoundRobin(healthyServices);
+      case 'round-robin': {
+        const groupKey = request.serviceGroup || '__default__';
+        return this.selectRoundRobin(healthyServices, groupKey);
+      }
       case 'performance-based':
         return this.selectPerformanceBased(
           healthyServices,
@@ -50,9 +52,10 @@ export class LoadBalancer {
     return services.filter(s => s.state === 'running');
   }
 
-  private selectRoundRobin(services: ServiceInstance[]): ServiceInstance {
-    const index = this.rrCounter % services.length;
-    this.rrCounter = (this.rrCounter + 1) >>> 0;
+  private selectRoundRobin(services: ServiceInstance[], groupKey: string): ServiceInstance {
+    const counter = this.rrCounters.get(groupKey) ?? 0;
+    const index = counter % services.length;
+    this.rrCounters.set(groupKey, (counter + 1) >>> 0);
     return services[index];
   }
 
