@@ -248,8 +248,7 @@ export class GatewayBootstrapper {
 
     runtime.configManager.stopConfigWatch();
 
-    await runtime.httpServer.stop();
-
+    // Stop services BEFORE closing HTTP server -- adapters may need HTTP for graceful disconnect
     const services = await runtime.serviceRegistry.listServices();
     const STOP_TIMEOUT_MS = 10_000;
     const results = await Promise.allSettled(
@@ -270,6 +269,9 @@ export class GatewayBootstrapper {
         runtime.logger.warn('Service stop failed during shutdown', { error: (result.reason as Error)?.message });
       }
     }
+
+    // Now close HTTP server after services are stopped
+    await runtime.httpServer.stop();
 
     // Dispose all registered components in reverse order
     // (handles toolListCache, adapterPool, router, healthChecker, authLayer, etc.)

@@ -128,15 +128,15 @@ export class HttpApiServer implements Disposable {
           : this.config
     };
     this.addMiddleware(
-      new RateLimitMiddleware(configProvider, {
-        respondError: this.respondError.bind(this),
-        requiresRateLimit: (req) => req.url.startsWith('/api/') && !req.url.startsWith('/api/health')
-      })
-    );
-    this.addMiddleware(
       new AuthMiddleware(this.authLayer, {
         respondError: this.respondError.bind(this),
         requiresAuth: (req) => req.url.startsWith('/api/')
+      })
+    );
+    this.addMiddleware(
+      new RateLimitMiddleware(configProvider, {
+        respondError: this.respondError.bind(this),
+        requiresRateLimit: (req) => req.url.startsWith('/api/') && !req.url.startsWith('/api/health')
       })
     );
 
