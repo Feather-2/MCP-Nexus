@@ -264,7 +264,7 @@ export class HttpApiServer implements Disposable {
     const payload = { ...logEntry, serviceId: logEntry.service };
     const message = `data: ${JSON.stringify(payload)}\n\n`;
 
-    for (const client of this.logStreamClients) {
+    for (const client of Array.from(this.logStreamClients)) {
       try {
         client.raw.write(message);
       } catch (error) {

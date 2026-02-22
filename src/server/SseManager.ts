@@ -62,9 +62,14 @@ export class SseManager implements Disposable {
    * Broadcast a message to all connected clients.
    */
   broadcast(data: unknown): void {
-    const message = `data: ${JSON.stringify(data)}\n\n`;
+    let message: string;
+    try {
+      message = `data: ${JSON.stringify(data)}\n\n`;
+    } catch {
+      return;
+    }
 
-    for (const client of this.clients) {
+    for (const client of Array.from(this.clients)) {
       try {
         client.raw.write(message);
       } catch {

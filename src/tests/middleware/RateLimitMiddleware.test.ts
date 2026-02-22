@@ -205,7 +205,7 @@ describe('RateLimitMiddleware', () => {
     expect(r2.code).toHaveBeenCalledWith(429);
 
     expect(mockClient.incr).toHaveBeenCalledTimes(2);
-    expect(mockClient.pexpire).toHaveBeenCalledTimes(1);
+    expect(mockClient.pexpire).toHaveBeenCalledTimes(2);
 
     await mw.shutdown();
     expect(mockClient.quit).toHaveBeenCalledTimes(1);

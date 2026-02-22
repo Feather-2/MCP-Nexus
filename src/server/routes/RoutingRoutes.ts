@@ -263,6 +263,9 @@ export class RoutingRoutes extends BaseRouteHandler {
       const cleanup = () => {
         clearInterval(heartbeat);
         this.ctx.logStreamClients.delete(reply);
+        request.socket.off('close', cleanup);
+        request.socket.off('end', cleanup);
+        request.socket.off('error', cleanup);
       };
       request.socket.on('close', cleanup);
       request.socket.on('end', cleanup);

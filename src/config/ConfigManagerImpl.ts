@@ -205,6 +205,9 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
     for (const k of keys) {
       const next = target[k];
       if (!isRecord(next)) {
+        if (next !== undefined && next !== null) {
+          throw new Error(`Cannot set nested key "${key}": "${k}" is not an object (current value: ${typeof next})`);
+        }
         target[k] = {} as Record<string, unknown>;
       }
       target = target[k] as Record<string, unknown>;

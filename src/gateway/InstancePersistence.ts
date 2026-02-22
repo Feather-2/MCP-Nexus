@@ -120,6 +120,11 @@ export class InstancePersistence implements Disposable {
     } catch (err) {
       // keep dirty=true so next flush retries
       this.logger.error('failed to persist instances', { err });
+      // Re-schedule retry after delay
+      if (!this.disposed && !this.flushTimer) {
+        this.flushTimer = setTimeout(() => this.flush(), 5000);
+        unrefTimer(this.flushTimer);
+      }
     } finally {
       this.flushing = false;
     }

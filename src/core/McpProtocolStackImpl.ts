@@ -261,7 +261,7 @@ export class McpProtocolStackImpl implements McpProtocolStack {
       // Wait for graceful shutdown or force kill after timeout
       await new Promise<void>((resolve) => {
         const timeout = setTimeout(() => {
-          process.kill('SIGKILL');
+          try { process.kill('SIGKILL'); } catch { /* already exited */ }
           resolve();
         }, 5000);
         // Don't keep the Node process alive solely for this fallback kill timer
@@ -387,8 +387,8 @@ export class McpProtocolStackImpl implements McpProtocolStack {
     } catch (e) {
       this.logger.warn('Failed to build portable env', { error: (e as Error)?.message || String(e) });
     }
-    // Fallback: return base env only — do NOT merge unprotected overrides
-    return { ...baseEnv };
+    // Fallback: return base env with user overrides
+    return { ...baseEnv, ...overrideEnv };
   }
 
   private inferPortableCwd(workingDirectory?: string, args: string[] = [], env: Record<string, string> = {}): string | undefined {

@@ -159,18 +159,25 @@ export class RateLimitMiddleware implements Middleware {
 
     const client = await this.getRedisClient(redisCfg);
     const count = await client.incr(key);
-    if (count === 1) {
-      await client.pexpire(key, window);
-    }
+    // Always set TTL to guard against lost-expiry race (crash between INCR and PEXPIRE)
+    await client.pexpire(key, window);
     const ttlMs = await client.pttl(key);
     const resetAtMs = ttlMs > 0 ? nowMs + ttlMs : nowMs + window;
     const remaining = Math.max(0, limit - count);
     return { allowed: count <= limit, limit, remaining, resetAtMs };
   }
 
+  private redisClientPromise?: Promise<RedisLike>;
+
   private async getRedisClient(redisCfg: Record<string, unknown> | undefined): Promise<RedisLike> {
     if (this.redisClient) return this.redisClient;
+    if (!this.redisClientPromise) {
+      this.redisClientPromise = this.createRedisClient(redisCfg);
+    }
+    return this.redisClientPromise;
+  }
 
+  private async createRedisClient(redisCfg: Record<string, unknown> | undefined): Promise<RedisLike> {
     const { default: IORedis } = await import('ioredis');
     let client: RedisLike;
     if (redisCfg?.url) {
