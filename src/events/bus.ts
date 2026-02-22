@@ -338,7 +338,8 @@ export class EventBus {
     const subscribers = [...bucket.values()];
     for (const sub of subscribers) {
       try {
-        // 检查缓冲区是否已满
+        // 检查缓冲区是否已满 — enqueue will handle the actual drop
+        sub.enqueue(evt);
         if (!sub.closed && sub.queue.length >= sub.bufferSize) {
           this.stats.bufferDrops++;
           this.emitGovernanceEvent<BufferDropPayload>(EventBusEvents.BUFFER_DROP, {
@@ -349,7 +350,6 @@ export class EventBus {
             reason: 'buffer_full'
           });
         }
-        sub.enqueue(evt);
       } catch (_e) {
         // isolation: never let one subscriber break dispatch
       }

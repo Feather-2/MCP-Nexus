@@ -27,6 +27,15 @@ export class McpProtocolStackImpl implements McpProtocolStack {
   private errorHandler: UnifiedErrorHandler;
   private eventEmitter = new EventEmitter();
 
+  // Shared per-service parser + response dispatcher to avoid desync
+  private serviceParsers = new Map<string, JsonRpcStreamParser<McpMessage>>();
+  private responseCallbacks = new Map<string, Map<string | number, {
+    resolve: (msg: McpMessage) => void;
+    reject: (err: Error) => void;
+    timeout: NodeJS.Timeout;
+  }>>();
+  private messageQueues = new Map<string, McpMessage[]>();
+
   constructor(private logger: Logger) {
     this.stateManager = new ProcessStateManager(logger);
     this.handshaker = new McpProtocolHandshaker(logger);
@@ -70,39 +79,19 @@ export class McpProtocolStackImpl implements McpProtocolStack {
 
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
-        process.stdout!.off('data', onData);
-        process.off('exit', onExit);
+        const callbacks = this.responseCallbacks.get(serviceId);
+        callbacks?.delete(messageId);
         reject(new Error(`Timeout waiting for response to message ${messageId} from ${serviceId}`));
       }, 30000);
       (timeout as unknown as { unref?: () => void }).unref?.();
 
-      const parser = new JsonRpcStreamParser<McpMessage>({
-        onError: () => {
-          // ignore parse errors and keep waiting for the matching response
-        }
-      });
-
-      const onExit = () => {
+      const callbacks = this.responseCallbacks.get(serviceId);
+      if (!callbacks) {
         clearTimeout(timeout);
-        process.stdout!.off('data', onData);
-        reject(new Error(`Process exited while waiting for response ${messageId} from ${serviceId}`));
-      };
-
-      const onData = (data: Buffer) => {
-        const messages = parser.push(data);
-        for (const msg of messages) {
-          if (msg && msg.id === messageId) {
-            clearTimeout(timeout);
-            process.stdout!.off('data', onData);
-            process.off('exit', onExit);
-            resolve(msg);
-            return;
-          }
-        }
-      };
-
-      process.once('exit', onExit);
-      process.stdout?.on('data', onData);
+        reject(new Error(`Service ${serviceId} has no active parser`));
+        return;
+      }
+      callbacks.set(messageId, { resolve, reject, timeout });
     });
   }
 
@@ -112,47 +101,35 @@ export class McpProtocolStackImpl implements McpProtocolStack {
       throw new Error(`Service ${serviceId} process not available`);
     }
 
+    // Check message queue first
+    const queue = this.messageQueues.get(serviceId);
+    if (queue && queue.length > 0) {
+      return queue.shift()!;
+    }
+
+    // Wait for next message via event
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
-        process.stdout!.off('data', onData);
-        process.off('exit', onExit);
+        this.eventEmitter.off(`message:${serviceId}`, onMessage);
         reject(new Error(`Timeout waiting for message from ${serviceId}`));
       }, timeoutMs);
       (timeout as unknown as { unref?: () => void }).unref?.();
 
-      const parser = new JsonRpcStreamParser<McpMessage>({
-        throwOnParseError: true
-      });
+      const onMessage = (msg: McpMessage) => {
+        clearTimeout(timeout);
+        this.eventEmitter.off(`message:${serviceId}`, onMessage);
+        resolve(msg);
+      };
 
       const onExit = () => {
         clearTimeout(timeout);
-        process.stdout!.off('data', onData);
+        this.eventEmitter.off(`message:${serviceId}`, onMessage);
+        process.off('exit', onExit);
         reject(new Error(`Process exited while waiting for message from ${serviceId}`));
       };
 
-      const onData = (data: Buffer) => {
-        try {
-          const messages = parser.push(data);
-          for (const message of messages) {
-            if (!message) continue;
-            // Ignore handshake/no-id messages (compat with previous behavior)
-            if ((message as unknown as Record<string, unknown>).id === undefined && !(message as unknown as Record<string, unknown>).method) continue;
-            clearTimeout(timeout);
-            process.stdout!.off('data', onData);
-            process.off('exit', onExit);
-            resolve(message);
-            return;
-          }
-        } catch (error) {
-          clearTimeout(timeout);
-          process.stdout!.off('data', onData);
-          process.off('exit', onExit);
-          reject(error instanceof Error ? error : new Error(String(error)));
-        }
-      };
-
+      this.eventEmitter.once(`message:${serviceId}`, onMessage);
       process.once('exit', onExit);
-      process.stdout?.on('data', onData);
     });
   }
 
@@ -416,11 +393,59 @@ export class McpProtocolStackImpl implements McpProtocolStack {
     process.on('exit', (code, signal) => {
       this.logger.info(`Process ${serviceId} exited`, { code, signal });
       this.handleProcessExit(serviceId, code, signal);
+      // Reject all pending response callbacks on exit
+      const callbacks = this.responseCallbacks.get(serviceId);
+      if (callbacks) {
+        for (const [, cb] of callbacks) {
+          clearTimeout(cb.timeout);
+          cb.reject(new Error(`Process exited while waiting for response from ${serviceId}`));
+        }
+        callbacks.clear();
+      }
     });
 
     process.stderr?.on('data', (data) => {
       this.logger.warn(`Stderr from ${serviceId}:`, data.toString());
     });
+
+    // Set up shared stdout parser for this service
+    const parser = new JsonRpcStreamParser<McpMessage>({
+      onError: () => { /* ignore parse errors, keep parsing */ }
+    });
+    this.serviceParsers.set(serviceId, parser);
+    this.responseCallbacks.set(serviceId, new Map());
+    this.messageQueues.set(serviceId, []);
+
+    process.stdout?.on('data', (data: Buffer) => {
+      const messages = parser.push(data);
+      for (const msg of messages) {
+        if (!msg || typeof msg !== 'object') continue;
+        this.dispatchMessage(serviceId, msg);
+      }
+    });
+  }
+
+  private dispatchMessage(serviceId: string, msg: McpMessage): void {
+    // If it has an id and matches a pending callback, route to it
+    if (msg.id !== undefined) {
+      const callbacks = this.responseCallbacks.get(serviceId);
+      const cb = callbacks?.get(msg.id);
+      if (cb) {
+        callbacks!.delete(msg.id);
+        clearTimeout(cb.timeout);
+        cb.resolve(msg);
+        return;
+      }
+    }
+    // Skip responses without id and without method (e.g. handshake/capability responses)
+    if (msg.id === undefined && !msg.method) return;
+    // Otherwise queue for receiveMessage consumers
+    const queue = this.messageQueues.get(serviceId);
+    if (queue) {
+      if (queue.length >= 1000) queue.shift();
+      queue.push(msg);
+    }
+    this.eventEmitter.emit(`message:${serviceId}`, msg);
   }
 
   private async performHandshake(serviceId: string): Promise<void> {
@@ -473,6 +498,21 @@ export class McpProtocolStackImpl implements McpProtocolStack {
     // Remove from maps
     this.instances.delete(serviceId);
     this.processes.delete(serviceId);
+
+    // Cleanup shared parser state
+    this.serviceParsers.get(serviceId)?.reset();
+    this.serviceParsers.delete(serviceId);
+    const callbacks = this.responseCallbacks.get(serviceId);
+    if (callbacks) {
+      for (const [, cb] of callbacks) {
+        clearTimeout(cb.timeout);
+        cb.reject(new Error(`Service ${serviceId} cleaned up`));
+      }
+      callbacks.clear();
+    }
+    this.responseCallbacks.delete(serviceId);
+    this.messageQueues.delete(serviceId);
+    this.eventEmitter.removeAllListeners(`message:${serviceId}`);
 
     // Cleanup state manager
     this.stateManager.removeService(serviceId);

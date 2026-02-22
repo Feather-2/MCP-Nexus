@@ -235,6 +235,12 @@ export class ServiceHealthChecker implements Disposable {
     }
     const ctr = this.counters.get(serviceId) || { success: 0, failure: 0 };
     if (res.healthy) ctr.success++; else ctr.failure++;
+    // Decay counters to keep error rate responsive to recent trends
+    const total = ctr.success + ctr.failure;
+    if (total > 1000) {
+      ctr.success = Math.floor(ctr.success / 2);
+      ctr.failure = Math.floor(ctr.failure / 2);
+    }
     if (res.error) ctr.lastError = res.error;
     this.counters.set(serviceId, ctr);
   }

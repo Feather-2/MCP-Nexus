@@ -374,13 +374,13 @@ describe('McpProtocolStackImpl', () => {
       // Use a separate mock process for this test
       const separateMockProcess = new MockChildProcess();
       vi.mocked(spawn).mockReturnValue(separateMockProcess as any);
-      
+
       // Start a new service instance
       const mockHandshaker = await import('../../core/McpProtocolHandshaker.js');
       vi.mocked(mockHandshaker.McpProtocolHandshaker.prototype.performHandshake).mockResolvedValue();
 
       const startPromise = protocolStack.startProcess({...mockConfig, name: 'malformed-test'});
-      
+
       setTimeout(() => {
         separateMockProcess.simulateData(JSON.stringify({
           jsonrpc: '2.0',
@@ -389,17 +389,18 @@ describe('McpProtocolStackImpl', () => {
       }, 50);
 
       const instance = await startPromise;
-      
-      // Now test the malformed JSON
-      const receivePromise = protocolStack.receiveMessage(instance.id);
-      
-      // Send malformed JSON
+
+      // With the shared resilient parser, malformed JSON is silently ignored
+      // to keep the stream healthy. receiveMessage should timeout.
+      const receivePromise = protocolStack.receiveMessage(instance.id, 200);
+
+      // Send malformed JSON — parser drops it silently
       setTimeout(() => {
         separateMockProcess.simulateData('{ invalid json }');
       }, 50);
 
-      await expect(receivePromise).rejects.toThrow();
-    });
+      await expect(receivePromise).rejects.toThrow(`Timeout waiting for message from ${instance.id}`);
+    }, 5000);
   });
 
   describe('version negotiation and capabilities', () => {

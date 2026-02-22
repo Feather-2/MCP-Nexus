@@ -174,6 +174,20 @@ export class BackpressureController implements Disposable {
   }
 
   /**
+   * Remove a service and reject all pending requests.
+   */
+  removeService(serviceId: string): void {
+    const service = this.services.get(serviceId);
+    if (!service) return;
+
+    while (service.queue.length > 0) {
+      const item = service.queue.shift();
+      item?.reject(new Error('Service removed'));
+    }
+    this.services.delete(serviceId);
+  }
+
+  /**
    * Stop the backpressure controller.
    */
   stop(): void {
