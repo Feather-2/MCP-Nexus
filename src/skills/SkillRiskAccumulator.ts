@@ -129,7 +129,11 @@ export class SkillRiskAccumulator {
     });
 
     const pruned = this.pruneChanges(history, now);
-    this.skillChanges.set(normalizedSkillId, pruned);
+    if (pruned.length === 0) {
+      this.skillChanges.delete(normalizedSkillId);
+    } else {
+      this.skillChanges.set(normalizedSkillId, pruned);
+    }
     return this.buildAccumulatedRisk(normalizedSkillId, pruned);
   }
 

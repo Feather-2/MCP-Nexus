@@ -172,7 +172,10 @@ export class RateLimitMiddleware implements Middleware {
   private async getRedisClient(redisCfg: Record<string, unknown> | undefined): Promise<RedisLike> {
     if (this.redisClient) return this.redisClient;
     if (!this.redisClientPromise) {
-      this.redisClientPromise = this.createRedisClient(redisCfg);
+      this.redisClientPromise = this.createRedisClient(redisCfg).catch((err) => {
+        this.redisClientPromise = undefined; // Allow retry on next request
+        throw err;
+      });
     }
     return this.redisClientPromise;
   }

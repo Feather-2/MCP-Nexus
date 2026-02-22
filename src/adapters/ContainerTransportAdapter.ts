@@ -184,6 +184,7 @@ export class ContainerTransportAdapter extends EventEmitter implements Transport
           // Disconnect old delegate to avoid process leak, then remove listeners
           try { await this.delegate.disconnect(); } catch { /* best-effort */ }
           this.delegate.removeAllListeners();
+          this.removeAllListeners(); // Remove stale event forwarders from outer adapter
           const podmanConfig = { ...this.config, container: { ...container2, runtime: 'podman' } } as typeof this.config;
           const retry = new ContainerTransportAdapter(podmanConfig, this.logger, this.policy);
           this.delegate = (retry as unknown as { delegate: StdioTransportAdapter }).delegate;

@@ -152,10 +152,13 @@ export class SkillRegistry {
   async reload(): Promise<void> {
     const roots = await this.validateRoots();
     const loaded = await this.loader.loadAllSkills(roots);
-    this.skills.clear();
+    // Build new map first, then swap atomically to avoid transient empty state
+    const next = new Map<string, Skill>();
     for (const skill of loaded) {
-      this.skills.set(skill.metadata.name.toLowerCase(), skill);
+      next.set(skill.metadata.name.toLowerCase(), skill);
     }
+    this.skills.clear();
+    for (const [k, v] of next) this.skills.set(k, v);
   }
 
   list(): SkillMetadata[] {

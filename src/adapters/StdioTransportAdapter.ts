@@ -401,7 +401,11 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
         timeout
       });
 
-      this.send(message).catch(reject);
+      this.send(message).catch((err) => {
+        clearTimeout(timeout);
+        this.responseCallbacks.delete(message.id!);
+        reject(err);
+      });
     });
   }
 

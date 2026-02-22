@@ -324,7 +324,7 @@ export class HttpApiServer implements Disposable {
       this.localMcpProxy?.cleanup();
 
       // 30秒超时保护
-      let shutdownTimer: ReturnType<typeof setTimeout>;
+      let shutdownTimer: ReturnType<typeof setTimeout> | undefined;
       const timeout = new Promise<void>((_, reject) => {
         shutdownTimer = setTimeout(() => reject(new Error('Server shutdown timeout after 30s')), 30000);
       });
@@ -332,7 +332,7 @@ export class HttpApiServer implements Disposable {
       try {
         await Promise.race([this.server.close(), timeout]);
       } finally {
-        clearTimeout(shutdownTimer!);
+        if (shutdownTimer) clearTimeout(shutdownTimer);
       }
       this.logger.info('HTTP API server stopped');
     } catch (error) {

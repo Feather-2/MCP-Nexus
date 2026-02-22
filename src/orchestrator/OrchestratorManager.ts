@@ -80,12 +80,22 @@ export class OrchestratorManager {
     return Boolean(this.currentConfig.enabled);
   }
 
+  private configUpdateLock = Promise.resolve();
+
   async updateConfig(partial: Partial<OrchestratorConfig>): Promise<OrchestratorConfig> {
-    const merged = this.deepMerge(this.currentConfig as unknown as Record<string, unknown>, partial as Record<string, unknown>);
-    const validated = OrchestratorConfigSchema.parse(merged);
-    await this.saveConfig(validated);
-    this.currentConfig = validated;
-    return this.getConfig();
+    const prev = this.configUpdateLock;
+    let release!: () => void;
+    this.configUpdateLock = new Promise<void>(r => { release = r; });
+    await prev;
+    try {
+      const merged = this.deepMerge(this.currentConfig as unknown as Record<string, unknown>, partial as Record<string, unknown>);
+      const validated = OrchestratorConfigSchema.parse(merged);
+      await this.saveConfig(validated);
+      this.currentConfig = validated;
+      return this.getConfig();
+    } finally {
+      release();
+    }
   }
 
   private async saveConfig(config: OrchestratorConfig, skipLog = false): Promise<void> {

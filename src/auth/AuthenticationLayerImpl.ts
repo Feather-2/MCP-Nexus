@@ -518,17 +518,20 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
 
   private cleanupExpiredTokensInternal(): void {
     const now = new Date();
-    let cleanupCount = 0;
+    const expired: string[] = [];
 
     for (const [token, tokenData] of this.tokens) {
       if (now > tokenData.expiresAt) {
-        this.tokens.delete(token);
-        cleanupCount++;
+        expired.push(token);
       }
     }
 
-    if (cleanupCount > 0) {
-      this.logger.debug(`Cleaned up ${cleanupCount} expired tokens`);
+    for (const token of expired) {
+      this.tokens.delete(token);
+    }
+
+    if (expired.length > 0) {
+      this.logger.debug(`Cleaned up ${expired.length} expired tokens`);
     }
   }
 

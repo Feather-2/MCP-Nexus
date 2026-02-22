@@ -63,7 +63,7 @@ function makeRequestReply() {
     ip: '127.0.0.1',
     headers: {},
     raw: {
-      on: vi.fn((event: string, handler: () => void) => {
+      once: vi.fn((event: string, handler: () => void) => {
         listeners[event] = handler;
       })
     }
@@ -153,8 +153,8 @@ describe('setupMiddlewareWiring', () => {
       const { hooks, middlewareChain } = createHarness({ executeImpl });
       await hooks.preHandler(request, reply);
 
-      expect(request.raw.on).toHaveBeenCalledWith('aborted', expect.any(Function));
-      expect(request.raw.on).toHaveBeenCalledWith('close', expect.any(Function));
+      expect(request.raw.once).toHaveBeenCalledWith('aborted', expect.any(Function));
+      expect(request.raw.once).toHaveBeenCalledWith('close', expect.any(Function));
       expect(middlewareChain.execute).toHaveBeenCalledWith('beforeAgent', expect.any(Object), expect.any(Object));
     });
 

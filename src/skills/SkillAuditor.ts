@@ -68,13 +68,18 @@ function inferSkillTrustLevel(skill: Skill): TrustLevel {
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<T>((_resolve, reject) => {
-    const t = setTimeout(() => {
-      clearTimeout(t);
+    timer = setTimeout(() => {
       reject(new Error(`${label} timed out after ${timeoutMs}ms`));
     }, timeoutMs);
+    (timer as unknown as { unref?: () => void }).unref?.();
   });
-  return Promise.race([promise, timeout]);
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function wrapAiAnalyzerWithEvents(analyzer: AiAnalyzer, eventBus: EventBus): AiAnalyzer {

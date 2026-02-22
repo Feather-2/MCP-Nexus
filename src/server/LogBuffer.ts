@@ -38,8 +38,8 @@ export class LogBuffer {
       this.buffer.shift();
     }
 
-    // Notify listeners
-    for (const listener of this.listeners) {
+    // Notify listeners (snapshot to avoid mutation during iteration)
+    for (const listener of Array.from(this.listeners)) {
       try {
         listener(entry);
       } catch {

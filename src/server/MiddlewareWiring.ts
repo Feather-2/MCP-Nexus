@@ -37,8 +37,14 @@ export function setupMiddlewareWiring(
   server.addHook('preHandler', async (request: FastifyRequest, reply: FastifyReply) => {
     const controller = new AbortController();
     try {
-      request.raw.on('aborted', () => controller.abort(new Error('client aborted')));
-      request.raw.on('close', () => controller.abort(new Error('client closed')));
+      let aborted = false;
+      const doAbort = (reason: string) => {
+        if (aborted) return;
+        aborted = true;
+        controller.abort(new Error(reason));
+      };
+      request.raw.once('aborted', () => doAbort('client aborted'));
+      request.raw.once('close', () => doAbort('client closed'));
     } catch {
       // ignore
     }
