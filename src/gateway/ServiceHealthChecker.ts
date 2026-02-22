@@ -227,6 +227,7 @@ export class ServiceHealthChecker implements Disposable {
   }
 
   private recordMetrics(serviceId: string, res: HealthCheckResult): void {
+    if (!this.monitoringServices.has(serviceId)) return;
     if (typeof res.latency === 'number') {
       const list = this.latencies.get(serviceId) || [];
       list.push(res.latency);

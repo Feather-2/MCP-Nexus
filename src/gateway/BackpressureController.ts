@@ -212,6 +212,15 @@ export class BackpressureController implements Disposable {
     let service = this.services.get(serviceId);
 
     if (!service) {
+      // Cap services map to prevent unbounded growth
+      if (this.services.size >= 500) {
+        for (const [key, svc] of this.services) {
+          if (svc.queue.length === 0) {
+            this.services.delete(key);
+            break;
+          }
+        }
+      }
       service = {
         tokenBucket: new TokenBucket(this.tokenBucketDefaults),
         circuitBreaker: new CircuitBreaker(this.circuitBreakerDefaults),

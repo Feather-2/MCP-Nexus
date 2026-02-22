@@ -98,7 +98,7 @@ export class RouteEvaluator {
             if (request.contentType !== value) return false;
             break;
           case 'clientIp':
-            if (request.clientIp && !request.clientIp.startsWith(value as string)) return false;
+            if (request.clientIp && request.clientIp !== value && !request.clientIp.startsWith(value as string + '.')) return false;
             break;
           case 'pathPattern': {
             const path = request.path || '';

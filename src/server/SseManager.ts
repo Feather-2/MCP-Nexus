@@ -83,7 +83,12 @@ export class SseManager implements Disposable {
    * Send a message to a specific client.
    */
   send(client: FastifyReply, data: unknown): boolean {
-    const message = `data: ${JSON.stringify(data)}\n\n`;
+    let message: string;
+    try {
+      message = `data: ${JSON.stringify(data)}\n\n`;
+    } catch {
+      return false;
+    }
     try {
       client.raw.write(message);
       return true;

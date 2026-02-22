@@ -433,6 +433,11 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
       let stderrBuffer = '';
       this.process.stderr.on('data', (data) => {
         stderrBuffer += data.toString();
+        // Cap buffer to prevent unbounded growth from newline-less output
+        if (stderrBuffer.length > 65536) {
+          this.logger.warn('Stdio stderr (truncated):', stderrBuffer.slice(0, 65536));
+          stderrBuffer = '';
+        }
         let newlineIndex: number;
         while ((newlineIndex = stderrBuffer.indexOf('\n')) !== -1) {
           const line = stderrBuffer.slice(0, newlineIndex).trim();

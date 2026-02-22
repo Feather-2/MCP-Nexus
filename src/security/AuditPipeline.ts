@@ -148,6 +148,7 @@ export class AuditPipeline {
   private aiConcurrency = 0;
   private readonly maxAiConcurrency = 3;
   private static readonly MAX_PENDING_AUDITS = 1000;
+  private static readonly MAX_AI_QUEUE = 200;
 
   constructor(options: AuditPipelineOptions) {
     this.hardRuleEngine = options.hardRuleEngine;
@@ -394,13 +395,20 @@ export class AuditPipeline {
       promise,
       resolve: resolveAudit,
       reject: rejectAudit,
-      status: 'pending' as const,
+      status: 'pending' as 'pending' | 'completed' | 'failed',
       result: undefined as AuditResult | undefined
     };
 
     this.pendingAudits.set(requestId, pendingEntry);
 
-    // Queue the AI audit
+    // Queue the AI audit (with cap to prevent unbounded growth)
+    if (this.aiQueue.length >= AuditPipeline.MAX_AI_QUEUE) {
+      syncResult.decision = 'review';
+      syncResult.reviewRequired = true;
+      pendingEntry.resolve(syncResult);
+      pendingEntry.status = 'completed';
+      return { syncResult };
+    }
     this.aiQueue.push({ skill, requestId });
     this.processAiQueue();
 

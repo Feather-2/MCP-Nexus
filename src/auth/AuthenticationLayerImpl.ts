@@ -13,6 +13,8 @@ import { unrefTimer } from '../utils/async.js';
 
 export class AuthenticationLayerImpl extends EventEmitter implements AuthenticationLayer, Disposable {
   private static readonly TOKEN_CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+  private static readonly MAX_TOKENS = 10_000;
+  private static readonly MAX_API_KEYS = 1_000;
   private tokens = new Map<string, {
     userId: string;
     permissions: string[];
@@ -123,6 +125,9 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
   }
 
   async generateToken(userId: string, permissions: string[], expiresInHours = 24): Promise<string> {
+    if (this.tokens.size >= AuthenticationLayerImpl.MAX_TOKENS) {
+      throw new Error('Token limit reached; revoke existing tokens before generating new ones');
+    }
     const token = this.generateSecureToken();
     const expiresAt = new Date();
     
@@ -149,7 +154,7 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
     this.logger.debug(`Generated token for user: ${userId}`);
 
     // Emit token generated event
-    this.emit('tokenGenerated', { userId, token, permissions, expiresAt });
+    this.emit('tokenGenerated', { userId, tokenPrefix: token.slice(0, 8), permissions, expiresAt });
 
     return token;
   }
@@ -164,12 +169,15 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
     this.logger.info(`Revoked token for user ${tokenData.userId}`);
     
     // Emit token revoked event
-    this.emit('tokenRevoked', { userId: tokenData.userId, token });
+    this.emit('tokenRevoked', { userId: tokenData.userId, tokenPrefix: token.slice(0, 8) });
 
     return true;
   }
 
   async createApiKey(name: string, permissions: string[]): Promise<string> {
+    if (this.apiKeys.size >= AuthenticationLayerImpl.MAX_API_KEYS) {
+      throw new Error('API key limit reached; revoke existing keys before creating new ones');
+    }
     const apiKey = this.generateSecureApiKey();
     
     this.apiKeys.set(apiKey, {
@@ -182,7 +190,7 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
     this.logger.info(`Created API key: ${name}`, { permissions });
     
     // Emit API key created event
-    this.emit('apiKeyCreated', { name, apiKey, permissions });
+    this.emit('apiKeyCreated', { name, keyPrefix: apiKey.slice(0, 8), permissions });
 
     return apiKey;
   }
@@ -197,7 +205,7 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
     this.logger.info(`Revoked API key: ${keyData.name}`);
     
     // Emit API key revoked event
-    this.emit('apiKeyRevoked', { name: keyData.name, apiKey });
+    this.emit('apiKeyRevoked', { name: keyData.name, keyPrefix: apiKey.slice(0, 8) });
 
     return true;
   }

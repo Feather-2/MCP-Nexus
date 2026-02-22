@@ -33,6 +33,12 @@ export class MetricsCollector {
     this.logger.info('Metrics have been reset');
   }
 
+  removeService(serviceId: string): void {
+    this.serviceMetrics.delete(serviceId);
+    this.costMetrics.delete(serviceId);
+    this.contentAnalysis.delete(serviceId);
+  }
+
   getServiceMetrics(serviceId: string): ServiceLoadMetrics | undefined {
     return this.serviceMetrics.get(serviceId);
   }

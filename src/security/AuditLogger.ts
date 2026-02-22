@@ -72,6 +72,7 @@ export class AuditLogger {
   private readonly filePath: string;
   private readonly logger?: Logger;
   private lastHash?: string;
+  private appendLock = Promise.resolve();
 
   constructor(options: AuditLoggerOptions) {
     this.filePath = path.resolve(options.filePath);
@@ -79,30 +80,38 @@ export class AuditLogger {
   }
 
   async append(entry: AuditLogInput): Promise<AuditLogEntry> {
-    const prevHash = await this.getLastHash();
-    const next: Omit<AuditLogEntry, 'hash'> = {
-      timestamp: entry.timestamp ?? new Date().toISOString(),
-      action: normalizeRequired(entry.action, 'action'),
-      skillId: normalizeRequired(entry.skillId, 'skillId'),
-      userId: normalizeRequired(entry.userId, 'userId'),
-      result: normalizeRequired(entry.result, 'result'),
-      prevHash
-    };
-    const hash = computeHash(next);
-    const persisted: AuditLogEntry = { ...next, hash };
+    const prev = this.appendLock;
+    let release!: () => void;
+    this.appendLock = new Promise<void>(r => { release = r; });
+    await prev;
+    try {
+      const prevHash = await this.getLastHash();
+      const next: Omit<AuditLogEntry, 'hash'> = {
+        timestamp: entry.timestamp ?? new Date().toISOString(),
+        action: normalizeRequired(entry.action, 'action'),
+        skillId: normalizeRequired(entry.skillId, 'skillId'),
+        userId: normalizeRequired(entry.userId, 'userId'),
+        result: normalizeRequired(entry.result, 'result'),
+        prevHash
+      };
+      const hash = computeHash(next);
+      const persisted: AuditLogEntry = { ...next, hash };
 
-    await mkdir(path.dirname(this.filePath), { recursive: true });
-    await appendFile(this.filePath, `${JSON.stringify(persisted)}\n`, 'utf8');
-    this.lastHash = hash;
+      await mkdir(path.dirname(this.filePath), { recursive: true });
+      await appendFile(this.filePath, `${JSON.stringify(persisted)}\n`, 'utf8');
+      this.lastHash = hash;
 
-    this.logger?.info('Audit log entry appended', {
-      action: persisted.action,
-      skillId: persisted.skillId,
-      userId: persisted.userId,
-      hash: persisted.hash
-    });
+      this.logger?.info('Audit log entry appended', {
+        action: persisted.action,
+        skillId: persisted.skillId,
+        userId: persisted.userId,
+        hash: persisted.hash
+      });
 
-    return persisted;
+      return persisted;
+    } finally {
+      release();
+    }
   }
 
   async verifyChain(): Promise<boolean> {

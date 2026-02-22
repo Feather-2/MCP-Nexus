@@ -121,7 +121,7 @@ export class OrchestratorManager {
       const srcVal = source[key];
       if (srcVal === undefined) continue;
       const tgtVal = output[key];
-      if (srcVal && typeof srcVal === 'object' && !Array.isArray(srcVal)) {
+      if (srcVal && typeof srcVal === 'object' && !Array.isArray(srcVal) && Object.getPrototypeOf(srcVal) === Object.prototype) {
         output[key] = this.deepMerge((tgtVal ?? {}) as Record<string, unknown>, srcVal as Record<string, unknown>);
       } else {
         output[key] = srcVal;

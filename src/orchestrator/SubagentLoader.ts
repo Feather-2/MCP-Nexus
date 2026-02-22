@@ -6,6 +6,7 @@ export class SubagentLoader {
   private readonly logger: Logger;
   private readonly dir: string;
   private cache: Map<string, SubagentConfig> = new Map();
+  private loadLock = Promise.resolve();
 
   constructor(dir: string, logger: Logger) {
     this.dir = dir;
@@ -13,6 +14,11 @@ export class SubagentLoader {
   }
 
   async loadAll(): Promise<Map<string, SubagentConfig>> {
+    const prevLock = this.loadLock;
+    let release!: () => void;
+    this.loadLock = new Promise<void>(r => { release = r; });
+    await prevLock;
+    try {
     const map = new Map<string, SubagentConfig>();
     try {
       const files = await fs.readdir(this.dir);
@@ -37,6 +43,9 @@ export class SubagentLoader {
       this.logger.warn('Failed to read subagents directory', { dir: this.dir, error: (err as Error)?.message || String(err) });
     }
     return this.cache;
+    } finally {
+      release();
+    }
   }
 
   get(name: string): SubagentConfig | undefined {
