@@ -120,7 +120,7 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
       }
 
       this.logger.error('Failed to load configuration:', error);
-      throw new Error(`Failed to load configuration: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error(`Failed to load configuration: ${error instanceof Error ? error.message : 'Unknown error'}`, { cause: error });
     }
   }
 
@@ -155,7 +155,7 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
       this.emit('configSaved', config);
     } catch (error) {
       this.logger.error('Failed to save configuration:', error);
-      throw new Error(`Failed to save configuration: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error(`Failed to save configuration: ${error instanceof Error ? error.message : 'Unknown error'}`, { cause: error });
     }
   }
 
@@ -347,6 +347,11 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
     this.configWatcher.stopWatching();
     this.logger.debug('Stopped watching configuration file');
     this.emit('watchStopped');
+  }
+
+  destroy(): void {
+    this.stopConfigWatch();
+    this.templateManager.destroy();
     this.removeAllListeners();
   }
 

@@ -22,7 +22,7 @@ export class ConfigWatcher extends EventEmitter {
   /**
    * Start watching configuration file
    */
-  async watchConfigFile(configPath: string, onChange: () => void): Promise<void> {
+  async watchConfigFile(configPath: string, onChange: () => void | Promise<void>): Promise<void> {
     try {
       const watcher = watchAsync(configPath, { persistent: false }) as FsPromiseWatcher;
       this.configWatcher = watcher;
@@ -35,7 +35,7 @@ export class ConfigWatcher extends EventEmitter {
             if (!this.watchEnabled) break;
             if (event.eventType === 'change') {
               try {
-                onChange();
+                await Promise.resolve(onChange());
               } catch (e) {
                 this.logger.warn('Failed to handle config file change:', e);
               }

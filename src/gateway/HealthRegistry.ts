@@ -62,4 +62,8 @@ export class HealthRegistry {
   async getStatus(): Promise<Record<string, HealthCheckResult>> {
     return await this.healthChecker.getHealthStatus();
   }
+
+  dispose(): void {
+    this.healthChecker.dispose();
+  }
 }

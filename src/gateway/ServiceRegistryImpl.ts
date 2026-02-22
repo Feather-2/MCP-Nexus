@@ -29,6 +29,14 @@ export class ServiceRegistryImpl extends EventEmitter implements ServiceRegistry
     this.healthRegistry = new HealthRegistry(logger, this.store);
   }
 
+  destroy(): void {
+    this.healthRegistry.dispose();
+    this.removeAllListeners();
+  }
+
+  private disposed = false;
+  dispose(): void { if (this.disposed) return; this.disposed = true; this.destroy(); }
+
   setInstancePersistence(persistence: InstancePersistence): void {
     this.persistence = persistence;
   }
