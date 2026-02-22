@@ -12,6 +12,7 @@ export class Container {
   private readonly providers = new Map<Token<unknown>, Provider<unknown>>();
   private readonly singletonCache = new Map<Token<unknown>, unknown>();
   private readonly registrationOrder: Token<unknown>[] = [];
+  private readonly resolving = new Set<Token<unknown>>();
 
   has<T>(token: Token<T>): boolean {
     return this.providers.has(token);
@@ -71,9 +72,18 @@ export class Container {
       if (this.singletonCache.has(token)) {
         return this.singletonCache.get(token) as T;
       }
-      const instance = provider.factory(this);
-      this.singletonCache.set(token, instance);
-      return instance;
+      if (this.resolving.has(token)) {
+        const chain = [...this.resolving].map(t => String(t)).join(' -> ');
+        throw new Error(`Container: circular dependency detected: ${chain} -> ${String(token)}`);
+      }
+      this.resolving.add(token);
+      try {
+        const instance = provider.factory(this);
+        this.singletonCache.set(token, instance);
+        return instance;
+      } finally {
+        this.resolving.delete(token);
+      }
     }
 
     return provider.factory(this);
