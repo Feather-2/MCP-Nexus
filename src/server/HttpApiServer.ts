@@ -594,6 +594,10 @@ export class HttpApiServer implements Disposable {
     // Lazy init engine only when enabled; loader will be created on first execute
     if (this.orchestratorStatus?.enabled && this.orchestratorManager) {
       try {
+        // Dispose previous engine if it exists to prevent resource leaks
+        if (this.orchestratorEngine) {
+          (this.orchestratorEngine as unknown as { dispose?: () => void })?.dispose?.();
+        }
         const subDir = this.orchestratorStatus.subagentsDir;
         this.subagentLoader = new SubagentLoader(subDir, this.logger);
         this.orchestratorEngine = new OrchestratorEngine({
@@ -607,6 +611,9 @@ export class HttpApiServer implements Disposable {
         this.logger.warn('Failed to initialize orchestrator engine', { error: (error as Error)?.message });
       }
     } else {
+      if (this.orchestratorEngine) {
+        (this.orchestratorEngine as unknown as { dispose?: () => void })?.dispose?.();
+      }
       this.orchestratorEngine = undefined;
       this.subagentLoader = undefined;
     }

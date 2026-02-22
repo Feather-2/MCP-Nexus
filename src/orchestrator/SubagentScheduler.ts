@@ -46,7 +46,7 @@ class AsyncSemaphore {
 
   get isIdle(): boolean { return this.inUse === 0 && this.waiters.length === 0; }
 
-  async acquire(): Promise<() => void> {
+  async acquire(timeoutMs?: number): Promise<() => void> {
     if (this.capacity <= 0) {
       return () => {};
     }
@@ -57,8 +57,29 @@ class AsyncSemaphore {
     }
 
     this.emitWaitEvent();
-    return new Promise<() => void>((resolve) => {
-      this.waiters.push(resolve);
+    if (timeoutMs == null || timeoutMs <= 0) {
+      return new Promise<() => void>((resolve) => {
+        this.waiters.push(resolve);
+      });
+    }
+
+    return new Promise<() => void>((resolve, reject) => {
+      let settled = false;
+      const waiterFn = (release: () => void) => {
+        if (settled) { release(); return; }
+        settled = true;
+        clearTimeout(timer);
+        resolve(release);
+      };
+      this.waiters.push(waiterFn);
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        const idx = this.waiters.indexOf(waiterFn);
+        if (idx !== -1) this.waiters.splice(idx, 1);
+        reject(new Error(`semaphore acquire timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+      (timer as unknown as { unref?: () => void }).unref?.();
     });
   }
 
@@ -225,9 +246,24 @@ export class SubagentScheduler {
     const perLimit = this.getPerSemaphore(subagentKey);
 
     // Acquire in a consistent order to avoid deadlocks and prevent consuming global slots
-    // while waiting for a per-subagent slot.
-    const releasePer = await perLimit.acquire();
-    const releaseGlobal = await this.globalSem.acquire();
+    // while waiting for a per-subagent slot. Use remaining time budget as acquire timeout.
+    const remainingMs = Math.max(0, this.opts.overallTimeoutMs - (Date.now() - startedAt));
+    let releasePer: (() => void) | undefined;
+    let releaseGlobal: (() => void) | undefined;
+    try {
+      releasePer = await perLimit.acquire(remainingMs);
+      releaseGlobal = await this.globalSem.acquire(remainingMs);
+    } catch (acquireErr) {
+      // Release any partially-acquired semaphore before propagating
+      if (releasePer) try { releasePer(); } catch {}
+      const msg = (acquireErr as Error)?.message || String(acquireErr);
+      const envelope = toErrorEnvelope(
+        acquireErr,
+        { runId: stepId, stage: 'orchestrator', component: 'SubagentScheduler', operation: 'acquire', boundary: 'main' },
+        { code: 'SEMAPHORE_TIMEOUT', category: 'timeout', severity: 'high', recoverable: false }
+      );
+      return { step, ok: false, error: msg, errorEnvelope: envelope, durationMs: 0 };
+    }
 
     const t0 = Date.now();
     try {
