@@ -111,6 +111,10 @@ export class SkillVersionTracker {
       content: normalizedContent,
       metadata: normalizeMetadata(metadata)
     });
+    // Cap version history to prevent unbounded growth
+    if (history.versions.length > 50) {
+      history.versions.splice(0, history.versions.length - 50);
+    }
 
     this.writeHistory(normalizedSkillId, history);
     this.logger?.debug('Skill version recorded', {

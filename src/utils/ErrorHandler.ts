@@ -58,7 +58,16 @@ export class UnifiedErrorHandler {
     if (this.stats.recentErrors.length > 100) this.stats.recentErrors.splice(0, this.stats.recentErrors.length - 100);
     this.stats.errorsByCategory[category] = (this.stats.errorsByCategory[category] || 0) + 1;
     const svcId = context?.serviceId as string | undefined;
-    if (svcId) this.stats.errorsByService[svcId] = (this.stats.errorsByService[svcId] || 0) + 1;
+    if (svcId) {
+      this.stats.errorsByService[svcId] = (this.stats.errorsByService[svcId] || 0) + 1;
+      // Cap service entries to prevent unbounded growth from transient service IDs
+      const serviceKeys = Object.keys(this.stats.errorsByService);
+      if (serviceKeys.length > 500) {
+        for (const k of serviceKeys.slice(0, serviceKeys.length - 500)) {
+          delete this.stats.errorsByService[k];
+        }
+      }
+    }
 
     // Suggestions
     let suggestion = 'check logs';

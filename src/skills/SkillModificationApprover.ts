@@ -159,7 +159,14 @@ export class SkillModificationApprover {
     return [...records].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
 
+  private storeLock = Promise.resolve();
+
   async approve(recordId: string, userId: string, reason?: string): Promise<SkillModificationRecord | null> {
+    const prev = this.storeLock;
+    let release!: () => void;
+    this.storeLock = new Promise<void>(r => { release = r; });
+    await prev;
+    try {
     const doc = await this.readStore();
     const record = doc.records.find((item) => item.id === recordId);
     if (!record) return null;
@@ -186,9 +193,17 @@ export class SkillModificationApprover {
       userId: record.decisionBy
     });
     return record;
+    } finally {
+      release();
+    }
   }
 
   async reject(recordId: string, userId: string, reason?: string): Promise<SkillModificationRecord | null> {
+    const prev2 = this.storeLock;
+    let release2!: () => void;
+    this.storeLock = new Promise<void>(r => { release2 = r; });
+    await prev2;
+    try {
     const doc = await this.readStore();
     const record = doc.records.find((item) => item.id === recordId);
     if (!record) return null;
@@ -213,6 +228,9 @@ export class SkillModificationApprover {
       userId: record.decisionBy
     });
     return record;
+    } finally {
+      release2();
+    }
   }
 
   private async readStore(): Promise<SkillModificationStoreDocument> {

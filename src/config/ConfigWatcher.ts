@@ -31,16 +31,20 @@ export class ConfigWatcher extends EventEmitter {
 
       (async () => {
         try {
+          let debounceTimer: ReturnType<typeof setTimeout> | undefined;
           for await (const event of watcher) {
             if (!this.watchEnabled) break;
             if (event.eventType === 'change') {
-              try {
-                await Promise.resolve(onChange());
-              } catch (e) {
-                this.logger.warn('Failed to handle config file change:', e);
-              }
+              if (debounceTimer) clearTimeout(debounceTimer);
+              debounceTimer = setTimeout(() => {
+                debounceTimer = undefined;
+                Promise.resolve(onChange()).catch((e) => {
+                  this.logger.warn('Failed to handle config file change:', e);
+                });
+              }, 300);
             }
           }
+          if (debounceTimer) clearTimeout(debounceTimer);
         } catch (e) {
           if (this.watchEnabled) {
             this.logger.warn('Failed to watch configuration file:', e);

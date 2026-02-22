@@ -302,6 +302,15 @@ export class SandboxRoutes extends BaseRouteHandler {
             const next = response.headers.location;
             if (!next) { reject(new Error('重定向无 Location')); return; }
             if (redirectsLeft <= 0) { reject(new Error('重定向次数过多')); return; }
+            // Validate redirect target against SSRF (private/internal IPs)
+            try {
+              const nextUrl = new URL(next, url);
+              const host = nextUrl.hostname;
+              if (/^(127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|0\.|localhost$|\[?::1\]?$|\[?::ffff:127\.)/i.test(host)) {
+                reject(new Error(`Redirect to private address blocked: ${host}`));
+                return;
+              }
+            } catch { /* invalid URL will fail in next download call */ }
             return download(next, filePath, redirectsLeft - 1).then(resolve).catch(reject);
           }
           if (response.statusCode !== 200) {

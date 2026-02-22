@@ -178,6 +178,7 @@ export class StreamableHttpAdapter extends EventEmitter implements TransportAdap
     // Wait for next message from SSE stream
     return new Promise<McpMessage>((resolve, reject) => {
       const timeout = setTimeout(() => {
+        this.off('message', onMessage);
         reject(new Error('Receive timeout'));
       }, this.config.timeout || 30000);
 

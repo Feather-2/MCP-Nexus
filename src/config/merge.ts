@@ -19,6 +19,7 @@ function cloneValue(value: unknown): unknown {
 function mergeRecords(target: Record<string, unknown>, source: Record<string, unknown>, depth = 0): void {
   if (depth > 32) return; // guard against deeply nested payloads
   for (const [key, sourceValue] of Object.entries(source)) {
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
     if (sourceValue === undefined) {
       continue;
     }

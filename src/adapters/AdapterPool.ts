@@ -134,8 +134,6 @@ export class AdapterPool implements Disposable {
     }
 
     this.logger.debug('AdapterPool cleanup evicting idle adapters', { count: idleKeys.length });
-    for (const key of idleKeys) {
-      void this.evict(key);
-    }
+    Promise.allSettled(idleKeys.map(key => this.evict(key))).catch(() => {});
   }
 }

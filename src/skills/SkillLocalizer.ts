@@ -330,7 +330,14 @@ export class SkillLocalizer {
     for (const platform of targetPlatforms) {
       const localized = this.localize(skill, platform);
       const directoryConfig = this.getPlatformDirectory(platform);
-      const targetPath = path.join(directoryConfig.directory, `${skill.metadata.name}${directoryConfig.fileExtension}`);
+      const safeName = skill.metadata.name.replace(/[\/\\]/g, '_').replace(/\.\./g, '_');
+      const targetPath = path.join(directoryConfig.directory, `${safeName}${directoryConfig.fileExtension}`);
+      // Validate resolved path stays within target directory
+      const resolved = path.resolve(targetPath);
+      const dirResolved = path.resolve(directoryConfig.directory);
+      if (!resolved.startsWith(dirResolved + path.sep) && resolved !== dirResolved) {
+        throw new Error(`Skill name produces path outside target directory: ${skill.metadata.name}`);
+      }
 
       await mkdir(directoryConfig.directory, { recursive: true });
       await writeFile(targetPath, localized.content, 'utf8');
@@ -346,7 +353,8 @@ export class SkillLocalizer {
 
     for (const platform of targetPlatforms) {
       const directoryConfig = this.getPlatformDirectory(platform);
-      const targetPath = path.join(directoryConfig.directory, `${skillName}${directoryConfig.fileExtension}`);
+      const safeName = skillName.replace(/[\/\\]/g, '_').replace(/\.\./g, '_');
+      const targetPath = path.join(directoryConfig.directory, `${safeName}${directoryConfig.fileExtension}`);
 
       try {
         await unlink(targetPath);

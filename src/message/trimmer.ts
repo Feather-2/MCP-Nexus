@@ -30,20 +30,31 @@ export class MessageTrimmer {
       return [];
     }
 
+    // Always preserve system messages first
     let tokens = 0;
-    const kept: Message[] = [];
-
-    for (let i = history.length - 1; i >= 0; i--) {
-      const candidate = history[i];
-      const cost = this.counter.count(candidate);
-      if (tokens + cost > this.maxTokens) {
-        break;
+    const systemIndices: number[] = [];
+    for (let i = 0; i < history.length; i++) {
+      if (history[i].role === 'system') {
+        tokens += this.counter.count(history[i]);
+        systemIndices.push(i);
       }
-      kept.push(cloneMessage(candidate));
+    }
+
+    // Fill remaining budget from newest non-system messages
+    const keptIndices = new Set<number>(systemIndices);
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (history[i].role === 'system') continue;
+      const cost = this.counter.count(history[i]);
+      if (tokens + cost > this.maxTokens) break;
+      keptIndices.add(i);
       tokens += cost;
     }
 
-    kept.reverse();
-    return kept;
+    // Reconstruct in original order
+    const result: Message[] = [];
+    for (let i = 0; i < history.length; i++) {
+      if (keptIndices.has(i)) result.push(cloneMessage(history[i]));
+    }
+    return result;
   }
 }
