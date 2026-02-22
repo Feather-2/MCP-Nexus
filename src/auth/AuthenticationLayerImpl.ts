@@ -50,13 +50,17 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
   ];
 
   constructor(
-    private config: GatewayConfig,
+    private configProvider: (() => GatewayConfig) | GatewayConfig,
     private logger: Logger
   ) {
     super();
     this.initializeDefaults();
     this.cleanupTimer = setInterval(() => this.cleanupExpiredTokensInternal(), AuthenticationLayerImpl.TOKEN_CLEANUP_INTERVAL_MS);
     unrefTimer(this.cleanupTimer);
+  }
+
+  private getConfig(): GatewayConfig {
+    return typeof this.configProvider === 'function' ? this.configProvider() : this.configProvider;
   }
 
   async authenticate(request: AuthRequest): Promise<AuthResponse> {
@@ -66,7 +70,7 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
       let response: AuthResponse;
       
       // Handle different authentication modes
-      switch (this.config.authMode) {
+      switch (this.getConfig().authMode) {
         case 'local-trusted':
           response = this.authenticateLocalTrusted(clientIp, method, resource);
           break;

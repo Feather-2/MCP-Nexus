@@ -324,8 +324,8 @@ export class GatewayBootstrapper {
     if (!this.container.has(TOKENS.authLayer)) {
       this.container.singleton(TOKENS.authLayer, (c) => {
         const logger = c.resolve<Logger>(TOKENS.logger);
-        // Preserve existing behavior: auth layer captures config at construction.
-        return new AuthenticationLayerImpl(this.getCurrentConfig(), logger);
+        // Auth layer receives a config provider so authMode updates are reflected in real-time
+        return new AuthenticationLayerImpl(() => this.getCurrentConfig(), logger);
       });
     }
 

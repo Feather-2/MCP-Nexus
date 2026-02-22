@@ -376,6 +376,11 @@ export class PbMcpGateway extends EventEmitter {
     this.configManager.on('configUpdated', (event) => {
       this.emit('configUpdated', event);
     });
+
+    // Forward file-watcher-triggered config changes as configUpdated for consistency
+    this.configManager.on('configChanged', (config) => {
+      this.emit('configUpdated', { old: undefined, new: config });
+    });
   }
 
   // Signal handlers stored for cleanup
