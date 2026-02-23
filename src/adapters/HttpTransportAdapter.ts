@@ -164,11 +164,15 @@ export class HttpTransportAdapter extends EventEmitter implements TransportAdapt
         throw new Error(`HTTP request failed: ${response.status} ${response.statusText}`);
       }
 
-      const responseData = await response.json() as McpMessage;
-      
+      const responseData = await response.json() as Record<string, unknown>;
+
+      if (!responseData || typeof responseData !== 'object' || responseData.jsonrpc !== '2.0') {
+        throw new Error('Invalid JSON-RPC response: missing or invalid jsonrpc field');
+      }
+
       this.logger.trace(`HTTP request-response completed:`, { request: message, response: responseData });
-      
-      return responseData;
+
+      return responseData as unknown as McpMessage;
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
       throw new Error(`HTTP request timeout for message ${message.id}`, { cause: error });

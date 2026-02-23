@@ -5,7 +5,7 @@ import {
   Logger,
   ServiceTemplate
 } from '../types/index.js';
-import { readFile, writeFile, mkdir, access, rename } from 'fs/promises';
+import { readFile, writeFile, mkdir, access, rename, unlink } from 'fs/promises';
 import { join, dirname } from 'path';
 import { randomBytes } from 'crypto';
 import { EventEmitter } from 'events';
@@ -38,6 +38,7 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
   private templateManager: TemplateManager;
   private configWatcher: ConfigWatcher;
   private configBackup: ConfigBackup;
+  private configLock = Promise.resolve();
 
   constructor(
     configPathOrLogger: string | Logger,
@@ -144,7 +145,12 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
       const configJson = JSON.stringify(config, null, 2);
       const tmpPath = `${this.configPath}.${randomBytes(4).toString('hex')}.tmp`;
       await writeFile(tmpPath, configJson);
-      await rename(tmpPath, this.configPath);
+      try {
+        await rename(tmpPath, this.configPath);
+      } catch (renameError) {
+        try { await unlink(tmpPath); } catch { /* best-effort cleanup */ }
+        throw renameError;
+      }
 
       this.currentConfig = config;
 
@@ -166,13 +172,19 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
   }
 
   async updateConfig(updates: Partial<GatewayConfig>): Promise<GatewayConfig> {
-    const oldConfig = this.currentConfig;
-    const newConfig = { ...this.currentConfig, ...updates };
-    await this.saveConfig(newConfig);
-
-    this.emit('configUpdated', { old: oldConfig, new: newConfig });
-
-    return newConfig;
+    const prev = this.configLock;
+    let release!: () => void;
+    this.configLock = new Promise<void>(r => { release = r; });
+    await prev;
+    try {
+      const oldConfig = this.currentConfig;
+      const newConfig = { ...this.currentConfig, ...updates };
+      await this.saveConfig(newConfig);
+      this.emit('configUpdated', { old: oldConfig, new: newConfig });
+      return newConfig;
+    } finally {
+      release();
+    }
   }
 
   // ConfigManager interface methods

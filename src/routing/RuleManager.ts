@@ -135,7 +135,15 @@ export class RuleManager extends EventEmitter {
     if (!input.name || !input.condition || !input.action) {
       throw new Error('Invalid routing rule: missing required fields (name, condition, action)');
     }
-    return input as unknown as RoutingRule;
+    const rule: RoutingRule = {
+      name: String(input.name),
+      enabled: input.enabled !== false,
+      priority: typeof input.priority === 'number' ? input.priority : 0,
+      condition: input.condition as RoutingRule['condition'],
+      action: input.action as RoutingRule['action'],
+      ...(input.id ? { id: String(input.id) } : {}),
+    };
+    return rule;
   }
 
   private convertConditions(conds: unknown): unknown {

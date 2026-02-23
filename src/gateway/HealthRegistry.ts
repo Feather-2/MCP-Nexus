@@ -13,7 +13,7 @@ export class HealthRegistry {
   }
 
   setProbe(probe: (serviceId: string) => Promise<HealthCheckResult>): void {
-    (this.healthChecker as unknown as { setProbe?: (fn: unknown) => void }).setProbe?.(probe);
+    this.healthChecker.setProbe(probe);
   }
 
   async check(serviceId: string): Promise<HealthCheckResult> {
@@ -22,7 +22,7 @@ export class HealthRegistry {
 
   reportHeartbeat(serviceId: string, update: { healthy: boolean; latency?: number; error?: string }): void {
     try {
-      (this.healthChecker as unknown as { reportHeartbeat?: (id: string, u: unknown) => void }).reportHeartbeat?.(serviceId, update);
+      this.healthChecker.reportHeartbeat(serviceId, update);
     } catch (e) {
       this.logger.warn('Heartbeat report failed', { serviceId, error: (e as Error)?.message || String(e) });
     }

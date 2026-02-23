@@ -7,7 +7,7 @@ import {
   ServiceInstance,
   McpMessage,
   McpVersion,
-  
+  Disposable,
   Logger,
   MCP_VERSIONS
 } from '../types/index.js';
@@ -19,7 +19,7 @@ import { CommandValidator } from '../security/command-validator.js';
 
 const commandValidator = new CommandValidator({ allowShellMeta: false });
 
-export class McpProtocolStackImpl implements McpProtocolStack {
+export class McpProtocolStackImpl implements McpProtocolStack, Disposable {
   private instances = new Map<string, ServiceInstance>();
   private processes = new Map<string, ChildProcess>();
   private stateManager: ProcessStateManager;
@@ -528,5 +528,13 @@ export class McpProtocolStackImpl implements McpProtocolStack {
 
   off(event: string, listener: (...args: unknown[]) => void): void {
     this.eventEmitter.off(event, listener);
+  }
+
+  async dispose(): Promise<void> {
+    const serviceIds = [...this.instances.keys()];
+    for (const serviceId of serviceIds) {
+      await this.cleanupProcess(serviceId, true);
+    }
+    this.eventEmitter.removeAllListeners();
   }
 }

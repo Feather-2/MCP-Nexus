@@ -4,6 +4,16 @@ import { McpServiceConfig, Logger, McpVersion } from '../types/index.js';
 
 type SourceName = 'VSCode' | 'Cursor' | 'Windsurf' | 'Claude' | 'Cline';
 
+const DANGEROUS_KEYS = ['__proto__', 'constructor', 'prototype'];
+
+function sanitizeParsed(obj: unknown): Record<string, unknown> | null {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+  for (const key of DANGEROUS_KEYS) {
+    delete (obj as Record<string, unknown>)[key];
+  }
+  return obj as Record<string, unknown>;
+}
+
 export interface DiscoveredTemplate {
   source: SourceName;
   path: string;
@@ -290,13 +300,13 @@ export class ExternalMcpConfigImporter {
 
   private safeParseJson(raw: string): Record<string, unknown> | null {
     try {
-      return JSON.parse(raw);
+      return sanitizeParsed(JSON.parse(raw));
     } catch {
       // VS Code settings.json 可能不是严格 JSON（尾逗号/注释），这里做简单修复
       const stripped = this.stripJsoncComments(raw)
         .replace(/,\s*([}\]])/g, '$1');
       try {
-        return JSON.parse(stripped);
+        return sanitizeParsed(JSON.parse(stripped));
       } catch {
         return null;
       }
