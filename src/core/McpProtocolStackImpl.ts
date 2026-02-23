@@ -482,9 +482,10 @@ export class McpProtocolStackImpl implements McpProtocolStack {
 
       this.eventEmitter.emit('service-stopped', { serviceId, code, signal });
     }
+    this.cleanupProcess(serviceId, false, true).catch(() => { /* best-effort */ });
   }
 
-  private async cleanupProcess(serviceId: string, killOrphan = false): Promise<void> {
+  private async cleanupProcess(serviceId: string, killOrphan = false, preserveInstance = false): Promise<void> {
     const proc = this.processes.get(serviceId);
     if (killOrphan) {
       if (proc && !proc.killed && proc.exitCode == null) {
@@ -498,7 +499,7 @@ export class McpProtocolStackImpl implements McpProtocolStack {
       proc.stderr?.removeAllListeners();
     }
     // Remove from maps
-    this.instances.delete(serviceId);
+    if (!preserveInstance) this.instances.delete(serviceId);
     this.processes.delete(serviceId);
 
     // Cleanup shared parser state

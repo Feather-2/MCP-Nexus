@@ -7,6 +7,7 @@ export interface SecurityConfig {
   enableSymlinkGuard: boolean;
   bannedArguments: string[];
   sensitivePatterns: RegExp[];
+  logger?: { warn: (msg: string, meta?: Record<string, unknown>) => void };
 }
 
 const DEFAULT_SENSITIVE_PATTERNS = [
@@ -103,9 +104,10 @@ export class SecurityMiddleware implements Middleware {
     const lower = output.content.toLowerCase();
     if (lower.includes('ignore previous instructions') || lower.includes('disregard all previous')) {
       ctx.metadata.injectionAttempt = true;
-      // 在生产环境中可以选择直接中止
-      // state.aborted = true;
-      // throw new Error("Security Guard: Potential prompt injection detected");
+      this.config.logger?.warn('Potential prompt injection detected in model output', {
+        contentLength: output.content.length,
+        preview: output.content.slice(0, 100)
+      });
     }
   }
 

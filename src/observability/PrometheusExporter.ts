@@ -2,6 +2,8 @@ import { Registry, Counter, Histogram, Gauge } from 'prom-client';
 import type { EventBus } from '../events/bus.js';
 
 export class PrometheusExporter {
+  private static readonly MAX_LABEL_CARDINALITY = 50;
+  private readonly knownModels = new Set<string>();
   private registry: Registry;
   private executeSuccess: Counter;
   private executeTotal: Counter;
@@ -205,15 +207,31 @@ export class PrometheusExporter {
     });
   }
 
+  private sanitizeLabel(value: string): string {
+    return String(value).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 64) || 'unknown';
+  }
+
   recordLlmCall(model: string, durationMs: number, success: boolean, tokensUsed?: number): void {
-    this.llmCallTotal.inc({ model });
+    let safeModel = this.sanitizeLabel(model);
+    if (!this.knownModels.has(safeModel)) {
+      if (this.knownModels.size >= PrometheusExporter.MAX_LABEL_CARDINALITY) {
+        safeModel = 'other';
+      } else {
+        this.knownModels.add(safeModel);
+      }
+    }
+    this.llmCallTotal.inc({ model: safeModel });
     if (success) this.llmCallSuccess.inc();
     this.llmCallDuration.observe(durationMs);
     if (tokensUsed) this.llmTokensUsed.inc(tokensUsed);
   }
 
   recordError(category: string, severity: string, recoverable: boolean): void {
-    this.errorsTotal.inc({ category, severity, recoverable: String(recoverable) });
+    this.errorsTotal.inc({
+      category: this.sanitizeLabel(category),
+      severity: this.sanitizeLabel(severity),
+      recoverable: String(recoverable)
+    });
   }
 
   updateInfrastructureMetrics(stats: {

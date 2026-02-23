@@ -109,6 +109,7 @@ function normalizeCommand(command: string): string {
 }
 
 export class HookExecutor {
+  private static readonly MAX_HOOKS = 200;
   private hooks: ShellHook[] = [];
   private readonly options: Required<Pick<ExecutorOptions, 'timeout'>> &
     Omit<ExecutorOptions, 'timeout'>;
@@ -124,7 +125,12 @@ export class HookExecutor {
   }
 
   register(...hooks: ShellHook[]): void {
-    this.hooks.push(...hooks);
+    for (const hook of hooks) {
+      if (this.hooks.length >= HookExecutor.MAX_HOOKS) {
+        throw new Error(`Hook registration limit reached (${HookExecutor.MAX_HOOKS})`);
+      }
+      this.hooks.push(hook);
+    }
   }
 
   async execute(event: HookEventType, payload: Partial<HookPayload>): Promise<HookResult[]> {

@@ -103,6 +103,7 @@ function cloneChange(change: RiskChangeRecord): RiskChangeRecord {
 }
 
 export class SkillRiskAccumulator {
+  private static readonly MAX_TRACKED_SKILLS = 500;
   private readonly skillChanges = new Map<string, RiskChangeRecord[]>();
   private readonly windowMs: number;
   private readonly nowProvider: () => number;
@@ -132,6 +133,18 @@ export class SkillRiskAccumulator {
     if (pruned.length === 0) {
       this.skillChanges.delete(normalizedSkillId);
     } else {
+      if (!this.skillChanges.has(normalizedSkillId) && this.skillChanges.size >= SkillRiskAccumulator.MAX_TRACKED_SKILLS) {
+        let oldestKey: string | undefined;
+        let oldestTime = Infinity;
+        for (const [key, records] of this.skillChanges) {
+          const latest = records.length > 0 ? records[records.length - 1].timestamp : 0;
+          if (latest < oldestTime) {
+            oldestTime = latest;
+            oldestKey = key;
+          }
+        }
+        if (oldestKey) this.skillChanges.delete(oldestKey);
+      }
       this.skillChanges.set(normalizedSkillId, pruned);
     }
     return this.buildAccumulatedRisk(normalizedSkillId, pruned);

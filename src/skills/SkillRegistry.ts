@@ -103,7 +103,7 @@ type WatcherEntry = { watcher: AsyncFsWatcher; root: string; depth: number };
 export class SkillRegistry {
   private readonly logger?: Logger;
   private readonly loader: SkillLoader;
-  private readonly skills = new Map<string, Skill>();
+  private skills = new Map<string, Skill>();
   private readonly roots: string[];
   private readonly managedRoot: string;
   private watchEnabled = false;
@@ -152,13 +152,11 @@ export class SkillRegistry {
   async reload(): Promise<void> {
     const roots = await this.validateRoots();
     const loaded = await this.loader.loadAllSkills(roots);
-    // Build new map first, then swap atomically to avoid transient empty state
     const next = new Map<string, Skill>();
     for (const skill of loaded) {
       next.set(skill.metadata.name.toLowerCase(), skill);
     }
-    this.skills.clear();
-    for (const [k, v] of next) this.skills.set(k, v);
+    this.skills = next;
   }
 
   list(): SkillMetadata[] {

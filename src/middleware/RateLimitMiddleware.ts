@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { GatewayConfig } from '../types/index.js';
 import type { Context, Middleware, State } from './types.js';
@@ -12,6 +13,7 @@ interface RateLimitDecision {
 }
 
 class MemoryFixedWindowStore {
+  private static readonly MAX_BUCKETS = 10_000;
   private readonly buckets = new Map<string, { count: number; resetAtMs: number }>();
   private lastPurge = Date.now();
   private static readonly PURGE_INTERVAL_MS = 60_000;
@@ -27,6 +29,13 @@ class MemoryFixedWindowStore {
 
     if (limit <= 0 || window <= 0) {
       return { allowed: true, limit, remaining: limit, resetAtMs: nowMs };
+    }
+
+    if (!this.buckets.has(key) && this.buckets.size >= MemoryFixedWindowStore.MAX_BUCKETS) {
+      this.purgeExpired(nowMs);
+      if (this.buckets.size >= MemoryFixedWindowStore.MAX_BUCKETS) {
+        return { allowed: false, limit, remaining: 0, resetAtMs: nowMs + window };
+      }
     }
 
     const existing = this.buckets.get(key);
@@ -112,7 +121,7 @@ export class RateLimitMiddleware implements Middleware {
       this.options.keyGenerator?.(request) ??
       (() => {
         const apiKey = extractApiKey(request) || extractBearerToken(request) || '';
-        return apiKey ? `key:${apiKey.slice(0, 32)}` : `ip:${request.ip}`;
+        return apiKey ? `key:${createHash('sha256').update(apiKey).digest('hex').slice(0, 16)}` : `ip:${request.ip}`;
       })();
     const bucketKey = `${prefix}${key}`;
 

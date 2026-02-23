@@ -72,7 +72,7 @@ export class ContainerTransportAdapter extends EventEmitter implements Transport
     if (noNewPrivileges) runArgs.push('--security-opt', 'no-new-privileges:true');
     if (container.seccompProfile) {
       const profile = String(container.seccompProfile);
-      if (/^[\w.\-/]+$/.test(profile)) {
+      if (/^[\w.\-/]+$/.test(profile) && !profile.includes('..')) {
         runArgs.push('--security-opt', `seccomp=${profile}`);
       }
     }
