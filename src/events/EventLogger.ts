@@ -31,6 +31,7 @@ try {
 
 const SQLITE_AVAILABLE = Boolean(BetterSqlite);
 const DEFAULT_DB_PATH = 'data/event-log.db';
+const DEFAULT_MAX_ROWS = 500_000;
 const DEFAULT_QUERY_LIMIT = 100;
 const MAX_QUERY_LIMIT = 1000;
 
@@ -151,6 +152,7 @@ export class EventLogger {
   private readonly stmtStats: SqliteStatement | null;
   private readonly stmtStatsByType: SqliteStatement | null;
   private readonly stmtStatsByVersion: SqliteStatement | null;
+  private readonly stmtPrune: SqliteStatement | null;
 
   constructor(options?: EventLoggerOptions) {
     const dbPath = options?.dbPath ?? DEFAULT_DB_PATH;
@@ -160,6 +162,7 @@ export class EventLogger {
     let stmtStats: SqliteStatement | null = null;
     let stmtStatsByType: SqliteStatement | null = null;
     let stmtStatsByVersion: SqliteStatement | null = null;
+    let stmtPrune: SqliteStatement | null = null;
 
     if (SQLITE_AVAILABLE && BetterSqlite) {
       try {
@@ -179,6 +182,7 @@ export class EventLogger {
           CREATE INDEX IF NOT EXISTS idx_event_log_type ON event_log(type);
           CREATE INDEX IF NOT EXISTS idx_event_log_timestamp ON event_log(timestamp);
           CREATE INDEX IF NOT EXISTS idx_event_log_session_id ON event_log(session_id);
+          CREATE INDEX IF NOT EXISTS idx_event_log_created_at ON event_log(created_at);
         `);
 
         stmtInsert = db.prepare(`
@@ -203,6 +207,11 @@ export class EventLogger {
           FROM event_log
           GROUP BY version
         `);
+        stmtPrune = db.prepare(`
+          DELETE FROM event_log WHERE rowid IN (
+            SELECT rowid FROM event_log ORDER BY created_at ASC LIMIT ?
+          )
+        `);
       } catch {
         db?.close?.();
         db = null;
@@ -210,6 +219,7 @@ export class EventLogger {
         stmtStats = null;
         stmtStatsByType = null;
         stmtStatsByVersion = null;
+        stmtPrune = null;
       }
     }
 
@@ -218,6 +228,7 @@ export class EventLogger {
     this.stmtStats = stmtStats;
     this.stmtStatsByType = stmtStatsByType;
     this.stmtStatsByVersion = stmtStatsByVersion;
+    this.stmtPrune = stmtPrune;
   }
 
   isEnabled(): boolean {
@@ -346,6 +357,21 @@ export class EventLogger {
       latestTimestamp:
         typeof totals?.latest_timestamp === 'number' ? new Date(totals.latest_timestamp) : undefined
     };
+  }
+
+  prune(maxRows?: number): number {
+    if (!this.db || !this.stmtPrune) return 0;
+    const limit = typeof maxRows === 'number' && maxRows > 0 ? maxRows : DEFAULT_MAX_ROWS;
+    const stats = this.stmtStats?.get() as StatsRow | undefined;
+    const total = stats?.total ?? 0;
+    if (total <= limit) return 0;
+    const excess = total - limit;
+    try {
+      this.stmtPrune.run(excess);
+      return excess;
+    } catch {
+      return 0;
+    }
   }
 
   close(): void {

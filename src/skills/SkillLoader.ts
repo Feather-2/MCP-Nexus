@@ -494,10 +494,10 @@ export class SkillLoader {
 
       if (this.versionTracker && this.diffAnalyzer && this.riskAccumulator) {
         const skillId = name;
-        const history = this.versionTracker.getVersionHistory(skillId);
+        const history = await this.versionTracker.getVersionHistory(skillId);
         const previousVersion = history.length > 0 ? history[history.length - 1] : null;
 
-        this.versionTracker.recordVersion(skillId, raw);
+        await this.versionTracker.recordVersion(skillId, raw);
 
         if (previousVersion && previousVersion.content !== raw) {
           const riskFlags = this.diffAnalyzer.analyzeDiff(previousVersion.content, raw);

@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import path from 'path';
-import { mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { mkdir, readFile, writeFile } from 'fs/promises';
 import type { Logger } from '../types/index.js';
 
 const VERSION_DIR_NAME = path.join('data', 'skill-versions');
@@ -99,10 +99,10 @@ export class SkillVersionTracker {
     this.nowProvider = options.nowProvider ?? Date.now;
   }
 
-  recordVersion(skillId: string, content: string, metadata: object = {}): string {
+  async recordVersion(skillId: string, content: string, metadata: object = {}): Promise<string> {
     const normalizedSkillId = normalizeSkillId(skillId);
     const normalizedContent = String(content ?? '');
-    const history = this.readHistory(normalizedSkillId);
+    const history = await this.readHistory(normalizedSkillId);
     const hash = sha256(normalizedContent);
 
     history.versions.push({
@@ -116,7 +116,7 @@ export class SkillVersionTracker {
       history.versions.splice(0, history.versions.length - 50);
     }
 
-    this.writeHistory(normalizedSkillId, history);
+    await this.writeHistory(normalizedSkillId, history);
     this.logger?.debug('Skill version recorded', {
       skillId: normalizedSkillId,
       hash,
@@ -126,20 +126,20 @@ export class SkillVersionTracker {
     return hash;
   }
 
-  getVersionHistory(skillId: string): VersionEntry[] {
+  async getVersionHistory(skillId: string): Promise<VersionEntry[]> {
     const normalizedSkillId = normalizeSkillId(skillId);
-    const history = this.readHistory(normalizedSkillId);
+    const history = await this.readHistory(normalizedSkillId);
     return history.versions.map((entry) => cloneVersion(entry));
   }
 
-  getVersion(skillId: string, versionHash: string): VersionEntry | null {
+  async getVersion(skillId: string, versionHash: string): Promise<VersionEntry | null> {
     const normalizedSkillId = normalizeSkillId(skillId);
     const normalizedHash = String(versionHash || '').trim().toLowerCase();
     if (!normalizedHash) {
       return null;
     }
 
-    const history = this.readHistory(normalizedSkillId);
+    const history = await this.readHistory(normalizedSkillId);
     for (let index = history.versions.length - 1; index >= 0; index -= 1) {
       const entry = history.versions[index];
       if (entry?.hash === normalizedHash) {
@@ -154,11 +154,11 @@ export class SkillVersionTracker {
     return path.join(this.storageRoot, VERSION_DIR_NAME, `${skillId}.json`);
   }
 
-  private readHistory(skillId: string): VersionHistoryDocument {
+  private async readHistory(skillId: string): Promise<VersionHistoryDocument> {
     const filePath = this.getSkillFilePath(skillId);
 
     try {
-      const raw = readFileSync(filePath, 'utf8');
+      const raw = await readFile(filePath, 'utf8');
       const parsed = JSON.parse(raw) as unknown;
       const versionsRaw = Array.isArray(parsed)
         ? parsed
@@ -183,12 +183,12 @@ export class SkillVersionTracker {
     }
   }
 
-  private writeHistory(skillId: string, history: VersionHistoryDocument): void {
+  private async writeHistory(skillId: string, history: VersionHistoryDocument): Promise<void> {
     const filePath = this.getSkillFilePath(skillId);
 
     try {
-      mkdirSync(path.dirname(filePath), { recursive: true });
-      writeFileSync(filePath, JSON.stringify({
+      await mkdir(path.dirname(filePath), { recursive: true });
+      await writeFile(filePath, JSON.stringify({
         skillId,
         versions: history.versions
       }, null, 2), 'utf8');

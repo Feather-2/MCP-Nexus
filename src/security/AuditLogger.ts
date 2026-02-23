@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import path from 'path';
-import { appendFile, mkdir, readFile } from 'fs/promises';
+import { appendFile, mkdir, open, readFile } from 'fs/promises';
 import type { Logger } from '../types/index.js';
 
 const GENESIS_HASH = '0'.repeat(64);
@@ -141,15 +141,37 @@ export class AuditLogger {
   private async getLastHash(): Promise<string> {
     if (this.lastHash) return this.lastHash;
 
-    const lines = await this.readLines();
-    if (lines.length === 0) {
+    const lastLine = await this.readLastLine();
+    if (!lastLine) {
       this.lastHash = GENESIS_HASH;
       return this.lastHash;
     }
 
-    const lastEntry = parseEntry(lines[lines.length - 1] || '');
+    const lastEntry = parseEntry(lastLine);
     this.lastHash = lastEntry?.hash || GENESIS_HASH;
     return this.lastHash;
+  }
+
+  private async readLastLine(): Promise<string | null> {
+    try {
+      const fh = await open(this.filePath, 'r');
+      try {
+        const stat = await fh.stat();
+        if (stat.size === 0) return null;
+        const chunkSize = Math.min(4096, stat.size);
+        const buffer = Buffer.alloc(chunkSize);
+        await fh.read(buffer, 0, chunkSize, stat.size - chunkSize);
+        const tail = buffer.toString('utf8');
+        const lines = tail.split(/\r?\n/).filter(l => l.trim().length > 0);
+        return lines.length > 0 ? lines[lines.length - 1] : null;
+      } finally {
+        await fh.close();
+      }
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      if (err?.code === 'ENOENT') return null;
+      throw new Error('Failed to read audit log tail', { cause: error });
+    }
   }
 
   private async readLines(): Promise<string[]> {

@@ -21,7 +21,7 @@ describe('SkillVersionTracker', () => {
     const tracker = new SkillVersionTracker({ storageRoot: tmpRoot });
     const content = '# Demo Skill\n\ncontent-v1';
 
-    const versionHash = tracker.recordVersion('demo-skill', content, {
+    const versionHash = await tracker.recordVersion('demo-skill', content, {
       modifiedBy: 'alice',
       reason: 'initial'
     });
@@ -29,7 +29,7 @@ describe('SkillVersionTracker', () => {
     const expected = crypto.createHash('sha256').update(content, 'utf8').digest('hex');
     expect(versionHash).toBe(expected);
 
-    const history = tracker.getVersionHistory('demo-skill');
+    const history = await tracker.getVersionHistory('demo-skill');
     expect(history).toHaveLength(1);
     expect(history[0]).toEqual({
       hash: expected,
@@ -48,50 +48,50 @@ describe('SkillVersionTracker', () => {
     expect(stored.versions).toHaveLength(1);
   });
 
-  it('returns full version history in insertion order', () => {
+  it('returns full version history in insertion order', async () => {
     const tracker = new SkillVersionTracker({ storageRoot: tmpRoot });
 
-    const firstHash = tracker.recordVersion('demo-skill', 'content-v1', { reason: 'v1' });
-    const secondHash = tracker.recordVersion('demo-skill', 'content-v2', { reason: 'v2' });
+    const firstHash = await tracker.recordVersion('demo-skill', 'content-v1', { reason: 'v1' });
+    const secondHash = await tracker.recordVersion('demo-skill', 'content-v2', { reason: 'v2' });
 
-    const history = tracker.getVersionHistory('demo-skill');
+    const history = await tracker.getVersionHistory('demo-skill');
     expect(history.map((entry) => entry.hash)).toEqual([firstHash, secondHash]);
     expect(history[0]?.metadata.reason).toBe('v1');
     expect(history[1]?.metadata.reason).toBe('v2');
   });
 
-  it('gets specific version by hash', () => {
+  it('gets specific version by hash', async () => {
     const tracker = new SkillVersionTracker({ storageRoot: tmpRoot });
-    const hash = tracker.recordVersion('demo-skill', 'content-v1', { modifiedBy: 'bob' });
+    const hash = await tracker.recordVersion('demo-skill', 'content-v1', { modifiedBy: 'bob' });
 
-    const entry = tracker.getVersion('demo-skill', hash);
+    const entry = await tracker.getVersion('demo-skill', hash);
     expect(entry).not.toBeNull();
     expect(entry?.hash).toBe(hash);
     expect(entry?.metadata.modifiedBy).toBe('bob');
   });
 
-  it('returns null when target version does not exist', () => {
+  it('returns null when target version does not exist', async () => {
     const tracker = new SkillVersionTracker({ storageRoot: tmpRoot });
-    tracker.recordVersion('demo-skill', 'content-v1', {});
+    await tracker.recordVersion('demo-skill', 'content-v1', {});
 
-    expect(tracker.getVersion('demo-skill', 'missing-hash')).toBeNull();
-    expect(tracker.getVersion('demo-skill', '')).toBeNull();
+    expect(await tracker.getVersion('demo-skill', 'missing-hash')).toBeNull();
+    expect(await tracker.getVersion('demo-skill', '')).toBeNull();
   });
 
-  it('returns empty history for non-existent skill', () => {
+  it('returns empty history for non-existent skill', async () => {
     const tracker = new SkillVersionTracker({ storageRoot: tmpRoot });
-    expect(tracker.getVersionHistory('missing-skill')).toEqual([]);
+    expect(await tracker.getVersionHistory('missing-skill')).toEqual([]);
   });
 
   it('normalizes and filters metadata fields', async () => {
     const tracker = new SkillVersionTracker({ storageRoot: tmpRoot });
-    tracker.recordVersion('demo-skill', 'content-v1', {
+    await tracker.recordVersion('demo-skill', 'content-v1', {
       modifiedBy: '  alice  ',
       reason: '  change reason  ',
       extra: 'ignored'
     } as unknown as object);
 
-    const [entry] = tracker.getVersionHistory('demo-skill');
+    const [entry] = await tracker.getVersionHistory('demo-skill');
     expect(entry?.metadata).toEqual({
       modifiedBy: 'alice',
       reason: 'change reason'
@@ -106,16 +106,16 @@ describe('SkillVersionTracker', () => {
       ]
     }), 'utf8');
 
-    const malformedHistory = tracker.getVersionHistory('malformed-skill');
+    const malformedHistory = await tracker.getVersionHistory('malformed-skill');
     expect(malformedHistory).toHaveLength(1);
     expect(malformedHistory[0]?.content).toBe('ok');
   });
 
-  it('throws for invalid skill ID values', () => {
+  it('throws for invalid skill ID values', async () => {
     const tracker = new SkillVersionTracker({ storageRoot: tmpRoot });
 
-    expect(() => tracker.recordVersion('', 'content', {})).toThrow('Skill id is required');
-    expect(() => tracker.recordVersion('bad/id', 'content', {})).toThrow('Invalid skill id');
-    expect(() => tracker.getVersionHistory('bad\\id')).toThrow('Invalid skill id');
+    await expect(tracker.recordVersion('', 'content', {})).rejects.toThrow('Skill id is required');
+    await expect(tracker.recordVersion('bad/id', 'content', {})).rejects.toThrow('Invalid skill id');
+    await expect(tracker.getVersionHistory('bad\\id')).rejects.toThrow('Invalid skill id');
   });
 });
