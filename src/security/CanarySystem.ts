@@ -155,6 +155,12 @@ export async function checkCanaryAccess(sandboxRoot: string): Promise<CanaryChec
 
   for (const canary of state.canaries) {
     const absolutePath = path.join(sandboxRoot, canary.relativePath);
+    const resolved = path.resolve(absolutePath);
+    const resolvedRoot = path.resolve(sandboxRoot);
+    if (!resolved.startsWith(resolvedRoot + path.sep) && resolved !== resolvedRoot) {
+      accessedFiles.push(canary.relativePath);
+      continue;
+    }
     try {
       const info = await stat(absolutePath);
       const atimeMs = normalizeMs(info.atimeMs);

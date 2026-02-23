@@ -26,6 +26,8 @@ function updateMetrics(existing: ServiceMetrics | undefined, serviceId: string, 
 }
 
 export class IntelligentLoadBalancer {
+  private static readonly MAX_CURSOR_KEYS = 1000;
+
   private readonly warmupDurationMs: number;
   private rrCursorByKey = new Map<string, number>();
 
@@ -41,6 +43,10 @@ export class IntelligentLoadBalancer {
 
   private nextCursor(key: string): number {
     const cursor = this.rrCursorByKey.get(key) ?? 0;
+    if (!this.rrCursorByKey.has(key) && this.rrCursorByKey.size >= IntelligentLoadBalancer.MAX_CURSOR_KEYS) {
+      const oldest = this.rrCursorByKey.keys().next().value;
+      if (oldest !== undefined) this.rrCursorByKey.delete(oldest);
+    }
     this.rrCursorByKey.set(key, (cursor + 1) % 0x7FFFFFFF);
     return cursor;
   }

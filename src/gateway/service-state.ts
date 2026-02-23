@@ -103,7 +103,12 @@ export class ServiceObservationStore {
     return this.revision;
   }
 
+  private static readonly MAX_SUBSCRIBERS = 100;
+
   subscribe(subscriber: ServiceObservationSubscriber): () => void {
+    if (this.subscribers.size >= ServiceObservationStore.MAX_SUBSCRIBERS) {
+      throw new Error('ServiceObservationStore: too many subscribers');
+    }
     this.subscribers.add(subscriber);
     return () => {
       this.subscribers.delete(subscriber);

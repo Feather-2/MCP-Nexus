@@ -92,6 +92,12 @@ export class UnifiedErrorHandler {
     const autoRecoveryAttempted = !!context?.autoRecover && recoverable && (svcRecoveries < 3);
     if (autoRecoveryAttempted) {
       this.stats.recoveryAttemptsByService[recoveryKey] = svcRecoveries + 1;
+      const recoveryKeys = Object.keys(this.stats.recoveryAttemptsByService);
+      if (recoveryKeys.length > 500) {
+        for (const k of recoveryKeys.slice(0, recoveryKeys.length - 500)) {
+          delete this.stats.recoveryAttemptsByService[k];
+        }
+      }
       this.stats.recoveryAttempts++;
     }
     return { suggestion, recoverable, autoRecoveryAttempted };

@@ -154,6 +154,9 @@ export interface EventBusStats {
 }
 
 export class EventBus {
+  private static readonly MAX_EVENT_TYPES = 500;
+  private static readonly MAX_SUBS_PER_TYPE = 100;
+
   private readonly queueDepth: number;
   private readonly bufferSize: number;
   private readonly deduper: LRUDeduper;
@@ -276,8 +279,14 @@ export class EventBus {
 
     let bucket = this.subs.get(type);
     if (!bucket) {
+      if (this.subs.size >= EventBus.MAX_EVENT_TYPES) {
+        throw new Error('events: too many event types');
+      }
       bucket = new Map();
       this.subs.set(type, bucket);
+    }
+    if (bucket.size >= EventBus.MAX_SUBS_PER_TYPE) {
+      throw new Error(`events: too many subscribers for type ${String(type)}`);
     }
     bucket.set(id, entry);
 
