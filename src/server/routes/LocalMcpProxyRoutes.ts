@@ -24,6 +24,9 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
   private codeRotationMs: number = LocalMcpProxyRoutes.CODE_ROTATION_MS; // 60s
   private codeRotationTimer?: ReturnType<typeof setInterval>;
 
+  private static readonly MAX_HANDSHAKES = 1000;
+  private static readonly MAX_TOKENS = 5000;
+
   // Handshake and token stores
   private handshakeStore = new Map<string, {
     id: string;
@@ -100,6 +103,10 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
         const kdf: 'pbkdf2' = 'pbkdf2';
         const kdfParams = { iterations: 200_000, hash: 'SHA-256', length: 32 };
         const expiresIn = LocalMcpProxyRoutes.HANDSHAKE_EXPIRY_SECONDS; // seconds
+
+        if (this.handshakeStore.size >= LocalMcpProxyRoutes.MAX_HANDSHAKES) {
+          return this.respondError(reply, 503, 'Too many pending handshakes', { code: 'LIMIT_REACHED' });
+        }
 
         this.handshakeStore.set(handshakeId, {
           id: handshakeId,
@@ -179,6 +186,9 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
         // Issue token
         const token = randomBytes(32).toString('base64');
         const expiresIn = LocalMcpProxyRoutes.TOKEN_EXPIRY_SECONDS; // 10 minutes
+        if (this.tokenStore.size >= LocalMcpProxyRoutes.MAX_TOKENS) {
+          return this.respondError(reply, 503, 'Token store limit reached', { code: 'LIMIT_REACHED' });
+        }
         this.tokenStore.set(token, { origin, expiresAt: Date.now() + expiresIn * 1000 });
 
         // One-time handshake consumption
@@ -339,7 +349,7 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
       this.respondError(reply, 403, 'Invalid origin', { code: 'FORBIDDEN', recoverable: true });
       return null;
     }
-    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1' && hostname !== '[::1]') {
       this.respondError(reply, 403, 'Invalid origin', { code: 'FORBIDDEN', recoverable: true });
       return null;
     }

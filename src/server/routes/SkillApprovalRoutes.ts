@@ -45,12 +45,14 @@ export class SkillApprovalRoutes extends BaseRouteHandler {
   }
 
   private async listAll(_request: FastifyRequest, reply: FastifyReply): Promise<void> {
-    const records = await this.approver!.list();
+    if (!this.approver) return this.respondError(reply, 503, 'Approval subsystem not initialized', { code: 'NOT_READY' }) as unknown as void;
+    const records = await this.approver.list();
     return reply.send({ records });
   }
 
   private async listPending(_request: FastifyRequest, reply: FastifyReply): Promise<void> {
-    const records = await this.approver!.list('pending');
+    if (!this.approver) return this.respondError(reply, 503, 'Approval subsystem not initialized', { code: 'NOT_READY' }) as unknown as void;
+    const records = await this.approver.list('pending');
     return reply.send({ records });
   }
 
@@ -66,7 +68,8 @@ export class SkillApprovalRoutes extends BaseRouteHandler {
     const { id } = paramsParsed.data;
     const { userId, reason } = bodyParsed.data;
 
-    const record = await this.approver!.approve(id, userId, reason);
+    if (!this.approver) return this.respondError(reply, 503, 'Approval subsystem not initialized', { code: 'NOT_READY' }) as unknown as void;
+    const record = await this.approver.approve(id, userId, reason);
     if (!record) {
       return reply.status(404).send({ error: 'Record not found' });
     }
@@ -86,7 +89,8 @@ export class SkillApprovalRoutes extends BaseRouteHandler {
     const { id } = paramsParsed.data;
     const { userId, reason } = bodyParsed.data;
 
-    const record = await this.approver!.reject(id, userId, reason);
+    if (!this.approver) return this.respondError(reply, 503, 'Approval subsystem not initialized', { code: 'NOT_READY' }) as unknown as void;
+    const record = await this.approver.reject(id, userId, reason);
     if (!record) {
       return reply.status(404).send({ error: 'Record not found' });
     }

@@ -43,6 +43,9 @@ export class GatewayRouterImpl extends EventEmitter implements GatewayRouter, Di
 
   // GatewayRouter interface methods
   addRoute(pattern: string, handler: RouteHandler): void {
+    if (!this.routeHandlers.has(pattern) && this.routeHandlers.size >= 1000) {
+      throw new Error('Route handler limit reached (1000)');
+    }
     this.routeHandlers.set(pattern, handler);
     this.logger.info(`Added route handler for pattern: ${pattern}`);
   }

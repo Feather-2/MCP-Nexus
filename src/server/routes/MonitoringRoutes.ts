@@ -99,7 +99,7 @@ export class MonitoringRoutes extends BaseRouteHandler {
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to collect metrics';
         this.ctx.logger.error('Failed to collect Prometheus metrics', { message });
-        return reply.code(500).send({ error: message });
+        return this.respondError(reply, 500, 'Failed to collect metrics', { code: 'METRICS_ERROR' });
       }
     });
 
@@ -139,7 +139,7 @@ export class MonitoringRoutes extends BaseRouteHandler {
         }
         return reply.send(info);
       } catch (error) {
-        return reply.code(500).send({ error: (error as Error)?.message });
+        return this.respondError(reply, 500, 'Health check failed', { code: 'HEALTH_CHECK_FAILED' });
       }
     });
 
@@ -187,7 +187,7 @@ export class MonitoringRoutes extends BaseRouteHandler {
         const agg = await this.ctx.serviceRegistry.getHealthAggregates();
         reply.send(agg);
       } catch (error) {
-        reply.code(500).send({ error: (error as Error)?.message });
+        return this.respondError(reply, 500, 'Failed to get health metrics', { code: 'HEALTH_METRICS_ERROR' });
       }
     });
 
@@ -248,7 +248,7 @@ export class MonitoringRoutes extends BaseRouteHandler {
         await this.alertManager.checkAndAlert(alertMetrics);
         reply.send({ status: 'checked', metrics: alertMetrics });
       } catch (error) {
-        reply.code(500).send({ error: (error as Error)?.message });
+        return this.respondError(reply, 500, 'Alert check failed', { code: 'ALERT_CHECK_ERROR' });
       }
     });
 

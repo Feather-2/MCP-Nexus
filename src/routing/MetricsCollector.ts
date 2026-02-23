@@ -15,6 +15,7 @@ export interface RequestRecord {
 }
 
 export class MetricsCollector {
+  private static readonly MAX_SERVICES = 500;
   private serviceMetrics = new Map<string, ServiceLoadMetrics>();
   private costMetrics = new Map<string, ServiceCostMetrics>();
   private contentAnalysis = new Map<string, ServiceContentAnalysis>();
@@ -58,6 +59,7 @@ export class MetricsCollector {
   }
 
   updateServiceMetrics(serviceId: string, metrics: Partial<ServiceLoadMetrics> & Record<string, unknown>): void {
+    if (!this.serviceMetrics.has(serviceId) && this.serviceMetrics.size >= MetricsCollector.MAX_SERVICES) return;
     const existing = this.serviceMetrics.get(serviceId) || {
       requestCount: 0,
       successRate: 1,
@@ -79,10 +81,12 @@ export class MetricsCollector {
   }
 
   updateServiceCostMetrics(serviceId: string, costMetrics: ServiceCostMetrics): void {
+    if (!this.costMetrics.has(serviceId) && this.costMetrics.size >= MetricsCollector.MAX_SERVICES) return;
     this.costMetrics.set(serviceId, costMetrics);
   }
 
   updateServiceContentAnalysis(serviceId: string, analysis: ServiceContentAnalysis): void {
+    if (!this.contentAnalysis.has(serviceId) && this.contentAnalysis.size >= MetricsCollector.MAX_SERVICES) return;
     this.contentAnalysis.set(serviceId, analysis);
   }
 
