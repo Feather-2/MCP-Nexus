@@ -111,6 +111,7 @@ export class McpProtocolStackImpl implements McpProtocolStack {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.eventEmitter.off(`message:${serviceId}`, onMessage);
+        process.off('exit', onExit);
         reject(new Error(`Timeout waiting for message from ${serviceId}`));
       }, timeoutMs);
       (timeout as unknown as { unref?: () => void }).unref?.();
@@ -118,6 +119,7 @@ export class McpProtocolStackImpl implements McpProtocolStack {
       const onMessage = (msg: McpMessage) => {
         clearTimeout(timeout);
         this.eventEmitter.off(`message:${serviceId}`, onMessage);
+        process.off('exit', onExit);
         resolve(msg);
       };
 

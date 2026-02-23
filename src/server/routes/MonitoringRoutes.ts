@@ -112,12 +112,13 @@ export class MonitoringRoutes extends BaseRouteHandler {
         if (rl.store !== 'redis') return reply.send({ enabled: true, store: 'memory' });
 
         const info: Record<string, unknown> = { enabled: true, store: 'redis', connected: false };
+        let client: { ping: () => Promise<string>; quit: () => Promise<unknown>; disconnect: () => void } | undefined;
         try {
           const { default: IORedis } = await import('ioredis');
           const redisCfg = (rl.redis || {}) as Record<string, unknown>;
-          let client: { ping: () => Promise<string>; quit: () => Promise<unknown> };
+          const connectOpts = { connectTimeout: 3000, lazyConnect: false } as Record<string, unknown>;
           if (redisCfg.url) {
-            client = new (IORedis as unknown as new (url: string) => typeof client)(redisCfg.url as string);
+            client = new (IORedis as unknown as new (url: string, opts: Record<string, unknown>) => typeof client)(redisCfg.url as string, connectOpts);
           } else {
             client = new (IORedis as unknown as new (opts: Record<string, unknown>) => typeof client)({
               host: (redisCfg.host as string) || '127.0.0.1',
@@ -125,14 +126,16 @@ export class MonitoringRoutes extends BaseRouteHandler {
               username: redisCfg.username as string | undefined,
               password: redisCfg.password as string | undefined,
               db: redisCfg.db as number | undefined,
-              tls: redisCfg.tls ? {} : undefined
+              tls: redisCfg.tls ? {} : undefined,
+              connectTimeout: 3000
             });
           }
-          const pong = await client.ping();
+          const pong = await client!.ping();
           info.connected = pong === 'PONG';
-          await client.quit();
         } catch (e: unknown) {
           info.error = (e as Error)?.message || String(e);
+        } finally {
+          try { await client?.quit(); } catch { client?.disconnect(); }
         }
         return reply.send(info);
       } catch (error) {

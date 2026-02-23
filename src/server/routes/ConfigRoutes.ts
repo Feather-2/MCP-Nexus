@@ -48,7 +48,7 @@ export class ConfigRoutes extends BaseRouteHandler {
         const PartialSchema = GatewayConfigSchema.partial();
         const updates = PartialSchema.parse((request.body as Record<string, unknown>) || {});
         const updatedConfig = await this.ctx.configManager.updateConfig(updates as Partial<GatewayConfig>);
-        reply.send({ success: true, message: 'Configuration updated successfully', config: updatedConfig });
+        reply.send({ success: true, message: 'Configuration updated successfully', config: redactConfig(updatedConfig) });
       } catch (error) {
         if (error instanceof z.ZodError) {
           return this.respondError(reply, 400, 'Invalid configuration payload', { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });

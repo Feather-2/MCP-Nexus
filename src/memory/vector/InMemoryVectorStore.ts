@@ -5,6 +5,7 @@ import type { VectorDocument, VectorQueryResult, VectorStore } from './types.js'
 type Stored = VectorDocument & { vector: number[] };
 
 export class InMemoryVectorStore implements VectorStore {
+  private static readonly MAX_DOCUMENTS = 10_000;
   private readonly byId = new Map<string, Stored>();
   private readonly dim: number;
 
@@ -14,6 +15,9 @@ export class InMemoryVectorStore implements VectorStore {
 
   async upsert(doc: Omit<VectorDocument, 'id'> & { id?: string }): Promise<string> {
     const id = doc.id || randomUUID();
+    if (!this.byId.has(id) && this.byId.size >= InMemoryVectorStore.MAX_DOCUMENTS) {
+      throw new Error('Vector store capacity reached; delete documents before inserting new ones');
+    }
     const stored: Stored = {
       id,
       text: String(doc.text || ''),
