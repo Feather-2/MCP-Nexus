@@ -652,7 +652,7 @@ export class HttpApiServer implements Disposable {
     this.server.setNotFoundHandler(async (request, reply) => {
       reply.code(404).send({
         error: 'Not Found',
-        message: `Route ${request.method} ${request.url} not found`,
+        message: `Route ${request.method} not found`,
         timestamp: new Date().toISOString()
       });
     });

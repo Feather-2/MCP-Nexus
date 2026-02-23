@@ -33,6 +33,7 @@ function makeMockReplyAndSocket() {
       if (!socketListeners[event]) socketListeners[event] = [];
       socketListeners[event].push(cb);
     }),
+    off: vi.fn(),
   };
   const mockRaw = {
     writeHead: vi.fn(),

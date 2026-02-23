@@ -102,7 +102,7 @@ describe('OrchestratorRoutes - branch coverage', () => {
       ({ app } = await buildApp({ orchestratorManager: mgr }));
       const res = await app.inject({ method: 'GET', url: '/api/orchestrator/config' });
       expect(res.statusCode).toBe(500);
-      expect(res.json().error).toBe('cfg boom');
+      expect(res.json().error.message).toBe('cfg boom');
     });
   });
 
@@ -177,7 +177,7 @@ describe('OrchestratorRoutes - branch coverage', () => {
       }));
       const res = await app.inject({ method: 'GET', url: '/api/orchestrator/subagents' });
       expect(res.statusCode).toBe(500);
-      expect(res.json().error).toBe('load fail');
+      expect(res.json().error.message).toBe('load fail');
     });
   });
 

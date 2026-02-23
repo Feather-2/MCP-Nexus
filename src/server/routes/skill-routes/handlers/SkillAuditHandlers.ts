@@ -65,9 +65,8 @@ export function createAuditSummaryHandler(
   initPromise: Promise<void>
 ) {
   return async (request: FastifyRequest, reply: FastifyReply) => {
-    const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
-
     try {
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
       await initPromise;
       const skill = registry.get(params.name);
       if (!skill) {
@@ -95,6 +94,9 @@ export function createAuditSummaryHandler(
         }
       });
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        return ctx.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
+      }
       const message = error instanceof Error ? error.message : t('errors.skill_audit_summary_failed');
       return ctx.respondError(reply, 500, message, { code: 'SKILL_AUDIT_SUMMARY_FAILED' });
     }

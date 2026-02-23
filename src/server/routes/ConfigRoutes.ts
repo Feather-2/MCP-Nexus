@@ -66,7 +66,8 @@ export class ConfigRoutes extends BaseRouteHandler {
         if (value === null) {
           return this.respondError(reply, 404, 'Configuration key not found', { code: 'NOT_FOUND', recoverable: true, meta: { key } });
         }
-        reply.send({ key, value });
+        const safeValue = (typeof value === 'object' && value !== null) ? redactConfig(value) : (SENSITIVE_KEY_RE.test(key.split('.').pop() || '') && typeof value === 'string' && value.length > 0 ? '***REDACTED***' : value);
+        reply.send({ key, value: safeValue });
       } catch (error) {
         if (error instanceof z.ZodError) {
           return this.respondError(reply, 400, 'Invalid config key', { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });

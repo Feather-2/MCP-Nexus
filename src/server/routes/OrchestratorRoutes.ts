@@ -74,7 +74,7 @@ export class OrchestratorRoutes extends BaseRouteHandler {
         const config = this.ctx.orchestratorManager.getConfig();
         reply.send({ config });
       } catch (error) {
-        reply.code(500).send({ error: (error as Error)?.message });
+        return this.respondError(reply, 500, (error as Error)?.message || 'Failed to get orchestrator config', { code: 'ORCHESTRATOR_ERROR' });
       }
     });
 
@@ -110,7 +110,7 @@ export class OrchestratorRoutes extends BaseRouteHandler {
         const subagents = await loader.loadAll();
         reply.send({ subagents });
       } catch (error) {
-        reply.code(500).send({ error: (error as Error)?.message });
+        return this.respondError(reply, 500, (error as Error)?.message || 'Failed to list subagents', { code: 'ORCHESTRATOR_ERROR' });
       }
     });
 

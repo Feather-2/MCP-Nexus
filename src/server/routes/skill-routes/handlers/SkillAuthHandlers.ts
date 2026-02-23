@@ -13,9 +13,8 @@ export function createGetPermissionsHandler(
   initPromise: Promise<void>
 ) {
   return async (request: FastifyRequest, reply: FastifyReply) => {
-    const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
-
     try {
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
       await initPromise;
       const skill = registry.get(params.name);
       if (!skill) {
@@ -29,6 +28,9 @@ export function createGetPermissionsHandler(
         authorization: authState
       });
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        return ctx.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
+      }
       const message = error instanceof Error ? error.message : t('errors.skill_permissions_get_failed');
       return ctx.respondError(reply, 500, message, { code: 'SKILL_PERMISSIONS_GET_FAILED' });
     }
@@ -42,8 +44,6 @@ export function createAuthorizeHandler(
   initPromise: Promise<void>
 ) {
   return async (request: FastifyRequest, reply: FastifyReply) => {
-    const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
-
     let body: z.infer<typeof AuthorizeBodySchema>;
     try {
       body = AuthorizeBodySchema.parse((request.body as Record<string, unknown>) || {});
@@ -53,6 +53,7 @@ export function createAuthorizeHandler(
     }
 
     try {
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
       await initPromise;
       const skill = registry.get(params.name);
       if (!skill) {
@@ -66,6 +67,9 @@ export function createAuthorizeHandler(
 
       reply.send({ success: true, authorization: authState });
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        return ctx.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
+      }
       const message = error instanceof Error ? error.message : t('errors.skill_authorize_failed');
       return ctx.respondError(reply, 500, message, { code: 'SKILL_AUTHORIZE_FAILED' });
     }
@@ -79,9 +83,8 @@ export function createRevokeHandler(
   initPromise: Promise<void>
 ) {
   return async (request: FastifyRequest, reply: FastifyReply) => {
-    const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
-
     try {
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
       await initPromise;
       const skill = registry.get(params.name);
       if (!skill) {
@@ -91,6 +94,9 @@ export function createRevokeHandler(
       const authState = await authorization.revoke(params.name);
       reply.send({ success: true, authorization: authState });
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        return ctx.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
+      }
       const message = error instanceof Error ? error.message : t('errors.skill_revoke_failed');
       return ctx.respondError(reply, 500, message, { code: 'SKILL_REVOKE_FAILED' });
     }

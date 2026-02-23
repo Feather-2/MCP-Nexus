@@ -38,6 +38,9 @@ export function createListHandler(
 
       reply.send({ success: true, skills: filteredSkills });
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        return ctx.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
+      }
       const message = error instanceof Error ? error.message : t('errors.skills_list_failed');
       return ctx.respondError(reply, 500, message, { code: 'SKILLS_LIST_FAILED' });
     }
@@ -51,10 +54,9 @@ export function createGetHandler(
   initPromise: Promise<void>
 ) {
   return async (request: FastifyRequest, reply: FastifyReply) => {
-    const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
-    const query = GetSkillQuerySchema.parse((request.query as Record<string, unknown>) || {});
-
     try {
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
+      const query = GetSkillQuerySchema.parse((request.query as Record<string, unknown>) || {});
       await initPromise;
       const skill = registry.get(params.name);
       if (!skill) {
@@ -77,6 +79,9 @@ export function createGetHandler(
         }
       });
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        return ctx.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
+      }
       const message = error instanceof Error ? error.message : t('errors.skill_get_failed');
       return ctx.respondError(reply, 500, message, { code: 'SKILL_GET_FAILED' });
     }
@@ -90,9 +95,8 @@ export function createGetContentHandler(
   initPromise: Promise<void>
 ) {
   return async (request: FastifyRequest, reply: FastifyReply) => {
-    const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
-
     try {
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
       await initPromise;
       const skill = registry.get(params.name);
       if (!skill) {
@@ -107,6 +111,9 @@ export function createGetContentHandler(
         metadata: skill.metadata
       });
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        return ctx.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
+      }
       const message = error instanceof Error ? error.message : t('errors.skill_get_failed');
       return ctx.respondError(reply, 500, message, { code: 'SKILL_GET_FAILED' });
     }
@@ -154,9 +161,8 @@ export function createDeleteHandler(
   onRegistryChange: () => void
 ) {
   return async (request: FastifyRequest, reply: FastifyReply) => {
-    const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
-
     try {
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
       await initPromise;
       const deleted = await registry.delete(params.name);
       if (deleted) {
@@ -164,6 +170,9 @@ export function createDeleteHandler(
       }
       reply.send({ success: true, deleted });
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        return ctx.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
+      }
       const message = error instanceof Error ? error.message : t('errors.skill_delete_failed');
       return ctx.respondError(reply, 500, message, { code: 'SKILL_DELETE_FAILED' });
     }

@@ -28,13 +28,15 @@ export function createListVersionsHandler(
   initPromise: Promise<void>
 ) {
   return async (request: FastifyRequest, reply: FastifyReply) => {
-    const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
-
     try {
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
       await initPromise;
       const versions = await versionStore.list(params.name);
       reply.send({ success: true, versions });
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        return ctx.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
+      }
       const message = error instanceof Error ? error.message : t('errors.skill_versions_list_failed');
       return ctx.respondError(reply, 500, message, { code: 'SKILL_VERSIONS_LIST_FAILED' });
     }
@@ -49,8 +51,6 @@ export function createCreateVersionHandler(
   initPromise: Promise<void>
 ) {
   return async (request: FastifyRequest, reply: FastifyReply) => {
-    const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
-
     let body: z.infer<typeof CreateVersionBodySchema>;
     try {
       body = CreateVersionBodySchema.parse((request.body as Record<string, unknown>) || {});
@@ -60,6 +60,7 @@ export function createCreateVersionHandler(
     }
 
     try {
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
       await initPromise;
       const skill = registry.get(params.name);
       if (!skill) {
@@ -70,6 +71,9 @@ export function createCreateVersionHandler(
       const snapshot = await versionStore.save(params.name, files, body.reason);
       reply.send({ success: true, snapshot });
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        return ctx.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
+      }
       const message = error instanceof Error ? error.message : t('errors.skill_version_save_failed');
       return ctx.respondError(reply, 500, message, { code: 'SKILL_VERSION_SAVE_FAILED' });
     }
@@ -85,12 +89,11 @@ export function createRollbackHandler(
   onRegistryChange: () => void
 ) {
   return async (request: FastifyRequest, reply: FastifyReply) => {
-    const params = z.object({
-      name: z.string().min(1),
-      versionId: z.string().min(1)
-    }).parse(request.params as Record<string, unknown>);
-
     try {
+      const params = z.object({
+        name: z.string().min(1),
+        versionId: z.string().min(1)
+      }).parse(request.params as Record<string, unknown>);
       await initPromise;
       const skill = registry.get(params.name);
       if (!skill) {
@@ -119,6 +122,9 @@ export function createRollbackHandler(
         });
       }
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        return ctx.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
+      }
       const message = error instanceof Error ? error.message : t('errors.skill_rollback_failed');
       return ctx.respondError(reply, 500, message, { code: 'SKILL_ROLLBACK_FAILED' });
     }

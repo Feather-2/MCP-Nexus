@@ -28,6 +28,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object';
 }
 
+const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
   private configPath: string;
   private templatesPath: string;
@@ -177,8 +179,9 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
   async get<T = unknown>(key: string): Promise<T | null> {
     // Simple key-value access to current config
     const keys = key.split('.');
+    if (keys.some(k => DANGEROUS_KEYS.has(k))) return null;
     let value: unknown = this.currentConfig;
-    
+
     for (const k of keys) {
       if (!isRecord(value) || !(k in value)) return null;
 
@@ -199,9 +202,12 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
     if (!lastKey) {
       throw new Error('Invalid key path');
     }
-    
+    if (DANGEROUS_KEYS.has(lastKey) || keys.some(k => DANGEROUS_KEYS.has(k))) {
+      throw new Error('Invalid key path: contains restricted property name');
+    }
+
     let target: Record<string, unknown> = this.currentConfig as unknown as Record<string, unknown>;
-    
+
     for (const k of keys) {
       const next = target[k];
       if (!isRecord(next)) {
@@ -229,7 +235,8 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
     if (!lastKey) {
       return false;
     }
-    
+    if (DANGEROUS_KEYS.has(lastKey) || keys.some(k => DANGEROUS_KEYS.has(k))) return false;
+
     let target: Record<string, unknown> = this.currentConfig as unknown as Record<string, unknown>;
     
     for (const k of keys) {

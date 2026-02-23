@@ -443,8 +443,23 @@ export class ToolRoutes extends BaseRouteHandler {
   /**
    * Record execution to history
    */
+  private static truncateForHistory(value: unknown): unknown {
+    if (value === undefined || value === null) return value;
+    try {
+      const json = JSON.stringify(value);
+      if (json.length <= 4096) return value;
+      return json.slice(0, 4096) + '...(truncated)';
+    } catch {
+      return '[unserializable]';
+    }
+  }
+
   private recordExecution(record: ExecutionRecord): void {
-    this.executionHistory.push(record);
+    this.executionHistory.push({
+      ...record,
+      params: ToolRoutes.truncateForHistory(record.params),
+      result: ToolRoutes.truncateForHistory(record.result)
+    });
     if (this.executionHistory.length > ToolRoutes.MAX_HISTORY_SIZE) {
       this.executionHistory.shift();
     }

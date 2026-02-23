@@ -13,10 +13,9 @@ export function createGetLocalizedHandler(
   initPromise: Promise<void>
 ) {
   return async (request: FastifyRequest, reply: FastifyReply) => {
-    const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
-    const query = LocalizedSkillQuerySchema.parse((request.query as Record<string, unknown>) || {});
-
     try {
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
+      const query = LocalizedSkillQuerySchema.parse((request.query as Record<string, unknown>) || {});
       await initPromise;
       const skill = registry.get(params.name);
       if (!skill) {
@@ -28,6 +27,9 @@ export function createGetLocalizedHandler(
 
       reply.send({ success: true, localized });
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        return ctx.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
+      }
       const message = error instanceof Error ? error.message : t('errors.skill_localize_failed');
       return ctx.respondError(reply, 500, message, { code: 'SKILL_LOCALIZE_FAILED' });
     }
@@ -41,8 +43,6 @@ export function createDistributeHandler(
   initPromise: Promise<void>
 ) {
   return async (request: FastifyRequest, reply: FastifyReply) => {
-    const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
-
     let body: z.infer<typeof DistributeBodySchema>;
     try {
       body = DistributeBodySchema.parse((request.body as Record<string, unknown>) || {});
@@ -52,6 +52,7 @@ export function createDistributeHandler(
     }
 
     try {
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
       await initPromise;
       const skill = registry.get(params.name);
       if (!skill) {
@@ -61,6 +62,9 @@ export function createDistributeHandler(
       const distributed = await localizer.distribute(skill, normalizePlatforms(body.platforms));
       reply.send({ success: true, distributed });
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        return ctx.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
+      }
       const message = error instanceof Error ? error.message : t('errors.skill_distribute_failed');
       return ctx.respondError(reply, 500, message, { code: 'SKILL_DISTRIBUTE_FAILED' });
     }
@@ -74,8 +78,6 @@ export function createUndistributeHandler(
   initPromise: Promise<void>
 ) {
   return async (request: FastifyRequest, reply: FastifyReply) => {
-    const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
-
     let body: z.infer<typeof DistributeBodySchema>;
     try {
       body = DistributeBodySchema.parse((request.body as Record<string, unknown>) || {});
@@ -85,6 +87,7 @@ export function createUndistributeHandler(
     }
 
     try {
+      const params = z.object({ name: z.string().min(1) }).parse(request.params as Record<string, unknown>);
       await initPromise;
       const skill = registry.get(params.name);
       if (!skill) {
@@ -94,6 +97,9 @@ export function createUndistributeHandler(
       await localizer.undistribute(params.name, normalizePlatforms(body.platforms));
       reply.send({ success: true });
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        return ctx.respondError(reply, 400, t('errors.invalid_request_body'), { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
+      }
       const message = error instanceof Error ? error.message : t('errors.skill_undistribute_failed');
       return ctx.respondError(reply, 500, message, { code: 'SKILL_UNDISTRIBUTE_FAILED' });
     }
