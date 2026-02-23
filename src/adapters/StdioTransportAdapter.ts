@@ -15,6 +15,7 @@ function isWithinPath(targetPath: string, rootPath: string): boolean {
 export class StdioTransportAdapter extends EventEmitter implements TransportAdapter {
   private static readonly commandValidator = new CommandValidator({ allowShellMeta: false });
   private static readonly MAX_QUEUE_SIZE = 1000;
+  private static readonly MAX_PENDING_CALLBACKS = 1000;
 
   readonly type = 'stdio' as const;
   readonly version: McpVersion;
@@ -385,6 +386,9 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
 
   // Send a message and wait for response with matching ID
   async sendAndReceive(message: McpMessage): Promise<McpMessage> {
+    if (this.responseCallbacks.size >= StdioTransportAdapter.MAX_PENDING_CALLBACKS) {
+      throw new Error('Too many pending requests; upstream may be unresponsive');
+    }
     if (!message.id) {
       message.id = `req-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
     }

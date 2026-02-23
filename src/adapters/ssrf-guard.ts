@@ -8,6 +8,8 @@ import type { McpServiceConfig } from '../types/index.js';
 const BLOCKED_HOST_PATTERNS: ReadonlyArray<RegExp> = [
   /^127\./, /^10\./, /^172\.(1[6-9]|2\d|3[01])\./, /^192\.168\./,
   /^169\.254\./, /^0\./, /^localhost$/i, /^\[?::1\]?$/, /^\[?::ffff:127\./,
+  /^metadata\.google\.internal$/i,
+  /^\[?fe80:/i, /^\[?fd[0-9a-f]{2}:/i,
 ];
 
 /**

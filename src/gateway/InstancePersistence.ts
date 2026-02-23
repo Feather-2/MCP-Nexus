@@ -35,6 +35,9 @@ export class InstancePersistence implements Disposable {
     try {
       const raw = await fs.readFile(this.filePath, 'utf-8');
       const parsed = JSON.parse(raw) as InstancePersistenceData;
+      delete (parsed as unknown as Record<string, unknown>)['__proto__'];
+      delete (parsed as unknown as Record<string, unknown>)['constructor'];
+      delete (parsed as unknown as Record<string, unknown>)['prototype'];
       if (parsed.version === 1 && parsed.instances) {
         this.data = parsed;
         this.logger.info('loaded persisted instances', { count: Object.keys(this.data.instances).length });

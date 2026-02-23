@@ -289,7 +289,9 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
 
   // Session management methods
   async createSession(context: AuthContext): Promise<string> {
-    // Create a session token (reuse token generation logic)
+    if (this.tokens.size >= AuthenticationLayerImpl.MAX_TOKENS) {
+      throw new Error('Session limit reached; revoke existing sessions first');
+    }
     const sessionId = this.generateSecureToken();
     
     // Store session data (reuse token storage for now)
@@ -599,6 +601,10 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
 
   importTokens(tokens: Array<{ token: string; userId: string; permissions: string[]; expiresAt: string }>): void {
     for (const tokenInfo of tokens) {
+      if (this.tokens.size >= AuthenticationLayerImpl.MAX_TOKENS) {
+        this.logger.warn('Import stopped: token limit reached');
+        break;
+      }
       this.tokens.set(tokenInfo.token, {
         userId: tokenInfo.userId,
         permissions: tokenInfo.permissions,
@@ -611,6 +617,10 @@ export class AuthenticationLayerImpl extends EventEmitter implements Authenticat
 
   importApiKeys(apiKeys: Array<{ apiKey: string; name: string; permissions: string[]; createdAt: string }>): void {
     for (const keyInfo of apiKeys) {
+      if (this.apiKeys.size >= AuthenticationLayerImpl.MAX_API_KEYS) {
+        this.logger.warn('Import stopped: API key limit reached');
+        break;
+      }
       this.apiKeys.set(keyInfo.apiKey, {
         name: keyInfo.name,
         permissions: keyInfo.permissions,

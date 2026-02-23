@@ -104,7 +104,9 @@ export class OrchestratorManager {
     } catch (error) {
       // ignore directory exists or mock without promise
     }
-    await fs.writeFile(this.configPath, JSON.stringify(config, null, 2), 'utf-8');
+    const tmpPath = this.configPath + '.tmp';
+    await fs.writeFile(tmpPath, JSON.stringify(config, null, 2), 'utf-8');
+    await fs.rename(tmpPath, this.configPath);
     if (!skipLog) {
       this.logger.info('Orchestrator configuration saved', {
         enabled: config.enabled,
@@ -113,8 +115,8 @@ export class OrchestratorManager {
     }
   }
 
-  private deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
-    if (!source) return target;
+  private deepMerge(target: Record<string, unknown>, source: Record<string, unknown>, depth = 0): Record<string, unknown> {
+    if (!source || depth > 10) return target;
     const output: Record<string, unknown> = { ...target };
     for (const key of Object.keys(source)) {
       if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
@@ -122,7 +124,7 @@ export class OrchestratorManager {
       if (srcVal === undefined) continue;
       const tgtVal = output[key];
       if (srcVal && typeof srcVal === 'object' && !Array.isArray(srcVal) && Object.getPrototypeOf(srcVal) === Object.prototype) {
-        output[key] = this.deepMerge((tgtVal ?? {}) as Record<string, unknown>, srcVal as Record<string, unknown>);
+        output[key] = this.deepMerge((tgtVal ?? {}) as Record<string, unknown>, srcVal as Record<string, unknown>, depth + 1);
       } else {
         output[key] = srcVal;
       }

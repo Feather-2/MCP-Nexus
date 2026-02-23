@@ -2,17 +2,19 @@ import { OrchestratorManager } from '../../orchestrator/OrchestratorManager.js';
 import type { Logger, OrchestratorConfig } from '../../types/index.js';
 import path from 'path';
 
-const { readFileMock, writeFileMock, mkdirMock } = vi.hoisted(() => ({
+const { readFileMock, writeFileMock, mkdirMock, renameMock } = vi.hoisted(() => ({
   readFileMock: vi.fn(),
   writeFileMock: vi.fn().mockResolvedValue(undefined),
-  mkdirMock: vi.fn().mockResolvedValue(undefined)
+  mkdirMock: vi.fn().mockResolvedValue(undefined),
+  renameMock: vi.fn().mockResolvedValue(undefined)
 }));
 
 vi.mock('fs', () => ({
   promises: {
     readFile: readFileMock,
     writeFile: writeFileMock,
-    mkdir: mkdirMock
+    mkdir: mkdirMock,
+    rename: renameMock
   }
 }));
 
@@ -31,6 +33,7 @@ describe('OrchestratorManager', () => {
     readFileMock.mockReset();
     writeFileMock.mockReset();
     mkdirMock.mockReset();
+    renameMock.mockReset();
   });
 
   it('loads orchestrator configuration when file exists', async () => {

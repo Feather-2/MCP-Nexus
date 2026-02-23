@@ -26,7 +26,7 @@ export class CircuitBreaker {
   private state: CircuitState = 'CLOSED';
   private lastStateChange: number = Date.now();
   private halfOpenSuccesses: number = 0;
-  private readonly stats: RequestStat[] = [];
+  private stats: RequestStat[] = [];
   private successCount = 0;
   private errorCount = 0;
 
@@ -76,6 +76,17 @@ export class CircuitBreaker {
    */
   recordResult(success: boolean): void {
     const now = Date.now();
+    if (this.stats.length >= 10_000) {
+      this.pruneOldStats();
+      if (this.stats.length >= 10_000) {
+        this.stats = this.stats.slice(-5_000);
+        this.successCount = 0;
+        this.errorCount = 0;
+        for (const s of this.stats) {
+          if (s.success) this.successCount++; else this.errorCount++;
+        }
+      }
+    }
     this.stats.push({ timestamp: now, success });
     if (success) this.successCount++; else this.errorCount++;
     this.pruneOldStats();

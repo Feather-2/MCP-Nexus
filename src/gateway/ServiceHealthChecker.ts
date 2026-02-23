@@ -2,6 +2,7 @@ import { HealthCheckResult, Logger, Disposable } from '../types/index.js';
 import type { ServiceObservationStore } from './service-state.js';
 
 export class ServiceHealthChecker implements Disposable {
+  private static readonly MAX_MONITORED = 500;
   private monitoringServices = new Set<string>();
   private checkInterval = 5000; // 5 seconds
   private probe?: (serviceId: string) => Promise<HealthCheckResult>;
@@ -38,6 +39,10 @@ export class ServiceHealthChecker implements Disposable {
 
   async startMonitoring(serviceId?: string): Promise<void> {
     if (serviceId) {
+      if (!this.monitoringServices.has(serviceId) && this.monitoringServices.size >= ServiceHealthChecker.MAX_MONITORED) {
+        this.logger.warn('Health monitoring limit reached', { limit: ServiceHealthChecker.MAX_MONITORED });
+        return;
+      }
       this.monitoringServices.add(serviceId);
       this.logger.debug(`Started health monitoring for: ${serviceId}`);
     }
