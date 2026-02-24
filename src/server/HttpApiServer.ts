@@ -130,13 +130,29 @@ export class HttpApiServer implements Disposable {
     this.addMiddleware(
       new AuthMiddleware(this.authLayer, {
         respondError: this.respondError.bind(this),
-        requiresAuth: (req) => req.url.startsWith('/api/')
+        requiresAuth: (req) => {
+          const url = req.url.split('?')[0];
+          if (url.startsWith('/api/')) return true;
+          if (url === '/mcp' || url === '/events' || url === '/sse') return true;
+          if (url === '/tools' || url === '/call') return true;
+          if (url.startsWith('/local-proxy/call')) return true;
+          if (url.startsWith('/local-proxy/tools')) return true;
+          if (url === '/handshake/approve') return true;
+          return false;
+        }
       })
     );
     this.addMiddleware(
       new RateLimitMiddleware(configProvider, {
         respondError: this.respondError.bind(this),
-        requiresRateLimit: (req) => req.url.startsWith('/api/') && !req.url.startsWith('/api/health')
+        requiresRateLimit: (req) => {
+          const url = req.url.split('?')[0];
+          if (url === '/health' || url.startsWith('/api/health')) return false;
+          if (url.startsWith('/api/')) return true;
+          if (url === '/mcp' || url === '/tools' || url === '/call') return true;
+          if (url.startsWith('/local-proxy/call') || url.startsWith('/local-proxy/tools')) return true;
+          return false;
+        }
       })
     );
 
@@ -643,17 +659,23 @@ export class HttpApiServer implements Disposable {
         ? 'Internal Server Error'
         : (error as Error)?.message;
       reply.code(500).send({
-        error: 'Internal Server Error',
-        message: safeMessage,
-        timestamp: new Date().toISOString()
+        success: false,
+        error: {
+          message: safeMessage || 'Internal Server Error',
+          code: 'INTERNAL_ERROR',
+          recoverable: false
+        }
       });
     });
 
     this.server.setNotFoundHandler(async (request, reply) => {
       reply.code(404).send({
-        error: 'Not Found',
-        message: `Route ${request.method} not found`,
-        timestamp: new Date().toISOString()
+        success: false,
+        error: {
+          message: `Route ${request.method} ${request.url} not found`,
+          code: 'NOT_FOUND',
+          recoverable: false
+        }
       });
     });
   }

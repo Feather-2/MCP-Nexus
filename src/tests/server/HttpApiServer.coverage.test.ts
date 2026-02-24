@@ -55,7 +55,10 @@ describe('HttpApiServer – extended coverage', () => {
     const res = await (server as any).server.inject({ method: 'GET', url: '/nonexistent-route-xyz' });
     expect(res.statusCode).toBe(404);
     const body = res.json();
-    expect(body.error).toBe('Not Found');
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe('NOT_FOUND');
+    expect(body.error.message).toContain('GET');
+    expect(body.error.recoverable).toBe(false);
   });
 
   it('getServer returns fastify instance', () => {
