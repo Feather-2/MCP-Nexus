@@ -79,7 +79,14 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
           clientNonce: z.string().min(1),
           codeProof: z.string().regex(/^[a-fA-F0-9]{64}$/)
         });
-        const { clientNonce, codeProof } = initSchema.parse((request.body as Record<string, unknown>) || {});
+        const parsed = this.parseOrReply(
+          reply,
+          initSchema,
+          (request.body as Record<string, unknown>) || {},
+          'Invalid request body'
+        );
+        if (!parsed) return;
+        const { clientNonce, codeProof } = parsed;
 
         // Rate limit per origin (max 5/minute)
         if (!this.checkRateLimit(`init:${origin}`, 5, 60_000)) {
@@ -122,9 +129,6 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
         this.ctx.addLogEntry('info', 'mcp.local.handshake_init', undefined, { origin, handshakeId });
         reply.send({ handshakeId, serverNonce, expiresIn, kdf, kdfParams });
       } catch (error: unknown) {
-        if (error instanceof z.ZodError) {
-          return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
-        }
         // Error already handled in requireAndValidateOrigin
         if (!reply.sent) return this.respondError(reply, 500, (error as Error)?.message || 'Internal error', { code: 'INTERNAL_ERROR' });
       }
@@ -136,13 +140,13 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
         handshakeId: z.string().min(1),
         approve: z.boolean().optional().default(true)
       });
-      let parsed: z.infer<typeof approveSchema>;
-      try {
-        parsed = approveSchema.parse((request.body as Record<string, unknown>) || {});
-      } catch (error) {
-        const zodErr = error as z.ZodError;
-        return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: zodErr.issues });
-      }
+      const parsed = this.parseOrReply(
+        reply,
+        approveSchema,
+        (request.body as Record<string, unknown>) || {},
+        'Invalid request body'
+      );
+      if (!parsed) return;
       const { handshakeId, approve } = parsed;
       const hs = this.handshakeStore.get(handshakeId);
       if (!hs) return this.respondError(reply, 404, 'Handshake not found', { code: 'NOT_FOUND', recoverable: true });
@@ -161,7 +165,14 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
           handshakeId: z.string().min(1),
           response: z.string().min(1)
         });
-        const { handshakeId, response } = confirmSchema.parse((request.body as Record<string, unknown>) || {});
+        const parsed = this.parseOrReply(
+          reply,
+          confirmSchema,
+          (request.body as Record<string, unknown>) || {},
+          'Invalid request body'
+        );
+        if (!parsed) return;
+        const { handshakeId, response } = parsed;
         const hs = this.handshakeStore.get(handshakeId);
         if (!hs) return this.respondError(reply, 404, 'Handshake not found', { code: 'NOT_FOUND', recoverable: true });
         if (Date.now() > hs.expiresAt) return this.respondError(reply, 409, 'Handshake expired', { code: 'EXPIRED', recoverable: true });
@@ -196,9 +207,6 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
         this.ctx.addLogEntry('info', 'mcp.local.handshake_confirm', undefined, { origin });
         reply.send({ success: true, token, expiresIn });
       } catch (error: unknown) {
-        if (error instanceof z.ZodError) {
-          return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
-        }
         if (!reply.sent) return this.respondError(reply, 500, (error as Error)?.message || 'Internal error', { code: 'INTERNAL_ERROR' });
       }
     });
@@ -254,14 +262,14 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
     if (!token) return this.respondError(reply, 401, 'Missing Authorization', { code: 'UNAUTHORIZED', recoverable: true });
     if (!this.validateToken(token, origin)) return this.respondError(reply, 403, 'Forbidden', { code: 'FORBIDDEN', recoverable: true });
     const qSchema = z.object({ serviceId: z.string().min(1).optional() });
-    let serviceId: string | undefined;
-    try {
-      const parsed = qSchema.parse((request.query as Record<string, unknown>) || {});
-      serviceId = parsed.serviceId;
-    } catch (error) {
-      const zodErr = error as z.ZodError;
-      return this.respondError(reply, 400, 'Invalid query', { code: 'BAD_REQUEST', recoverable: true, meta: zodErr.issues });
-    }
+    const parsedQuery = this.parseOrReply(
+      reply,
+      qSchema,
+      (request.query as Record<string, unknown>) || {},
+      'Invalid query'
+    );
+    if (!parsedQuery) return;
+    const { serviceId } = parsedQuery;
     try {
       const service = await this.findTargetService(serviceId);
       if (!service) return this.respondError(reply, 404, 'No suitable service', { code: 'NO_SERVICE', recoverable: true });
@@ -303,16 +311,16 @@ export class LocalMcpProxyRoutes extends BaseRouteHandler {
       params: z.record(z.string(), z.unknown()).optional(),
       serviceId: z.string().min(1).optional()
     });
-    let tool: string, params: Record<string, unknown> | undefined, serviceId: string | undefined;
-    try {
-      const parsed = callSchema.parse((request.body as Record<string, unknown>) || {});
-      tool = parsed.tool;
-      params = parsed.params || {};
-      serviceId = parsed.serviceId;
-    } catch (error) {
-      const zodErr = error as z.ZodError;
-      return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: zodErr.issues });
-    }
+    const parsed = this.parseOrReply(
+      reply,
+      callSchema,
+      (request.body as Record<string, unknown>) || {},
+      'Invalid request body'
+    );
+    if (!parsed) return;
+    const tool = parsed.tool;
+    const params = parsed.params || {};
+    const serviceId = parsed.serviceId;
     try {
       const service = await this.findTargetService(serviceId);
       if (!service) return this.respondError(reply, 404, 'No suitable service', { code: 'NO_SERVICE', recoverable: true });

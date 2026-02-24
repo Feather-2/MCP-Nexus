@@ -47,10 +47,10 @@ export default defineConfig({
       ],
       all: true,
       thresholds: {
-        lines: 25,      // Current: 24.69% → Target: gradually increase
+        lines: 40,      // Raised from 25 after routing + route validation coverage improvements
         functions: 50,  // Current: 53.04% → Already above
         branches: 60,   // Current: 62.26% → Already above
-        statements: 25  // Current: 24.69% → Target: gradually increase
+        statements: 40  // Raised in lockstep with lines threshold
       }
     }
   }

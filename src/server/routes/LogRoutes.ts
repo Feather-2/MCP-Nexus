@@ -16,15 +16,20 @@ export class LogRoutes extends BaseRouteHandler {
 
     // Get recent logs
     server.get('/api/logs', async (request: FastifyRequest, reply: FastifyReply) => {
+      const Q = z.object({ limit: z.coerce.number().int().positive().max(1000).optional().default(50) });
+      const parsed = this.parseOrReply(
+        reply,
+        Q,
+        (request.query as Record<string, unknown>) || {},
+        'Invalid query'
+      );
+      if (!parsed) return;
+
       try {
-        const Q = z.object({ limit: z.coerce.number().int().positive().max(1000).optional().default(50) });
-        const { limit } = Q.parse((request.query as Record<string, unknown>) || {});
+        const { limit } = parsed;
         const recentLogs = this.ctx.logBuffer.slice(-limit);
         reply.send(recentLogs);
       } catch (error) {
-        if (error instanceof z.ZodError) {
-          return this.respondError(reply, 400, 'Invalid query', { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
-        }
         return this.respondError(reply, 500, (error as Error)?.message || 'Failed to get logs', { code: 'LOG_ERROR' });
       }
     });

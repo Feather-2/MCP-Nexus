@@ -83,15 +83,19 @@ export class OrchestratorRoutes extends BaseRouteHandler {
       if (!this.ctx.orchestratorManager) {
         return this.respondError(reply, 503, 'Orchestrator manager not available', { code: 'UNAVAILABLE' });
       }
+      const updates = this.parseOrReply(
+        reply,
+        OrchestratorConfigSchema.partial(),
+        (request.body ?? {}) as Record<string, unknown>,
+        'Invalid orchestrator configuration'
+      ) as Partial<OrchestratorConfig> | null;
+      if (!updates) return;
+
       try {
-        const updates = OrchestratorConfigSchema.partial().parse((request.body ?? {}) as Record<string, unknown>) as Partial<OrchestratorConfig>;
         const updated = await this.ctx.orchestratorManager.updateConfig(updates);
         reply.send({ success: true, config: updated });
       } catch (error) {
         this.ctx.logger.error('Failed to update orchestrator configuration', error);
-        if (error instanceof z.ZodError) {
-          return this.respondError(reply, 400, 'Invalid orchestrator configuration', { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
-        }
         return this.respondError(reply, 400, (error as Error)?.message || 'Invalid orchestrator configuration', { code: 'BAD_REQUEST', recoverable: true });
       }
     });
@@ -116,6 +120,17 @@ export class OrchestratorRoutes extends BaseRouteHandler {
 
     // Execute orchestrated plan
     server.post('/api/orchestrator/execute', async (request: FastifyRequest, reply: FastifyReply) => {
+      const Body = ExecuteRequestSchema.extend({
+        context: z.record(z.string(), z.unknown()).optional()
+      });
+      const parsed = this.parseOrReply(
+        reply,
+        Body,
+        (request.body as Record<string, unknown>) || {},
+        'Invalid execution request'
+      );
+      if (!parsed) return;
+
       try {
         const status = this.ctx.getOrchestratorStatus ? this.ctx.getOrchestratorStatus() : undefined;
         if (!status?.enabled || !this.ctx.orchestratorManager) {
@@ -127,10 +142,6 @@ export class OrchestratorRoutes extends BaseRouteHandler {
         }
         const loader = this.ctx.subagentLoader || this.subagentLoader || (this.ctx.getSubagentLoader ? this.ctx.getSubagentLoader() : undefined);
 
-        const Body = ExecuteRequestSchema.extend({
-          context: z.record(z.string(), z.unknown()).optional()
-        });
-        const parsed = Body.parse((request.body as Record<string, unknown>) || {});
         if (!parsed.goal && (!parsed.steps || parsed.steps.length === 0)) {
           return this.respondError(reply, 400, 'goal or steps is required', { code: 'BAD_REQUEST', recoverable: true });
         }
@@ -154,17 +165,21 @@ export class OrchestratorRoutes extends BaseRouteHandler {
         });
       } catch (error) {
         this.ctx.logger.error('Orchestration execution failed', error);
-        if (error instanceof z.ZodError) {
-          return this.respondError(reply, 400, 'Invalid execution request', { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
-        }
         return this.respondError(reply, 500, (error as Error)?.message || 'Execute failed', { code: 'EXECUTE_FAILED' });
       }
     });
 
     // Create/update subagent
     server.post('/api/orchestrator/subagents', async (request: FastifyRequest, reply: FastifyReply) => {
+      const config = this.parseOrReply(
+        reply,
+        SubagentConfigSchema,
+        (request.body as Record<string, unknown>) || {},
+        'Invalid subagent config'
+      ) as SubagentConfig | null;
+      if (!config) return;
+
       try {
-        const config = SubagentConfigSchema.parse((request.body as Record<string, unknown>) || {}) as SubagentConfig;
         const status = this.ctx.getOrchestratorStatus ? this.ctx.getOrchestratorStatus() : undefined;
         if (!status) {
           return this.respondError(reply, 503, 'Orchestrator not available', { code: 'UNAVAILABLE' });
@@ -186,18 +201,23 @@ export class OrchestratorRoutes extends BaseRouteHandler {
 
         reply.code(201).send({ success: true, name: safeName });
       } catch (error) {
-        if (error instanceof z.ZodError) {
-          return this.respondError(reply, 400, 'Invalid subagent config', { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
-        }
         return this.respondError(reply, 500, (error as Error)?.message || 'Save subagent failed', { code: 'SUBAGENT_SAVE_FAILED' });
       }
     });
 
     // Delete subagent
     server.delete('/api/orchestrator/subagents/:name', async (request: FastifyRequest, reply: FastifyReply) => {
+      const Params = z.object({ name: z.string().min(1) });
+      const parsed = this.parseOrReply(
+        reply,
+        Params,
+        request.params as Record<string, unknown>,
+        'Invalid subagent name'
+      );
+      if (!parsed) return;
+
       try {
-        const Params = z.object({ name: z.string().min(1) });
-        const { name } = Params.parse(request.params as Record<string, unknown>);
+        const { name } = parsed;
         const status = this.ctx.getOrchestratorStatus ? this.ctx.getOrchestratorStatus() : undefined;
         if (!status) {
           return this.respondError(reply, 503, 'Orchestrator not available', { code: 'UNAVAILABLE' });
@@ -222,9 +242,6 @@ export class OrchestratorRoutes extends BaseRouteHandler {
 
         reply.send({ success: true, name: safeName });
       } catch (error) {
-        if (error instanceof z.ZodError) {
-          return this.respondError(reply, 400, 'Invalid subagent name', { code: 'BAD_REQUEST', recoverable: true, meta: error.issues });
-        }
         return this.respondError(reply, 500, (error as Error)?.message || 'Delete subagent failed', { code: 'SUBAGENT_DELETE_FAILED' });
       }
     });

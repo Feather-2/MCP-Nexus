@@ -1,4 +1,5 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { z } from 'zod';
 import type { Logger } from '../../types/index.js';
 import { ServiceRegistryImpl } from '../../gateway/ServiceRegistryImpl.js';
 import { AuthenticationLayerImpl } from '../../auth/AuthenticationLayerImpl.js';
@@ -15,6 +16,7 @@ import type { InstancePersistence } from '../../gateway/InstancePersistence.js';
 import type { DeploymentPolicy } from '../../security/DeploymentPolicy.js';
 import type { ToolListCache } from '../../gateway/ToolListCache.js';
 import type { AdapterPool } from '../../adapters/AdapterPool.js';
+import { parseOrReply as parseOrReplyUtil, type ParseOrReplyOptions } from './validation.js';
 
 /**
  * Context shared across all route handlers
@@ -71,6 +73,16 @@ export abstract class BaseRouteHandler {
 
   protected respondError(reply: FastifyReply, status: number, message: string, opts?: { code?: string; recoverable?: boolean; meta?: unknown }) {
     return this.ctx.respondError(reply, status, message, opts);
+  }
+
+  protected parseOrReply<TSchema extends z.ZodTypeAny>(
+    reply: FastifyReply,
+    schema: TSchema,
+    payload: unknown,
+    message: string,
+    options?: ParseOrReplyOptions
+  ): z.infer<TSchema> | null {
+    return parseOrReplyUtil(reply, schema, payload, message, this.respondError.bind(this), options);
   }
 
   /**

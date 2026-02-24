@@ -14,7 +14,7 @@ const TokenCreateBody = z.object({
   expiresInHours: z.number().positive().max(8760).optional().default(24)
 });
 
-const SafeKeyParam = z.object({ key: z.string().min(1).max(256).regex(/^[A-Za-z0-9._\-]+$/) });
+const SafeKeyParam = z.object({ key: z.string().min(1).max(256).regex(/^[A-Za-z0-9._-]+$/) });
 const SafeTokenParam = z.object({ token: z.string().min(1).max(512) });
 
 /**
@@ -49,11 +49,14 @@ export class AuthRoutes extends BaseRouteHandler {
     // Create API key
     server.post('/api/auth/apikey', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const parsed = ApiKeyCreateBody.safeParse(request.body);
-        if (!parsed.success) {
-          return this.respondError(reply, 400, t('auth.name_permissions_required'), { code: 'BAD_REQUEST', recoverable: true, meta: parsed.error.issues });
-        }
-        const { name, permissions } = parsed.data;
+        const parsed = this.parseOrReply(
+          reply,
+          ApiKeyCreateBody,
+          request.body,
+          t('auth.name_permissions_required')
+        );
+        if (!parsed) return;
+        const { name, permissions } = parsed;
         const result = await this.ctx.authLayer.createApiKey(name, permissions);
         reply.code(201).send({ success: true, apiKey: result, message: 'API key created successfully' });
       } catch (error) {
@@ -64,9 +67,14 @@ export class AuthRoutes extends BaseRouteHandler {
     // Delete API key
     server.delete('/api/auth/apikey/:key', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const parsed = SafeKeyParam.safeParse(request.params);
-        if (!parsed.success) return this.respondError(reply, 400, t('auth.api_key_required'), { code: 'BAD_REQUEST', recoverable: true, meta: parsed.error.issues });
-        const { key } = parsed.data;
+        const parsed = this.parseOrReply(
+          reply,
+          SafeKeyParam,
+          request.params,
+          t('auth.api_key_required')
+        );
+        if (!parsed) return;
+        const { key } = parsed;
         const success = await this.ctx.authLayer.deleteApiKey(key);
         if (!success) return this.respondError(reply, 404, t('auth.api_key_not_found'), { code: 'NOT_FOUND', recoverable: true });
         reply.send({ success: true, message: 'API key deleted successfully' });
@@ -88,11 +96,14 @@ export class AuthRoutes extends BaseRouteHandler {
     // Generate token
     server.post('/api/auth/token', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const parsed = TokenCreateBody.safeParse(request.body);
-        if (!parsed.success) {
-          return this.respondError(reply, 400, t('auth.userid_permissions_required'), { code: 'BAD_REQUEST', recoverable: true, meta: parsed.error.issues });
-        }
-        const { userId, permissions, expiresInHours } = parsed.data;
+        const parsed = this.parseOrReply(
+          reply,
+          TokenCreateBody,
+          request.body,
+          t('auth.userid_permissions_required')
+        );
+        if (!parsed) return;
+        const { userId, permissions, expiresInHours } = parsed;
         const result = await this.ctx.authLayer.generateToken(userId, permissions, expiresInHours);
         reply.code(201).send({ success: true, token: result, message: 'Token generated successfully' });
       } catch (error) {
@@ -103,9 +114,14 @@ export class AuthRoutes extends BaseRouteHandler {
     // Revoke token
     server.delete('/api/auth/token/:token', async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const parsed = SafeTokenParam.safeParse(request.params);
-        if (!parsed.success) return this.respondError(reply, 400, t('auth.token_required'), { code: 'BAD_REQUEST', recoverable: true, meta: parsed.error.issues });
-        const { token } = parsed.data;
+        const parsed = this.parseOrReply(
+          reply,
+          SafeTokenParam,
+          request.params,
+          t('auth.token_required')
+        );
+        if (!parsed) return;
+        const { token } = parsed;
         const success = await this.ctx.authLayer.revokeToken(token);
         if (!success) return this.respondError(reply, 404, t('auth.token_not_found'), { code: 'NOT_FOUND', recoverable: true });
         reply.send({ success: true, message: 'Token revoked successfully' });

@@ -35,13 +35,13 @@ export class DeploymentRoutes extends BaseRouteHandler {
 
     // Resolve GitHub URL/npm package into deployable template config
     server.post('/api/deploy/resolve', async (request: FastifyRequest, reply: FastifyReply) => {
-      let body: z.infer<typeof ResolveBody>;
-      try {
-        body = ResolveBody.parse((request.body as Record<string, unknown>) || {});
-      } catch (e) {
-        const err = e as z.ZodError;
-        return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
-      }
+      const body = this.parseOrReply(
+        reply,
+        ResolveBody,
+        (request.body as Record<string, unknown>) || {},
+        'Invalid request body'
+      );
+      if (!body) return;
 
       if (!this.ctx.deploymentPolicy) {
         return this.respondError(reply, 503, 'Deployment subsystem not configured', { code: 'SERVICE_UNAVAILABLE', recoverable: true });
@@ -58,13 +58,13 @@ export class DeploymentRoutes extends BaseRouteHandler {
 
     // Install package into sandbox
     server.post('/api/deploy/install', async (request: FastifyRequest, reply: FastifyReply) => {
-      let body: z.infer<typeof InstallBody>;
-      try {
-        body = InstallBody.parse((request.body as Record<string, unknown>) || {});
-      } catch (e) {
-        const err = e as z.ZodError;
-        return this.respondError(reply, 400, 'Invalid request body', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
-      }
+      const body = this.parseOrReply(
+        reply,
+        InstallBody,
+        (request.body as Record<string, unknown>) || {},
+        'Invalid request body'
+      );
+      if (!body) return;
 
       if (!this.ctx.deploymentPolicy) {
         return this.respondError(reply, 503, 'Deployment subsystem not configured', { code: 'SERVICE_UNAVAILABLE', recoverable: true });
@@ -132,15 +132,19 @@ export class DeploymentRoutes extends BaseRouteHandler {
 
     // Toggle autostart flag for a persisted instance
     server.put('/api/instances/:id/autostart', async (request: FastifyRequest, reply: FastifyReply) => {
-      let params: z.infer<typeof InstanceIdParams>;
-      let body: z.infer<typeof AutostartBody>;
-      try {
-        params = InstanceIdParams.parse(request.params as Record<string, unknown>);
-        body = AutostartBody.parse((request.body as Record<string, unknown>) || {});
-      } catch (e) {
-        const err = e as z.ZodError;
-        return this.respondError(reply, 400, 'Invalid request', { code: 'BAD_REQUEST', recoverable: true, meta: err.issues });
-      }
+      const params = this.parseOrReply(
+        reply,
+        InstanceIdParams,
+        request.params as Record<string, unknown>,
+        'Invalid request'
+      );
+      const body = this.parseOrReply(
+        reply,
+        AutostartBody,
+        (request.body as Record<string, unknown>) || {},
+        'Invalid request'
+      );
+      if (!params || !body) return;
 
       if (!this.ctx.instancePersistence) {
         return this.respondError(reply, 503, 'Instance persistence not configured', { code: 'SERVICE_UNAVAILABLE', recoverable: true });

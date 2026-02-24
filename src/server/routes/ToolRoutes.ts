@@ -29,9 +29,6 @@ const BatchExecuteBodySchema = z.object({
   }).optional()
 });
 
-type ToolExecuteBody = z.infer<typeof ToolExecuteBodySchema>;
-type BatchExecuteBody = z.infer<typeof BatchExecuteBodySchema>;
-
 // Execution history entry (in-memory, limited)
 interface ExecutionRecord {
   id: string;
@@ -95,10 +92,10 @@ export class ToolRoutes extends BaseRouteHandler {
 
     // 获取单个工具详情
     server.get('/api/tools/:toolId', async (request: FastifyRequest, reply: FastifyReply) => {
-      const ToolIdParam = z.object({ toolId: z.string().min(1).max(128).regex(/^[A-Za-z0-9._\-]+$/) });
-      const parsed = ToolIdParam.safeParse(request.params);
-      if (!parsed.success) return this.respondError(reply, 400, 'Invalid toolId', { code: 'BAD_REQUEST', recoverable: true, meta: parsed.error.issues });
-      const { toolId } = parsed.data;
+      const ToolIdParam = z.object({ toolId: z.string().min(1).max(128).regex(/^[A-Za-z0-9._-]+$/) });
+      const parsed = this.parseOrReply(reply, ToolIdParam, request.params, 'Invalid toolId');
+      if (!parsed) return;
+      const { toolId } = parsed;
 
       try {
         const template = await this.ctx.serviceRegistry.getTemplate(toolId);
@@ -134,17 +131,13 @@ export class ToolRoutes extends BaseRouteHandler {
 
     // 执行单个工具
     server.post('/api/tools/execute', async (request: FastifyRequest, reply: FastifyReply) => {
-      let body: ToolExecuteBody;
-      try {
-        body = ToolExecuteBodySchema.parse((request.body as Record<string, unknown>) || {});
-      } catch (error) {
-        const zodErr = error as z.ZodError;
-        return this.respondError(reply, 400, 'Invalid request body', {
-          code: 'BAD_REQUEST',
-          recoverable: true,
-          meta: zodErr.issues
-        });
-      }
+      const body = this.parseOrReply(
+        reply,
+        ToolExecuteBodySchema,
+        (request.body as Record<string, unknown>) || {},
+        'Invalid request body'
+      );
+      if (!body) return;
 
       const { toolId, params, options } = body;
       const startTime = Date.now();
@@ -228,17 +221,13 @@ export class ToolRoutes extends BaseRouteHandler {
 
     // 批量执行工具
     server.post('/api/tools/batch', async (request: FastifyRequest, reply: FastifyReply) => {
-      let body: BatchExecuteBody;
-      try {
-        body = BatchExecuteBodySchema.parse((request.body as Record<string, unknown>) || {});
-      } catch (error) {
-        const zodErr = error as z.ZodError;
-        return this.respondError(reply, 400, 'Invalid request body', {
-          code: 'BAD_REQUEST',
-          recoverable: true,
-          meta: zodErr.issues
-        });
-      }
+      const body = this.parseOrReply(
+        reply,
+        BatchExecuteBodySchema,
+        (request.body as Record<string, unknown>) || {},
+        'Invalid request body'
+      );
+      if (!body) return;
 
       const { calls, options } = body;
       const parallel = options?.parallel ?? false;
@@ -322,9 +311,9 @@ export class ToolRoutes extends BaseRouteHandler {
     // 获取执行历史
     server.get('/api/tools/history', async (request: FastifyRequest, reply: FastifyReply) => {
       const HistoryQuery = z.object({ limit: z.coerce.number().int().positive().max(100).optional().default(20), toolId: z.string().max(128).optional() });
-      const parsed = HistoryQuery.safeParse(request.query);
-      if (!parsed.success) return this.respondError(reply, 400, 'Invalid query', { code: 'BAD_REQUEST', recoverable: true, meta: parsed.error.issues });
-      const { limit, toolId: toolIdFilter } = parsed.data;
+      const parsed = this.parseOrReply(reply, HistoryQuery, request.query, 'Invalid query');
+      if (!parsed) return;
+      const { limit, toolId: toolIdFilter } = parsed;
 
       let history = [...this.executionHistory].reverse();
       if (toolIdFilter) {

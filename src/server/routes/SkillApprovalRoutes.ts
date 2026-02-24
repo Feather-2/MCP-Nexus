@@ -66,19 +66,13 @@ export class SkillApprovalRoutes extends BaseRouteHandler {
     request: FastifyRequest,
     reply: FastifyReply
   ): Promise<void> {
-    const paramsParsed = ApprovalIdParam.safeParse(request.params);
-    if (!paramsParsed.success) {
-      reply.status(400).send({ error: 'Invalid approval id', details: paramsParsed.error.issues });
-      return;
-    }
-    const bodyParsed = ApprovalActionBody.safeParse(request.body);
-    if (!bodyParsed.success) {
-      reply.status(400).send({ error: 'Invalid body', details: bodyParsed.error.issues });
-      return;
-    }
+    const paramsParsed = this.parseOrReply(reply, ApprovalIdParam, request.params, 'Invalid approval id');
+    if (!paramsParsed) return;
+    const bodyParsed = this.parseOrReply(reply, ApprovalActionBody, request.body, 'Invalid body');
+    if (!bodyParsed) return;
 
-    const { id } = paramsParsed.data;
-    const { userId, reason } = bodyParsed.data;
+    const { id } = paramsParsed;
+    const { userId, reason } = bodyParsed;
 
     if (!this.approver) {
       this.respondError(reply, 503, 'Approval subsystem not initialized', { code: 'NOT_READY' });
@@ -96,19 +90,13 @@ export class SkillApprovalRoutes extends BaseRouteHandler {
     request: FastifyRequest,
     reply: FastifyReply
   ): Promise<void> {
-    const paramsParsed = ApprovalIdParam.safeParse(request.params);
-    if (!paramsParsed.success) {
-      reply.status(400).send({ error: 'Invalid approval id', details: paramsParsed.error.issues });
-      return;
-    }
-    const bodyParsed = ApprovalActionBody.safeParse(request.body);
-    if (!bodyParsed.success) {
-      reply.status(400).send({ error: 'Invalid body', details: bodyParsed.error.issues });
-      return;
-    }
+    const paramsParsed = this.parseOrReply(reply, ApprovalIdParam, request.params, 'Invalid approval id');
+    if (!paramsParsed) return;
+    const bodyParsed = this.parseOrReply(reply, ApprovalActionBody, request.body, 'Invalid body');
+    if (!bodyParsed) return;
 
-    const { id } = paramsParsed.data;
-    const { userId, reason } = bodyParsed.data;
+    const { id } = paramsParsed;
+    const { userId, reason } = bodyParsed;
 
     if (!this.approver) {
       this.respondError(reply, 503, 'Approval subsystem not initialized', { code: 'NOT_READY' });

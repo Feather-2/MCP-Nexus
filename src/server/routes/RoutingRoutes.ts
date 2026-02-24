@@ -35,10 +35,13 @@ export class RoutingRoutes extends BaseRouteHandler {
         contentType: z.string().optional(),
         contentLength: z.coerce.number().int().positive().optional()
       });
-      let body: z.infer<typeof Body>;
-      try { body = Body.parse((request.body as Record<string, unknown>) || {}); } catch (error) {
-        const zodErr = error as z.ZodError; return this.respondError(reply, 400, 'Invalid route request', { code: 'BAD_REQUEST', recoverable: true, meta: zodErr.issues });
-      }
+      const body = this.parseOrReply(
+        reply,
+        Body,
+        (request.body as Record<string, unknown>) || {},
+        'Invalid route request'
+      );
+      if (!body) return;
 
       try {
         const services = await this.ctx.serviceRegistry.listServices();
@@ -134,8 +137,14 @@ export class RoutingRoutes extends BaseRouteHandler {
     // Proxy MCP requests to services
     server.post('/api/proxy/:serviceId', async (request: FastifyRequest, reply: FastifyReply) => {
       const Params = z.object({ serviceId: z.string().min(1).regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/) });
-      let serviceId: string;
-      try { ({ serviceId } = Params.parse(request.params as Record<string, unknown>)); } catch (error) { const zodErr = error as z.ZodError; return this.respondError(reply, 400, 'Invalid service id', { code: 'BAD_REQUEST', recoverable: true, meta: zodErr.issues }); }
+      const parsedParams = this.parseOrReply(
+        reply,
+        Params,
+        request.params as Record<string, unknown>,
+        'Invalid service id'
+      );
+      if (!parsedParams) return;
+      const { serviceId } = parsedParams;
 
       // Validate MCP message structure
       const McpMessageSchema = z.object({
@@ -145,10 +154,13 @@ export class RoutingRoutes extends BaseRouteHandler {
         id: z.union([z.string(), z.number()]).optional()
       });
 
-      let mcpMessage: z.infer<typeof McpMessageSchema>;
-      try { mcpMessage = McpMessageSchema.parse((request.body as Record<string, unknown>) || {}); } catch (error) {
-        const zodErr = error as z.ZodError; return this.respondError(reply, 400, 'Invalid MCP message format', { code: 'BAD_REQUEST', recoverable: true, meta: zodErr.issues });
-      }
+      const mcpMessage = this.parseOrReply(
+        reply,
+        McpMessageSchema,
+        (request.body as Record<string, unknown>) || {},
+        'Invalid MCP message format'
+      );
+      if (!mcpMessage) return;
 
       try {
         const service = await this.ctx.serviceRegistry.getService(serviceId);
@@ -214,13 +226,13 @@ export class RoutingRoutes extends BaseRouteHandler {
         id: z.union([z.string(), z.number()]).optional()
       });
 
-      let mcpMessage: z.infer<typeof McpMessageSchema>;
-      try {
-        mcpMessage = McpMessageSchema.parse((request.body as Record<string, unknown>) || {});
-      } catch (error) {
-        const zodErr = error as z.ZodError;
-        return this.respondError(reply, 400, 'Invalid MCP message format', { code: 'BAD_REQUEST', recoverable: true, meta: zodErr.issues });
-      }
+      const mcpMessage = this.parseOrReply(
+        reply,
+        McpMessageSchema,
+        (request.body as Record<string, unknown>) || {},
+        'Invalid MCP message format'
+      );
+      if (!mcpMessage) return;
 
       if (!MCP_ALLOWED_METHODS.has(mcpMessage.method) && !MCP_ALLOWED_PREFIXES.some(p => mcpMessage.method.startsWith(p))) {
         return this.respondError(reply, 403, 'MCP method not allowed', { code: 'METHOD_NOT_ALLOWED', recoverable: true });
