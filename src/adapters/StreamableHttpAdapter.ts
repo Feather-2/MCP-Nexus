@@ -269,6 +269,12 @@ export class StreamableHttpAdapter extends EventEmitter implements TransportAdap
   }
 
   private handleMessage(message: McpMessage): void {
+    // Validate JSON-RPC envelope before processing
+    if (!message || typeof message !== 'object' || (message as unknown as Record<string, unknown>).jsonrpc !== '2.0') {
+      this.logger.warn('Invalid JSON-RPC response: missing or invalid jsonrpc field');
+      return;
+    }
+
     this.logger.trace(`Received message via StreamableHttp:`, message);
 
     // Check if this is a response to a pending request
