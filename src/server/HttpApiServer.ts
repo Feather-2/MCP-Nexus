@@ -1,9 +1,7 @@
 import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import fastifyStatic from '@fastify/static';
 import { trace, SpanStatusCode } from '@opentelemetry/api';
 import { fileURLToPath } from 'url';
-import { dirname, join, resolve } from 'path';
-import { existsSync } from 'fs';
+import { dirname } from 'path';
 // Local MCP 加密/握手逻辑已下放到路由模块，无需在此引入 crypto
 import {
   Logger,
@@ -26,6 +24,8 @@ import { AdapterPool } from '../adapters/AdapterPool.js';
 import { registerDefaultHealthProbe } from '../gateway/HealthProbe.js';
 import { buildRouteContext } from './RouteContextFactory.js';
 import { SseManager } from './SseManager.js';
+import { registerGuiAssetsRoutes } from './GuiAssetsRoutes.js';
+import { registerHealthRoutes } from './HealthRoutes.js';
 import {
   RouteContext,
   ServiceRoutes,
@@ -334,72 +334,12 @@ export class HttpApiServer implements Disposable {
   }
 
   private setupRoutes(): void {
-    // Static file serving for GUI
     const __dirname = dirname(fileURLToPath(import.meta.url));
-    // Resolve candidate roots relative to current working directory first, then module location
-    const candidates = [
-      resolve(process.cwd(), 'dist-gui'),
-      resolve(process.cwd(), 'gui', 'dist'),
-      resolve(__dirname, '../..', 'gui', 'dist')
-    ];
-    const staticRoot = candidates.find(p => existsSync(p)) || candidates[0];
-
-    this.server.register(fastifyStatic, {
-      root: staticRoot,
-      prefix: '/static/',
-      decorateReply: true // Only the first registration decorates reply
-    });
-    // Serve vite assets under /assets/ to match index.html references
-    this.server.register(fastifyStatic, {
-      root: join(staticRoot, 'assets'),
-      prefix: '/assets/',
-      decorateReply: false // Prevent duplicate decorator error
-    });
-
-    // Serve index.html for root and SPA routes
-    this.server.get('/', async (request, reply) => {
-      const indexPath = join(staticRoot, 'index.html');
-      if (!existsSync(indexPath)) {
-        return reply.code(503).type('text/plain').send('GUI assets not found. Please build GUI into dist-gui or gui/dist.');
-      }
-      return reply.type('text/html').sendFile('index.html', staticRoot);
-    });
-
-    const spaRoutes = ['/dashboard*', '/services*', '/templates*', '/auth*', '/monitoring*', '/settings*', '/deployment*', '/performance*'];
-    for (const route of spaRoutes) {
-      this.server.get(route, async (request, reply) => {
-        const indexPath = join(staticRoot, 'index.html');
-        if (!existsSync(indexPath)) {
-          return reply.code(503).type('text/plain').send('GUI assets not found. Please build GUI into dist-gui or gui/dist.');
-        }
-        return reply.type('text/html').sendFile('index.html', staticRoot);
-      });
-    }
-
-    // Health check endpoint - FAST, no DB queries
-    const healthHandler = async (_request: FastifyRequest, reply: FastifyReply) => {
-      reply.send({ status: 'ok', ts: Date.now() });
-    };
-    this.server.get('/health', healthHandler);
-    this.server.get('/api/health', healthHandler);
-
-    // Detailed health endpoint for monitoring systems
-    this.server.get('/health/detailed', async (_request: FastifyRequest, reply: FastifyReply) => {
-      const health = {
-        status: 'healthy',
-        timestamp: new Date().toISOString(),
-        version: '1.0.0',
-        services: {
-          registry: await this.serviceRegistry.getRegistryStats(),
-          auth: {
-            activeTokens: this.authLayer.getActiveTokenCount(),
-            activeApiKeys: this.authLayer.getActiveApiKeyCount()
-          },
-          router: this.router.getMetrics()
-        }
-      };
-
-      reply.send(health);
+    registerGuiAssetsRoutes(this.server, { moduleDir: __dirname });
+    registerHealthRoutes(this.server, {
+      serviceRegistry: this.serviceRegistry,
+      authLayer: this.authLayer,
+      router: this.router
     });
 
     // Initialize route context for modular routes
