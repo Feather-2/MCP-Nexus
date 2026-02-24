@@ -52,6 +52,7 @@ import { RateLimitMiddleware } from '../middleware/RateLimitMiddleware.js';
 import { setupObservabilityHooks } from './ObservabilityHooks.js';
 import { setupMiddlewareWiring } from './MiddlewareWiring.js';
 import { mapMiddlewareError as mapMiddlewareErrorUtil } from './MiddlewareErrorMapper.js';
+import { setupApiVersioningCollector, registerApiVersionAliases as registerApiVersionAliasesUtil } from './ApiVersioning.js';
 
 // Fastify request/reply augmentation helpers (avoids per-line `as any`)
 type AugmentedRequest = FastifyRequest & Record<string, unknown>;
@@ -187,32 +188,11 @@ export class HttpApiServer implements Disposable {
   }
 
   private setupApiVersioning(): void {
-    // Capture `/api/*` routes and add `/api/v1/*` aliases after all routes are registered.
-    // Avoid calling `server.route()` inside `onRoute` to prevent Fastify hook re-entrancy issues.
-    this.server.addHook('onRoute', (opts) => {
-      const url = (opts as unknown as Record<string, unknown>)?.url;
-      if (typeof url !== 'string') return;
-      if (!url.startsWith('/api/')) return;
-      if (url.startsWith(`/api/${HttpApiServer.API_VERSION}/`)) return;
-      if (((opts as unknown as Record<string, unknown>).config as Record<string, unknown>)?.__apiVersionAlias) return;
-      this.apiRoutesToAlias.push({ ...(opts as unknown as Record<string, unknown>) });
-    });
+    setupApiVersioningCollector(this.server, HttpApiServer.API_VERSION, this.apiRoutesToAlias);
   }
 
   private registerApiVersionAliases(): void {
-    for (const opts of this.apiRoutesToAlias) {
-      try {
-        const url = (opts as unknown as Record<string, unknown>)?.url;
-        if (typeof url !== 'string') continue;
-        const aliasedUrl = `/api/${HttpApiServer.API_VERSION}${url.slice('/api'.length)}`;
-        const routeOpts = opts as unknown as Record<string, unknown>;
-        this.server.route({
-          ...routeOpts,
-          url: aliasedUrl,
-          config: { ...(routeOpts.config as Record<string, unknown> || {}), __apiVersionAlias: true }
-        } as unknown as Parameters<FastifyInstance['route']>[0]);
-      } catch { /* best-effort: ignore duplicate route errors in tests */ }
-    }
+    registerApiVersionAliasesUtil(this.server, HttpApiServer.API_VERSION, this.apiRoutesToAlias);
   }
 
   // Convert HealthCheckResult to ServiceHealth
