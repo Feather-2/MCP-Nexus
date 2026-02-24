@@ -1,5 +1,4 @@
 import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { trace, SpanStatusCode } from '@opentelemetry/api';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 // Local MCP 加密/握手逻辑已下放到路由模块，无需在此引入 crypto
@@ -53,9 +52,7 @@ import { setupObservabilityHooks } from './ObservabilityHooks.js';
 import { setupMiddlewareWiring } from './MiddlewareWiring.js';
 import { mapMiddlewareError as mapMiddlewareErrorUtil } from './MiddlewareErrorMapper.js';
 import { setupApiVersioningCollector, registerApiVersionAliases as registerApiVersionAliasesUtil } from './ApiVersioning.js';
-
-// Fastify request/reply augmentation helpers (avoids per-line `as any`)
-type AugmentedRequest = FastifyRequest & Record<string, unknown>;
+import { registerErrorHandlers } from './ErrorHandlers.js';
 
 export class HttpApiServer implements Disposable {
   private static readonly MAX_LOG_BUFFER_SIZE = 200;
@@ -433,48 +430,7 @@ export class HttpApiServer implements Disposable {
   }
 
   private setupErrorHandlers(): void {
-    this.server.setErrorHandler(async (error, request, reply) => {
-      try {
-        const span = (request as AugmentedRequest).otelSpan as ReturnType<ReturnType<typeof trace.getTracer>['startSpan']> | undefined;
-        if (span) {
-          span.recordException?.(error instanceof Error ? error : new Error(String(error)));
-          span.setStatus?.({ code: SpanStatusCode.ERROR, message: (error as Error)?.message || String(error) });
-        }
-      } catch { /* best-effort OTel span annotation */ }
-
-      const errorDetails = {
-        method: request.method,
-        url: request.url,
-        message: (error as Error)?.message || String(error),
-        stack: (error as Error)?.stack,
-        code: (error as Record<string, unknown>)?.code,
-        statusCode: (error as Record<string, unknown>)?.statusCode
-      };
-      this.logger.error('HTTP API error:', errorDetails);
-
-      const safeMessage = process.env.NODE_ENV === 'production'
-        ? 'Internal Server Error'
-        : (error as Error)?.message;
-      reply.code(500).send({
-        success: false,
-        error: {
-          message: safeMessage || 'Internal Server Error',
-          code: 'INTERNAL_ERROR',
-          recoverable: false
-        }
-      });
-    });
-
-    this.server.setNotFoundHandler(async (request, reply) => {
-      reply.code(404).send({
-        success: false,
-        error: {
-          message: `Route ${request.method} ${request.url} not found`,
-          code: 'NOT_FOUND',
-          recoverable: false
-        }
-      });
-    });
+    registerErrorHandlers(this.server, this.logger);
   }
 
   // Utility methods for external integration
