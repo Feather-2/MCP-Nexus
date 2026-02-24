@@ -131,6 +131,40 @@ describe('GatewayBootstrapper', () => {
     expect(runtime.deploymentPolicy).toBe(bootstrapper.container.resolve(tokens.deploymentPolicy));
   });
 
+  it('accepts injected infra components via overrides', () => {
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), trace: vi.fn() } as any;
+    const configManager = { getConfig: vi.fn().mockReturnValue(makeConfig({ enableMetrics: false })) } as any;
+    const serviceRegistry = { setHealthProbe: vi.fn(), setInstancePersistence: vi.fn(), getStore: vi.fn().mockReturnValue({ subscribe: vi.fn() }) } as any;
+
+    const adapterPool = { get: vi.fn(), release: vi.fn(), shutdown: vi.fn(), dispose: vi.fn() } as any;
+    const instancePersistence = { load: vi.fn(), shutdown: vi.fn(), dispose: vi.fn() } as any;
+    const toolListCache = { clear: vi.fn(), dispose: vi.fn() } as any;
+    const deploymentPolicy = { check: vi.fn(), requestConfirmation: vi.fn() } as any;
+
+    const bootstrapper = new GatewayBootstrapper({
+      overrides: {
+        logger,
+        configManager,
+        orchestratorManager: {} as any,
+        protocolAdapters: {} as any,
+        serviceRegistry,
+        authLayer: {} as any,
+        router: {} as any,
+        httpServer: { setOrchestratorManager: vi.fn(), addMiddleware: vi.fn(), setDeploymentComponents: vi.fn(), setPerformanceComponents: vi.fn() } as any,
+        adapterPool,
+        instancePersistence,
+        toolListCache,
+        deploymentPolicy
+      }
+    });
+
+    const runtime = bootstrapper.bootstrap();
+    expect(runtime.adapterPool).toBe(adapterPool);
+    expect(runtime.instancePersistence).toBe(instancePersistence);
+    expect(runtime.toolListCache).toBe(toolListCache);
+    expect(runtime.deploymentPolicy).toBe(deploymentPolicy);
+  });
+
   it('wires a default health probe that checks running instances', async () => {
     const config = makeConfig({ enableMetrics: false });
 
