@@ -76,6 +76,18 @@ describe('PbMcpGateway – extended coverage', () => {
     expect(gw.isRunning()).toBe(false);
   });
 
+  it('getStatus returns facade snapshot before/after start', async () => {
+    const before = gw.getStatus();
+    expect(before.started).toBe(false);
+    expect(before.version).toBe('1.0.0');
+    expect(typeof before.orchestrator.enabled).toBe('boolean');
+
+    await gw.start();
+    const after = gw.getStatus();
+    expect(after.started).toBe(true);
+    expect(after.version).toBe('1.0.0');
+  });
+
   // ── Component accessors ──
 
   it('exposes component accessors', () => {
@@ -85,6 +97,15 @@ describe('PbMcpGateway – extended coverage', () => {
     expect(gw.getHttpServer()).toBeDefined();
     expect(gw.getConfigManager()).toBeDefined();
     expect(gw.serviceRegistry).toBeDefined();
+  });
+
+  it('exposes internal escape hatches for tests', () => {
+    expect(gw._unsafe_getContainer()).toBeDefined();
+    expect(gw._unsafe_getServiceRegistry()).toBeDefined();
+    expect(gw._unsafe_getAuthLayer()).toBeDefined();
+    expect(gw._unsafe_getRouter()).toBeDefined();
+    expect(gw._unsafe_getHttpServer()).toBeDefined();
+    expect(gw._unsafe_getConfigManager()).toBeDefined();
   });
 
   // ── Config methods ──

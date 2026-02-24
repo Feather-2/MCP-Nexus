@@ -18,6 +18,12 @@ import { EventEmitter } from 'events';
 import { OrchestratorManager, OrchestratorStatus } from './orchestrator/OrchestratorManager.js';
 import { GatewayBootstrapper } from './bootstrap/GatewayBootstrapper.js';
 
+export interface GatewayStatusSnapshot {
+  started: boolean;
+  version: string;
+  orchestrator: OrchestratorStatus;
+}
+
 export class PbMcpGateway extends EventEmitter {
   private logger: Logger;
   private configManager: ConfigManagerImpl;
@@ -53,7 +59,7 @@ export class PbMcpGateway extends EventEmitter {
     return this._isStarted;
   }
 
-  // Public property accessors for testing and external use
+  /** @deprecated Prefer facade methods (`start/stop/getStatus/getMetrics`). */
   get serviceRegistry(): ServiceRegistryImpl {
     return this._serviceRegistry;
   }
@@ -326,24 +332,69 @@ export class PbMcpGateway extends EventEmitter {
     return '1.0.0';
   }
 
+  getStatus(): GatewayStatusSnapshot {
+    return {
+      started: this._isStarted,
+      version: this.getVersion(),
+      orchestrator: this.getOrchestratorStatus()
+    };
+  }
+
+  /**
+   * @internal testing-only escape hatch. Avoid in application code.
+   */
+  _unsafe_getContainer() {
+    return this.bootstrapper.container;
+  }
+
   // Access to underlying components (for advanced usage)
+  /** @deprecated Use facade methods; this is a testing/internal escape hatch. */
   getServiceRegistry(): ServiceRegistryImpl {
+    return this._unsafe_getServiceRegistry();
+  }
+
+  /** @deprecated Use facade methods; this is a testing/internal escape hatch. */
+  getAuthLayer(): AuthenticationLayerImpl {
+    return this._unsafe_getAuthLayer();
+  }
+
+  /** @deprecated Use facade methods; this is a testing/internal escape hatch. */
+  getRouter(): GatewayRouterImpl {
+    return this._unsafe_getRouter();
+  }
+
+  /** @deprecated Use facade methods; this is a testing/internal escape hatch. */
+  getHttpServer(): HttpApiServer {
+    return this._unsafe_getHttpServer();
+  }
+
+  /** @deprecated Use facade methods; this is a testing/internal escape hatch. */
+  getConfigManager(): ConfigManagerImpl {
+    return this._unsafe_getConfigManager();
+  }
+
+  /** @internal testing-only escape hatch. */
+  _unsafe_getServiceRegistry(): ServiceRegistryImpl {
     return this._serviceRegistry;
   }
 
-  getAuthLayer(): AuthenticationLayerImpl {
+  /** @internal testing-only escape hatch. */
+  _unsafe_getAuthLayer(): AuthenticationLayerImpl {
     return this.authLayer;
   }
 
-  getRouter(): GatewayRouterImpl {
+  /** @internal testing-only escape hatch. */
+  _unsafe_getRouter(): GatewayRouterImpl {
     return this.router;
   }
 
-  getHttpServer(): HttpApiServer {
+  /** @internal testing-only escape hatch. */
+  _unsafe_getHttpServer(): HttpApiServer {
     return this.httpServer;
   }
 
-  getConfigManager(): ConfigManagerImpl {
+  /** @internal testing-only escape hatch. */
+  _unsafe_getConfigManager(): ConfigManagerImpl {
     return this.configManager;
   }
 
@@ -465,4 +516,3 @@ export function createGateway(
 
   return gateway;
 }
-

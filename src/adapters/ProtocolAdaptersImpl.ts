@@ -12,17 +12,24 @@ import { HttpTransportAdapter } from './HttpTransportAdapter.js';
 import { StreamableHttpAdapter } from './StreamableHttpAdapter.js';
 import { ContainerTransportAdapter } from './ContainerTransportAdapter.js';
 import { AdapterPool } from './AdapterPool.js';
+import { AdapterRegistry } from './AdapterRegistry.js';
 import { mcpRequest } from '../core/mcpMessage.js';
 import { applyGatewaySandboxPolicy } from '../security/SandboxPolicy.js';
 import { resolveMcpServiceConfigEnvRefs } from '../security/secrets.js';
 import { validateNotPrivateUrl } from './ssrf-guard.js';
 
 export class ProtocolAdaptersImpl implements ProtocolAdapters {
+  private readonly registry: AdapterRegistry;
+
   constructor(
     private logger: Logger,
     private getGatewayConfig?: () => GatewayConfig,
-    private adapterPool?: AdapterPool
-  ) {}
+    private adapterPool?: AdapterPool,
+    registry?: AdapterRegistry
+  ) {
+    this.registry = registry ?? new AdapterRegistry();
+    this.registerDefaultFactories();
+  }
 
   private prepareConfig(config: McpServiceConfig): { enforced: ReturnType<typeof applyGatewaySandboxPolicy>; effective: McpServiceConfig } {
     const gwConfig = this.getGatewayConfig?.();
@@ -37,36 +44,49 @@ export class ProtocolAdaptersImpl implements ProtocolAdapters {
   }
 
   private async createAdapterInternal(config: McpServiceConfig, enforced: ReturnType<typeof applyGatewaySandboxPolicy>): Promise<TransportAdapter> {
-    switch (config.transport) {
-      case 'stdio': {
-        // Detect container sandbox
-        if ((config as Record<string, unknown>)?.container || config.env?.SANDBOX === 'container') {
-          this.logger.info(`Creating container-stdio adapter for ${config.name} [SANDBOX: container]`);
-          // Pass global sandbox policy hints to adapter for env/volume validation defaults
-          const sandbox = enforced.policy.container;
-          return new ContainerTransportAdapter(config, this.logger, {
-            allowedVolumeRoots: sandbox.allowedVolumeRoots,
-            envSafePrefixes: sandbox.envSafePrefixes,
-            defaultNetwork: sandbox.defaultNetwork,
-            defaultReadonlyRootfs: sandbox.defaultReadonlyRootfs,
-            defaultPidsLimit: sandbox.defaultPidsLimit,
-            defaultNoNewPrivileges: sandbox.defaultNoNewPrivileges,
-            defaultDropCapabilities: sandbox.defaultDropCapabilities
-          });
-        }
+    return this.registry.create(config.transport, { config, enforced, logger: this.logger });
+  }
 
-        const sandboxed = config.env?.SANDBOX === 'portable';
-        this.logger.info(`Creating stdio adapter for ${config.name}${sandboxed ? ' [SANDBOX: portable]' : ''}`);
-        return new StdioTransportAdapter(config, this.logger);
+  private registerDefaultFactories(): void {
+    this.safeRegister('stdio', ({ config, enforced, logger }) => {
+      // Detect container sandbox
+      if ((config as Record<string, unknown>)?.container || config.env?.SANDBOX === 'container') {
+        logger.info(`Creating container-stdio adapter for ${config.name} [SANDBOX: container]`);
+        // Pass global sandbox policy hints to adapter for env/volume validation defaults
+        const sandbox = enforced.policy.container;
+        return new ContainerTransportAdapter(config, logger, {
+          allowedVolumeRoots: sandbox.allowedVolumeRoots,
+          envSafePrefixes: sandbox.envSafePrefixes,
+          defaultNetwork: sandbox.defaultNetwork,
+          defaultReadonlyRootfs: sandbox.defaultReadonlyRootfs,
+          defaultPidsLimit: sandbox.defaultPidsLimit,
+          defaultNoNewPrivileges: sandbox.defaultNoNewPrivileges,
+          defaultDropCapabilities: sandbox.defaultDropCapabilities
+        });
       }
-      case 'http':
-        this.logger.debug(`Creating HTTP adapter for ${config.name}`);
-        return new HttpTransportAdapter(config, this.logger);
-      case 'streamable-http':
-        this.logger.debug(`Creating Streamable HTTP adapter for ${config.name}`);
-        return new StreamableHttpAdapter(config, this.logger);
-      default:
-        throw new Error(`Unsupported transport type: ${config.transport}`);
+
+      const sandboxed = config.env?.SANDBOX === 'portable';
+      logger.info(`Creating stdio adapter for ${config.name}${sandboxed ? ' [SANDBOX: portable]' : ''}`);
+      return new StdioTransportAdapter(config, logger);
+    });
+
+    this.safeRegister('http', ({ config, logger }) => {
+      logger.debug(`Creating HTTP adapter for ${config.name}`);
+      return new HttpTransportAdapter(config, logger);
+    });
+
+    this.safeRegister('streamable-http', ({ config, logger }) => {
+      logger.debug(`Creating Streamable HTTP adapter for ${config.name}`);
+      return new StreamableHttpAdapter(config, logger);
+    });
+  }
+
+  private safeRegister(type: 'stdio' | 'http' | 'streamable-http', factory: Parameters<AdapterRegistry['register']>[1]): void {
+    try {
+      this.registry.register(type, factory);
+    } catch (error) {
+      const message = (error as Error)?.message || '';
+      if (!message.includes('already registered')) throw error;
     }
   }
 
