@@ -1,4 +1,4 @@
-import { HealthCheckMiddleware, HEALTH_PROBE_CTX_KEY, HEALTH_PROBE_RESULT_STATE_KEY, HEALTH_VIEW_STATE_KEY } from '../../gateway/health-check.middleware.js';
+import { HealthCheckMiddleware, HEALTH_PROBE_CTX_KEY, HEALTH_PROBE_RESULT_STATE_KEY, HEALTH_VIEW_STATE_KEY } from '../../gateway/HealthCheck.middleware.js';
 import { ServiceObservationStore } from '../../gateway/service-state.js';
 import type { Context, State } from '../../middleware/types.js';
 import type { McpServiceConfig, ServiceInstance } from '../../types/index.js';

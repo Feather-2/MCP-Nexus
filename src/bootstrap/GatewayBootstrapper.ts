@@ -20,7 +20,7 @@ import { SecurityMiddleware } from '../middleware/SecurityMiddleware.js';
 import { OrchestratorManager, type OrchestratorStatus } from '../orchestrator/OrchestratorManager.js';
 import { startOpenTelemetry, shutdownOpenTelemetry } from '../observability/otel.js';
 import { InstancePersistence } from '../gateway/InstancePersistence.js';
-import { registerDefaultHealthProbe } from '../gateway/healthProbe.js';
+import { registerDefaultHealthProbe } from '../gateway/HealthProbe.js';
 import { AutostartManager } from '../gateway/AutostartManager.js';
 import { DeploymentPolicy } from '../security/DeploymentPolicy.js';
 

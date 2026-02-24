@@ -5,8 +5,8 @@ import {
   TOOL_ERROR_STATE_KEY,
   TOOL_LATENCY_MS_STATE_KEY,
   TOOL_SUCCESS_STATE_KEY
-} from '../../gateway/load-balancer.middleware.js';
-import { HealthCheckMiddleware, HEALTH_PROBE_CTX_KEY } from '../../gateway/health-check.middleware.js';
+} from '../../gateway/LoadBalancer.middleware.js';
+import { HealthCheckMiddleware, HEALTH_PROBE_CTX_KEY } from '../../gateway/HealthCheck.middleware.js';
 import { ServiceObservationStore } from '../../gateway/service-state.js';
 import type { Context, State } from '../../middleware/types.js';
 import type { McpServiceConfig, ServiceInstance } from '../../types/index.js';

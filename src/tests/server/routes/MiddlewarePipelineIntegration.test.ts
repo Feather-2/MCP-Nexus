@@ -1,8 +1,8 @@
 import Fastify from 'fastify';
 import { describe, expect, it, vi } from 'vitest';
 import { MiddlewareChain } from '../../../middleware/chain.js';
-import { HealthCheckMiddleware } from '../../../gateway/health-check.middleware.js';
-import { LoadBalancerMiddleware } from '../../../gateway/load-balancer.middleware.js';
+import { HealthCheckMiddleware } from '../../../gateway/HealthCheck.middleware.js';
+import { LoadBalancerMiddleware } from '../../../gateway/LoadBalancer.middleware.js';
 import { ServiceObservationStore } from '../../../gateway/service-state.js';
 import { RoutingRoutes } from '../../../server/routes/RoutingRoutes.js';
 import { ToolRoutes } from '../../../server/routes/ToolRoutes.js';

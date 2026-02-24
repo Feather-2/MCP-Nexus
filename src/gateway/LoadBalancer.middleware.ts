@@ -1,7 +1,7 @@
 import type { Context, Middleware, State } from '../middleware/types.js';
 import type { ServiceInstance } from '../types/index.js';
 import type { ServiceMetrics, ServiceObservationStore } from './service-state.js';
-import { HEALTH_VIEW_STATE_KEY } from './health-check.middleware.js';
+import { HEALTH_VIEW_STATE_KEY } from './HealthCheck.middleware.js';
 
 export const SELECTED_INSTANCE_STATE_KEY = 'selectedInstance';
 export const SELECTED_INSTANCE_ID_STATE_KEY = 'selectedInstanceId';

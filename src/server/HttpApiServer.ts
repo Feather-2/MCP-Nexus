@@ -23,7 +23,7 @@ import { InstancePersistence } from '../gateway/InstancePersistence.js';
 import { DeploymentPolicy } from '../security/DeploymentPolicy.js';
 import { ToolListCache } from '../gateway/ToolListCache.js';
 import { AdapterPool } from '../adapters/AdapterPool.js';
-import { registerDefaultHealthProbe } from '../gateway/healthProbe.js';
+import { registerDefaultHealthProbe } from '../gateway/HealthProbe.js';
 import { buildRouteContext } from './RouteContextFactory.js';
 import { SseManager } from './SseManager.js';
 import {
