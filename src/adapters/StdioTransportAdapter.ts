@@ -8,6 +8,7 @@ import { CommandValidator } from '../security/command-validator.js';
 import { stripNpmVersion, extractNpmExecPackage, extractNpxPackage, inferPortablePackagesDir } from '../utils/npm-helpers.js';
 import { unrefTimer } from '../utils/async.js';
 import { isJsonRpcMessage } from '../core/jsonrpc-guard.js';
+import { assertConnected, assertNotOverloaded, enqueueWithLimit } from './adapter-guards.js';
 
 function isWithinPath(targetPath: string, rootPath: string): boolean {
   const rel = path.relative(rootPath, targetPath);
@@ -339,13 +340,12 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
   }
 
   async send(message: McpMessage): Promise<void> {
-    if (!this.connected || !this.process || !this.process.stdin) {
-      throw new Error('Adapter not connected');
-    }
+    const processHandle = this.process;
+    assertConnected(this.connected && !!processHandle && !!processHandle.stdin);
 
     try {
       const messageStr = JSON.stringify(message) + '\n';
-      this.process.stdin.write(messageStr);
+      processHandle.stdin!.write(messageStr);
       this.logger.trace(`Sent message via stdio:`, message);
       // Emit for external observers (e.g., HTTP layer log pipeline)
       this.emit('sent', message);
@@ -356,9 +356,7 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
   }
 
   async receive(): Promise<McpMessage> {
-    if (!this.connected) {
-      throw new Error('Adapter not connected');
-    }
+    assertConnected(this.connected);
 
     // If there are queued messages, return the first one
     if (this.messageQueue.length > 0) {
@@ -388,9 +386,8 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
 
   // Send a message and wait for response with matching ID
   async sendAndReceive(message: McpMessage): Promise<McpMessage> {
-    if (this.responseCallbacks.size >= StdioTransportAdapter.MAX_PENDING_CALLBACKS) {
-      throw new Error('Too many pending requests; upstream may be unresponsive');
-    }
+    assertConnected(this.connected);
+    assertNotOverloaded(this.responseCallbacks.size, StdioTransportAdapter.MAX_PENDING_CALLBACKS);
     if (!message.id) {
       message.id = `req-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
     }
@@ -475,10 +472,7 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
   }
 
   private enqueueMessage(message: McpMessage): void {
-    if (this.messageQueue.length >= StdioTransportAdapter.MAX_QUEUE_SIZE) {
-      this.messageQueue.shift();
-    }
-    this.messageQueue.push(message);
+    enqueueWithLimit(this.messageQueue, message, StdioTransportAdapter.MAX_QUEUE_SIZE);
   }
 
   private handleMessage(message: McpMessage): void {

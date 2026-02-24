@@ -1,6 +1,7 @@
 import { TransportAdapter, McpServiceConfig, McpMessage, Logger, McpVersion } from '../types/index.js';
 import { extractHttpUrl } from './ssrf-guard.js';
 import { EventEmitter } from 'events';
+import { assertConnected } from './adapter-guards.js';
 
 export class HttpTransportAdapter extends EventEmitter implements TransportAdapter {
   readonly type = 'http' as const;
@@ -94,9 +95,7 @@ export class HttpTransportAdapter extends EventEmitter implements TransportAdapt
   }
 
   async send(message: McpMessage): Promise<void> {
-    if (!this.connected) {
-      throw new Error('Adapter not connected');
-    }
+    assertConnected(this.connected);
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs);
@@ -128,9 +127,7 @@ export class HttpTransportAdapter extends EventEmitter implements TransportAdapt
   }
 
   async receive(): Promise<McpMessage> {
-    if (!this.connected) {
-      throw new Error('Adapter not connected');
-    }
+    assertConnected(this.connected);
 
     // For HTTP, we don't typically "receive" unsolicited messages
     // This would be used in a polling scenario or with webhooks
@@ -143,9 +140,7 @@ export class HttpTransportAdapter extends EventEmitter implements TransportAdapt
 
   // HTTP-specific method for request-response pattern
   async sendAndReceive(message: McpMessage): Promise<McpMessage> {
-    if (!this.connected) {
-      throw new Error('Adapter not connected');
-    }
+    assertConnected(this.connected);
 
     try {
       const controller = new AbortController();

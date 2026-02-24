@@ -2,6 +2,7 @@ import { TransportAdapter, McpServiceConfig, McpMessage, Logger, McpVersion } fr
 import { EventEmitter } from 'events';
 import { extractHttpUrl } from './ssrf-guard.js';
 import { isJsonRpcMessage } from '../core/jsonrpc-guard.js';
+import { assertConnected, assertNotOverloaded, enqueueWithLimit } from './adapter-guards.js';
 
 export class StreamableHttpAdapter extends EventEmitter implements TransportAdapter {
   private static readonly MAX_QUEUE_SIZE = 1000;
@@ -136,9 +137,7 @@ export class StreamableHttpAdapter extends EventEmitter implements TransportAdap
   }
 
   async send(message: McpMessage): Promise<void> {
-    if (!this.connected) {
-      throw new Error('Adapter not connected');
-    }
+    assertConnected(this.connected);
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.config.timeout || 30000);
@@ -168,9 +167,7 @@ export class StreamableHttpAdapter extends EventEmitter implements TransportAdap
   }
 
   async receive(): Promise<McpMessage> {
-    if (!this.connected) {
-      throw new Error('Adapter not connected');
-    }
+    assertConnected(this.connected);
 
     // If there are queued messages, return the first one
     if (this.messageQueue.length > 0) {
@@ -200,9 +197,8 @@ export class StreamableHttpAdapter extends EventEmitter implements TransportAdap
 
   // Send a message and wait for response with matching ID (for request-response pattern)
   async sendAndReceive(message: McpMessage): Promise<McpMessage> {
-    if (this.responseCallbacks.size >= StreamableHttpAdapter.MAX_PENDING_CALLBACKS) {
-      throw new Error('Too many pending requests; upstream may be unresponsive');
-    }
+    assertConnected(this.connected);
+    assertNotOverloaded(this.responseCallbacks.size, StreamableHttpAdapter.MAX_PENDING_CALLBACKS);
     if (!message.id) {
       message.id = `req-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
     }
@@ -263,10 +259,7 @@ export class StreamableHttpAdapter extends EventEmitter implements TransportAdap
   }
 
   private enqueueMessage(message: McpMessage): void {
-    if (this.messageQueue.length >= StreamableHttpAdapter.MAX_QUEUE_SIZE) {
-      this.messageQueue.shift();
-    }
-    this.messageQueue.push(message);
+    enqueueWithLimit(this.messageQueue, message, StreamableHttpAdapter.MAX_QUEUE_SIZE);
   }
 
   private handleMessage(message: McpMessage): void {
