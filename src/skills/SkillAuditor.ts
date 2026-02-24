@@ -1,6 +1,6 @@
 import os from 'os';
 import path from 'path';
-import type { GatewayConfig, Logger, McpServiceConfig } from '../types/index.js';
+import type { GatewayConfig, Logger, McpServiceConfig, ProtocolAdapters } from '../types/index.js';
 import { applyGatewaySandboxPolicy } from '../security/SandboxPolicy.js';
 import { AuditPipeline, type AiAnalyzer, type AuditResult as SecurityAuditResult, type BehaviorAnalyzer } from '../security/AuditPipeline.js';
 import type { AiAuditResult } from '../security/AiAuditor.js';
@@ -12,7 +12,6 @@ import { unrefTimer } from '../utils/async.js';
 import { RiskScorer } from '../security/RiskScorer.js';
 import { EntropyAnalyzer } from '../security/analyzers/EntropyAnalyzer.js';
 import { PermissionAnalyzer } from '../security/analyzers/PermissionAnalyzer.js';
-import type { ProtocolAdaptersImpl } from '../adapters/ProtocolAdaptersImpl.js';
 import { sendRequest } from '../adapters/ProtocolAdaptersImpl.js';
 import { mcpRequest } from '../core/mcpMessage.js';
 import type { EventBus } from '../events/bus.js';
@@ -26,7 +25,7 @@ export interface SkillAuditorOptions {
   logger?: Logger;
   getGatewayConfig: () => GatewayConfig;
   templates: TemplateProvider;
-  protocolAdapters?: ProtocolAdaptersImpl;
+  protocolAdapters?: ProtocolAdapters;
   auditPipeline?: AuditPipeline;
   aiAuditor?: AiAnalyzer;
   behaviorAnalyzer?: BehaviorAnalyzer;

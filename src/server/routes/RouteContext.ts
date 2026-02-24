@@ -1,11 +1,13 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { z } from 'zod';
-import type { Logger } from '../../types/index.js';
-import { ServiceRegistryImpl } from '../../gateway/ServiceRegistryImpl.js';
-import { AuthenticationLayerImpl } from '../../auth/AuthenticationLayerImpl.js';
-import { GatewayRouterImpl } from '../../routing/GatewayRouterImpl.js';
-import { ProtocolAdaptersImpl } from '../../adapters/ProtocolAdaptersImpl.js';
-import { ConfigManagerImpl } from '../../config/ConfigManagerImpl.js';
+import type {
+  AuthenticationLayer,
+  ConfigManager,
+  GatewayRouter,
+  Logger,
+  ProtocolAdapters,
+  ServiceRegistry
+} from '../../types/index.js';
 import type { OrchestratorManager, OrchestratorStatus } from '../../orchestrator/OrchestratorManager.js';
 import type { OrchestratorEngine } from '../../orchestrator/OrchestratorEngine.js';
 import type { SubagentLoader } from '../../orchestrator/SubagentLoader.js';
@@ -18,6 +20,36 @@ import type { ToolListCache } from '../../gateway/ToolListCache.js';
 import type { AdapterPool } from '../../adapters/AdapterPool.js';
 import { parseOrReply as parseOrReplyUtil, type ParseOrReplyOptions } from './validation.js';
 
+export interface RouteTemplateManager {
+  initializeDefaults(): Promise<void>;
+}
+
+export interface RouteServiceRegistry extends ServiceRegistry {
+  getTemplateManager(): RouteTemplateManager;
+}
+
+export interface RouteAuthenticationLayer extends AuthenticationLayer {
+  listApiKeys(): Array<{
+    id: string;
+    name: string;
+    key: string;
+    permissions: string[];
+    createdAt: string;
+    lastUsed: string;
+  }>;
+  createApiKey(name: string, permissions: string[]): Promise<string>;
+  deleteApiKey(apiKey: string): Promise<boolean>;
+  listTokens(): Array<{
+    token: string;
+    userId: string;
+    permissions: string[];
+    expiresAt: string;
+    lastUsed: string;
+  }>;
+  generateToken(userId: string, permissions: string[], expiresInHours?: number): Promise<string>;
+  revokeToken(token: string): Promise<boolean>;
+}
+
 /**
  * Context shared across all route handlers
  */
@@ -25,11 +57,11 @@ export interface RouteContext {
   // --- Core (required by all routes) ---
   server: FastifyInstance;
   logger: Logger;
-  serviceRegistry: ServiceRegistryImpl;
-  authLayer: AuthenticationLayerImpl;
-  router: GatewayRouterImpl;
-  protocolAdapters: ProtocolAdaptersImpl;
-  configManager: ConfigManagerImpl;
+  serviceRegistry: RouteServiceRegistry;
+  authLayer: RouteAuthenticationLayer;
+  router: GatewayRouter;
+  protocolAdapters: ProtocolAdapters;
+  configManager: ConfigManager;
 
   // --- Orchestrator (OrchestratorRoutes, SkillRoutes) ---
   orchestratorManager?: OrchestratorManager;

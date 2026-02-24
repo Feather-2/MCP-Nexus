@@ -24,6 +24,8 @@ import { DeploymentPolicy } from '../security/DeploymentPolicy.js';
 import { ToolListCache } from '../gateway/ToolListCache.js';
 import { AdapterPool } from '../adapters/AdapterPool.js';
 import { registerDefaultHealthProbe } from '../gateway/healthProbe.js';
+import { buildRouteContext } from './RouteContextFactory.js';
+import { SseManager } from './SseManager.js';
 import {
   RouteContext,
   ServiceRoutes,
@@ -42,6 +44,7 @@ import {
   SkillRoutes,
   SkillApprovalRoutes
 } from './routes/index.js';
+import type { RouteAuthenticationLayer, RouteServiceRegistry } from './routes/RouteContext.js';
 import { Middleware } from '../middleware/types.js';
 import {
   MiddlewareChain,
@@ -49,7 +52,6 @@ import {
   MiddlewareAbortedError,
   MiddlewareStageError
 } from '../middleware/chain.js';
-import { unrefTimer } from '../utils/async.js';
 import { AuthMiddleware } from '../middleware/AuthMiddleware.js';
 import { RateLimitMiddleware } from '../middleware/RateLimitMiddleware.js';
 import { setupObservabilityHooks } from './ObservabilityHooks.js';
@@ -68,16 +70,14 @@ export class HttpApiServer implements Disposable {
   private protocolAdapters: ProtocolAdaptersImpl;
   private configManager: import('../config/ConfigManagerImpl.js').ConfigManagerImpl;
   private readonly apiRoutesToAlias: Record<string, unknown>[] = [];
-  private logBuffer: Array<{ timestamp: string; level: string; message: string; service?: string; data?: unknown }> = [];
-  private logStreamClients: Set<FastifyReply> = new Set();
   private static readonly MAX_SSE_CONNECTIONS = 200;
+  private readonly sseManager: SseManager;
   private sandboxStatus: { nodeReady: boolean; pythonReady: boolean; goReady: boolean; packagesReady: boolean; details: Record<string, unknown> } = { nodeReady: false, pythonReady: false, goReady: false, packagesReady: false, details: {} };
   private sandboxInstalling: boolean = false;
   private orchestratorStatus: OrchestratorStatus | null = null;
   private orchestratorManager?: OrchestratorManager;
   private orchestratorEngine?: OrchestratorEngine;
   private subagentLoader?: SubagentLoader;
-  private sandboxStreamClients: Set<FastifyReply> = new Set();
   private instancePersistence?: InstancePersistence;
   private localMcpProxy?: LocalMcpProxyRoutes;
   private deploymentPolicy?: DeploymentPolicy;
@@ -85,9 +85,11 @@ export class HttpApiServer implements Disposable {
   private adapterPool?: AdapterPool;
   private middlewares: Middleware[] = [];
   private readonly middlewareChain: MiddlewareChain;
-  // Demo 日志与 SSE 清理定时器
-  private demoLogTimer?: ReturnType<typeof setInterval>;
-  private sseCleanupTimer?: ReturnType<typeof setInterval>;
+
+  // Backward compatibility for tests that access `server.logBuffer` directly
+  private get logBuffer() {
+    return this.sseManager.getLogBuffer();
+  }
 
   constructor(
     private config: GatewayConfig,
@@ -107,6 +109,11 @@ export class HttpApiServer implements Disposable {
     });
 
     this.configManager = configManager;
+    this.sseManager = new SseManager(this.logger, {
+      maxLogBufferSize: HttpApiServer.MAX_LOG_BUFFER_SIZE,
+      maxSseConnections: HttpApiServer.MAX_SSE_CONNECTIONS,
+      enableDemoLogs: process.env.NODE_ENV !== 'production'
+    });
 
     this.setupApiVersioning();
     setupObservabilityHooks(this.server, this.logger, this.config);
@@ -180,52 +187,7 @@ export class HttpApiServer implements Disposable {
   }
 
   private initializeLogSystem(): void {
-    // Add some initial log entries
-    this.addLogEntry('info', '系统启动成功', 'gateway');
-    this.addLogEntry('info', 'API 服务已就绪', 'api');
-    this.addLogEntry('info', '监控服务已启动', 'monitor');
-
-    // Set up periodic log generation for demo (dev only)
-    if (process.env.NODE_ENV !== 'production') {
-      this.demoLogTimer = setInterval(() => {
-        const messages = [
-          '处理客户端连接请求',
-          '服务健康检查完成',
-          '缓存清理任务执行',
-          '网关路由更新',
-          '认证令牌验证成功',
-          '配置热重载完成'
-        ];
-        const levels = ['info', 'debug', 'warn'];
-        const services = ['gateway', 'api', 'auth', 'router', 'monitor'];
-
-        const message = messages[Math.floor(Math.random() * messages.length)];
-        const level = levels[Math.floor(Math.random() * levels.length)];
-        const service = services[Math.floor(Math.random() * services.length)];
-
-        this.addLogEntry(level, message, service);
-      }, 3000 + Math.random() * 7000); // Random interval between 3-10 seconds
-      unrefTimer(this.demoLogTimer);
-    }
-
-    // Periodic cleanup of disconnected SSE clients
-    this.sseCleanupTimer = setInterval(() => {
-      try {
-        for (const client of Array.from(this.logStreamClients)) {
-          const raw = client.raw as { writableEnded?: boolean; destroyed?: boolean } | undefined;
-          if (!raw || raw.writableEnded || raw.destroyed) {
-            this.logStreamClients.delete(client);
-          }
-        }
-        for (const client of Array.from(this.sandboxStreamClients)) {
-          const raw = client.raw as { writableEnded?: boolean; destroyed?: boolean } | undefined;
-          if (!raw || raw.writableEnded || raw.destroyed) {
-            this.sandboxStreamClients.delete(client);
-          }
-        }
-      } catch { /* best-effort SSE cleanup */ }
-    }, 30000);
-    unrefTimer(this.sseCleanupTimer);
+    this.sseManager.initialize();
   }
 
   private setupApiVersioning(): void {
@@ -257,39 +219,6 @@ export class HttpApiServer implements Disposable {
     }
   }
 
-  private addLogEntry(level: string, message: string, service?: string, data?: unknown): void {
-    const logEntry = {
-      timestamp: new Date().toISOString(),
-      level,
-      message,
-      service,
-      data
-    };
-
-    // Keep only last MAX_LOG_BUFFER_SIZE log entries
-    this.logBuffer.push(logEntry);
-    if (this.logBuffer.length > HttpApiServer.MAX_LOG_BUFFER_SIZE) {
-      this.logBuffer.shift();
-    }
-
-    // Broadcast to all connected clients
-    this.broadcastLogEntry(logEntry);
-  }
-
-  private broadcastLogEntry(logEntry: Record<string, unknown>): void {
-    const payload = { ...logEntry, serviceId: logEntry.service };
-    const message = `data: ${JSON.stringify(payload)}\n\n`;
-
-    for (const client of Array.from(this.logStreamClients)) {
-      try {
-        client.raw.write(message);
-      } catch (error) {
-        // Remove disconnected clients
-        this.logStreamClients.delete(client);
-      }
-    }
-  }
-
   // Convert HealthCheckResult to ServiceHealth
   private convertHealthResult(result: HealthCheckResult): ServiceHealth {
     return {
@@ -315,19 +244,7 @@ export class HttpApiServer implements Disposable {
 
   async stop(): Promise<void> {
     try {
-      // 清理日志与 SSE 相关定时器
-      if (this.demoLogTimer) clearInterval(this.demoLogTimer);
-      if (this.sseCleanupTimer) clearInterval(this.sseCleanupTimer);
-
-      // Close all SSE connections before server shutdown
-      for (const client of this.logStreamClients) {
-        try { client.raw.end(); } catch { /* best-effort */ }
-      }
-      this.logStreamClients.clear();
-      for (const client of this.sandboxStreamClients) {
-        try { client.raw.end(); } catch { /* best-effort */ }
-      }
-      this.sandboxStreamClients.clear();
+      this.sseManager.stop();
 
       // Shutdown middleware resources (e.g. Redis clients)
       for (const mw of this.middlewares) {
@@ -368,37 +285,34 @@ export class HttpApiServer implements Disposable {
    * Create route context for modular route handlers
    */
   private createRouteContext(): RouteContext {
-    const self = this;
-    return {
+    return buildRouteContext({
       server: this.server,
       logger: this.logger,
-      serviceRegistry: this.serviceRegistry,
-      authLayer: this.authLayer,
+      serviceRegistry: this.serviceRegistry as unknown as RouteServiceRegistry,
+      authLayer: this.authLayer as unknown as RouteAuthenticationLayer,
       router: this.router,
       protocolAdapters: this.protocolAdapters,
       configManager: this.configManager,
-      get orchestratorManager() { return self.orchestratorManager; },
-      get orchestratorEngine() { return self.orchestratorEngine; },
-      get subagentLoader() { return self.subagentLoader; },
-      getOrchestratorStatus: () => self.orchestratorStatus,
-      getOrchestratorEngine: () => self.orchestratorEngine,
-      getSubagentLoader: () => self.subagentLoader,
-      logBuffer: this.logBuffer,
-      logStreamClients: this.logStreamClients,
-      sandboxStreamClients: this.sandboxStreamClients,
-      sandboxStatus: this.sandboxStatus,
-      get sandboxInstalling() { return self.sandboxInstalling; },
-      set sandboxInstalling(v: boolean) { self.sandboxInstalling = v; },
-      addLogEntry: this.addLogEntry.bind(this),
-      respondError: this.respondError.bind(this),
-      canAcceptSseClient: () => self.logStreamClients.size + self.sandboxStreamClients.size < HttpApiServer.MAX_SSE_CONNECTIONS,
+      getOrchestratorManager: () => this.orchestratorManager,
+      getOrchestratorEngine: () => this.orchestratorEngine,
+      getSubagentLoader: () => this.subagentLoader,
+      getOrchestratorStatus: () => this.orchestratorStatus,
       middlewares: this.middlewares,
       middlewareChain: this.middlewareChain,
-      get instancePersistence() { return self.instancePersistence; },
-      get deploymentPolicy() { return self.deploymentPolicy; },
-      get toolListCache() { return self.toolListCache; },
-      get adapterPool() { return self.adapterPool; }
-    } as unknown as RouteContext;
+      getInstancePersistence: () => this.instancePersistence,
+      getDeploymentPolicy: () => this.deploymentPolicy,
+      getToolListCache: () => this.toolListCache,
+      getAdapterPool: () => this.adapterPool,
+      logBuffer: this.sseManager.getLogBuffer(),
+      logStreamClients: this.sseManager.getLogStreamClients(),
+      sandboxStreamClients: this.sseManager.getSandboxStreamClients(),
+      sandboxStatus: this.sandboxStatus,
+      getSandboxInstalling: () => this.sandboxInstalling,
+      setSandboxInstalling: (value: boolean) => { this.sandboxInstalling = value; },
+      addLogEntry: this.sseManager.addLogEntry.bind(this.sseManager),
+      respondError: this.respondError.bind(this),
+      canAcceptSseClient: () => this.sseManager.canAcceptSseClient()
+    });
   }
 
   // SSE headers helper to reflect CORS policy (used by tests and streaming routes)
