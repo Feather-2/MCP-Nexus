@@ -104,6 +104,33 @@ describe('GatewayBootstrapper', () => {
     expect(typeof serviceRegistry.setHealthProbe.mock.calls[0][0]).toBe('function');
   });
 
+  it('resolves infra components from container-managed singletons', () => {
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), trace: vi.fn() } as any;
+    const configManager = { getConfig: vi.fn().mockReturnValue(makeConfig({ enableMetrics: false })) } as any;
+    const serviceRegistry = { setHealthProbe: vi.fn(), setInstancePersistence: vi.fn(), getStore: vi.fn().mockReturnValue({ subscribe: vi.fn() }) } as any;
+
+    const bootstrapper = new GatewayBootstrapper({
+      overrides: {
+        logger,
+        configManager,
+        orchestratorManager: {} as any,
+        protocolAdapters: {} as any,
+        serviceRegistry,
+        authLayer: {} as any,
+        router: {} as any,
+        httpServer: { setOrchestratorManager: vi.fn(), addMiddleware: vi.fn(), setDeploymentComponents: vi.fn(), setPerformanceComponents: vi.fn() } as any
+      }
+    });
+
+    const runtime = bootstrapper.bootstrap();
+    const tokens = GatewayBootstrapper.TOKENS;
+
+    expect(runtime.adapterPool).toBe(bootstrapper.container.resolve(tokens.adapterPool));
+    expect(runtime.instancePersistence).toBe(bootstrapper.container.resolve(tokens.instancePersistence));
+    expect(runtime.toolListCache).toBe(bootstrapper.container.resolve(tokens.toolListCache));
+    expect(runtime.deploymentPolicy).toBe(bootstrapper.container.resolve(tokens.deploymentPolicy));
+  });
+
   it('wires a default health probe that checks running instances', async () => {
     const config = makeConfig({ enableMetrics: false });
 

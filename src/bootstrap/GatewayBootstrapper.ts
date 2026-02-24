@@ -63,7 +63,11 @@ const TOKENS = {
   serviceRegistry: Symbol('pbmcp:serviceRegistry'),
   authLayer: Symbol('pbmcp:authLayer'),
   router: Symbol('pbmcp:router'),
-  httpServer: Symbol('pbmcp:httpServer')
+  httpServer: Symbol('pbmcp:httpServer'),
+  instancePersistence: Symbol('pbmcp:instancePersistence'),
+  deploymentPolicy: Symbol('pbmcp:deploymentPolicy'),
+  toolListCache: Symbol('pbmcp:toolListCache'),
+  adapterPool: Symbol('pbmcp:adapterPool')
 } as const;
 
 export class GatewayBootstrapper {
@@ -102,15 +106,10 @@ export class GatewayBootstrapper {
 
     this.applyTemplatesDirEnv(configPath, logger);
 
-    const adapterPool = new AdapterPool(logger);
-
-    this.registerDefaults(adapterPool);
+    this.registerDefaults();
 
     const configManager = this.container.resolve<ConfigManagerImpl>(TOKENS.configManager);
     this.config = configManager.getConfig();
-    const deploymentPolicy = new DeploymentPolicy(logger);
-    const toolListCache = new ToolListCache(logger);
-
     const runtime: GatewayRuntime = {
       logger,
       configManager,
@@ -120,10 +119,10 @@ export class GatewayBootstrapper {
       authLayer: this.container.resolve<AuthenticationLayerImpl>(TOKENS.authLayer),
       router: this.container.resolve<GatewayRouterImpl>(TOKENS.router),
       httpServer: this.container.resolve<HttpApiServer>(TOKENS.httpServer),
-      instancePersistence: new InstancePersistence(logger),
-      deploymentPolicy,
-      toolListCache,
-      adapterPool,
+      instancePersistence: this.container.resolve<InstancePersistence>(TOKENS.instancePersistence),
+      deploymentPolicy: this.container.resolve<DeploymentPolicy>(TOKENS.deploymentPolicy),
+      toolListCache: this.container.resolve<ToolListCache>(TOKENS.toolListCache),
+      adapterPool: this.container.resolve<AdapterPool>(TOKENS.adapterPool),
     };
 
     // Core wiring
@@ -305,7 +304,35 @@ export class GatewayBootstrapper {
     }
   }
 
-  private registerDefaults(adapterPool: AdapterPool): void {
+  private registerDefaults(): void {
+    if (!this.container.has(TOKENS.adapterPool)) {
+      this.container.singleton(TOKENS.adapterPool, (c) => {
+        const logger = c.resolve<Logger>(TOKENS.logger);
+        return new AdapterPool(logger);
+      });
+    }
+
+    if (!this.container.has(TOKENS.instancePersistence)) {
+      this.container.singleton(TOKENS.instancePersistence, (c) => {
+        const logger = c.resolve<Logger>(TOKENS.logger);
+        return new InstancePersistence(logger);
+      });
+    }
+
+    if (!this.container.has(TOKENS.deploymentPolicy)) {
+      this.container.singleton(TOKENS.deploymentPolicy, (c) => {
+        const logger = c.resolve<Logger>(TOKENS.logger);
+        return new DeploymentPolicy(logger);
+      });
+    }
+
+    if (!this.container.has(TOKENS.toolListCache)) {
+      this.container.singleton(TOKENS.toolListCache, (c) => {
+        const logger = c.resolve<Logger>(TOKENS.logger);
+        return new ToolListCache(logger);
+      });
+    }
+
     if (!this.container.has(TOKENS.configManager)) {
       this.container.singleton(TOKENS.configManager, (c) => {
         const configPath = c.resolve<string>(TOKENS.configPath);
@@ -325,6 +352,7 @@ export class GatewayBootstrapper {
     if (!this.container.has(TOKENS.protocolAdapters)) {
       this.container.singleton(TOKENS.protocolAdapters, (c) => {
         const logger = c.resolve<Logger>(TOKENS.logger);
+        const adapterPool = c.resolve<AdapterPool>(TOKENS.adapterPool);
         return new ProtocolAdaptersImpl(logger, () => this.getCurrentConfig(), adapterPool);
       });
     }
