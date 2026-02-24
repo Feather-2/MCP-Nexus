@@ -15,6 +15,7 @@ import { ProcessStateManager } from './ProcessStateManager.js';
 import { McpProtocolHandshaker } from './McpProtocolHandshaker.js';
 import { UnifiedErrorHandler } from '../utils/ErrorHandler.js';
 import { JsonRpcStreamParser } from './JsonRpcStreamParser.js';
+import { unrefTimer } from '../utils/async.js';
 import { CommandValidator } from '../security/command-validator.js';
 
 const commandValidator = new CommandValidator({ allowShellMeta: false });
@@ -83,7 +84,7 @@ export class McpProtocolStackImpl implements McpProtocolStack, Disposable {
         callbacks?.delete(messageId);
         reject(new Error(`Timeout waiting for response to message ${messageId} from ${serviceId}`));
       }, 30000);
-      (timeout as unknown as { unref?: () => void }).unref?.();
+      unrefTimer(timeout);
 
       const callbacks = this.responseCallbacks.get(serviceId);
       if (!callbacks) {
@@ -114,7 +115,7 @@ export class McpProtocolStackImpl implements McpProtocolStack, Disposable {
         process.off('exit', onExit);
         reject(new Error(`Timeout waiting for message from ${serviceId}`));
       }, timeoutMs);
-      (timeout as unknown as { unref?: () => void }).unref?.();
+      unrefTimer(timeout);
 
       const onMessage = (msg: McpMessage) => {
         clearTimeout(timeout);
@@ -244,7 +245,7 @@ export class McpProtocolStackImpl implements McpProtocolStack, Disposable {
           resolve();
         }, 5000);
         // Don't keep the Node process alive solely for this fallback kill timer
-        (timeout as unknown as { unref?: () => void }).unref?.();
+        unrefTimer(timeout);
 
         process.once('exit', () => {
           clearTimeout(timeout);

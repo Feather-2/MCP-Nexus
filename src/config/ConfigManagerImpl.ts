@@ -141,6 +141,7 @@ export class ConfigManagerImpl extends EventEmitter implements ConfigManager {
         }
       }
 
+      // Guard: atomic write prevents partial config on crash
       // Save config atomically: write to temp file then rename
       const configJson = JSON.stringify(config, null, 2);
       const tmpPath = `${this.configPath}.${randomBytes(4).toString('hex')}.tmp`;

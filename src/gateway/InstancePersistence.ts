@@ -35,6 +35,7 @@ export class InstancePersistence implements Disposable {
     try {
       const raw = await fs.readFile(this.filePath, 'utf-8');
       const parsed = JSON.parse(raw) as InstancePersistenceData;
+      // Guard: prevent prototype pollution from untrusted JSON
       delete (parsed as unknown as Record<string, unknown>)['__proto__'];
       delete (parsed as unknown as Record<string, unknown>)['constructor'];
       delete (parsed as unknown as Record<string, unknown>)['prototype'];

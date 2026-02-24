@@ -1,6 +1,7 @@
 import { TransportAdapter, McpServiceConfig, McpMessage, Logger, McpVersion } from '../types/index.js';
 import { EventEmitter } from 'events';
 import { extractHttpUrl } from './ssrf-guard.js';
+import { isJsonRpcMessage } from '../core/jsonrpc-guard.js';
 
 export class StreamableHttpAdapter extends EventEmitter implements TransportAdapter {
   private static readonly MAX_QUEUE_SIZE = 1000;
@@ -270,7 +271,7 @@ export class StreamableHttpAdapter extends EventEmitter implements TransportAdap
 
   private handleMessage(message: McpMessage): void {
     // Validate JSON-RPC envelope before processing
-    if (!message || typeof message !== 'object' || (message as unknown as Record<string, unknown>).jsonrpc !== '2.0') {
+    if (!isJsonRpcMessage(message)) {
       this.logger.warn('Invalid JSON-RPC response: missing or invalid jsonrpc field');
       return;
     }

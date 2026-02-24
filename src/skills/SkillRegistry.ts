@@ -8,6 +8,7 @@ import { mergeWithDefaults, validateCapabilities } from '../security/CapabilityM
 import type { SkillCapabilities } from '../security/CapabilityManifest.js';
 import type { Skill, SkillMetadata } from './types.js';
 import { SkillLoader } from './SkillLoader.js';
+import { unrefTimer } from '../utils/async.js';
 
 const SkillCapabilitiesSchema = z.object({
   filesystem: z.object({
@@ -298,7 +299,7 @@ export class SkillRegistry {
         });
       });
     }, WATCH_DEBOUNCE_MS);
-    (this.reloadDebounceTimer as unknown as { unref?: () => void }).unref?.();
+    unrefTimer(this.reloadDebounceTimer);
   }
 
   private async watchRoot(root: string): Promise<void> {

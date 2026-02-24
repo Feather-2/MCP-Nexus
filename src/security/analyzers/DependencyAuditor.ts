@@ -1,6 +1,7 @@
 import path from 'path';
 import { readFile } from 'fs/promises';
 import { spawn } from 'child_process';
+import { unrefTimer } from '../../utils/async.js';
 
 export type DependencySeverity = 'low' | 'moderate' | 'high' | 'critical';
 
@@ -286,7 +287,7 @@ async function runNpmAuditJson(
       }
       reject(new Error('npm audit timed out'));
     }, opts.timeoutMs);
-    (timer as unknown as { unref?: () => void }).unref?.();
+    unrefTimer(timer);
 
     const finalize = (fn: () => void) => {
       if (settled) return;

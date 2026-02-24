@@ -6,6 +6,7 @@ import {
   ServiceHealth
 } from '../types/index.js';
 import { CircularBuffer } from '../utils/CircularBuffer.js';
+import { unrefTimer } from '../utils/async.js';
 
 export interface RequestRecord {
   serviceId: string;
@@ -195,7 +196,7 @@ export class MetricsCollector {
     this.metricsInterval = setInterval(() => {
       this.refreshServiceMetrics();
     }, 30000);
-    (this.metricsInterval as unknown as { unref?: () => void }).unref?.();
+    unrefTimer(this.metricsInterval);
   }
 
   destroy(): void {

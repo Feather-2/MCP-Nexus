@@ -1,5 +1,6 @@
 import type { FastifyReply } from 'fastify';
 import type { Disposable } from '../types/index.js';
+import { unrefTimer } from '../utils/async.js';
 
 /**
  * Manages Server-Sent Events (SSE) client connections.
@@ -26,7 +27,7 @@ export class SseManager implements Disposable {
     this.cleanupTimer = setInterval(() => {
       this.removeDisconnected();
     }, this.cleanupIntervalMs);
-    (this.cleanupTimer as unknown as { unref?: () => void }).unref?.();
+    unrefTimer(this.cleanupTimer);
   }
 
   /**

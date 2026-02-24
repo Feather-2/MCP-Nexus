@@ -1,4 +1,5 @@
 import { LRUDeduper } from './deduper.js';
+import { unrefTimer } from '../utils/async.js';
 import { DEFAULT_EVENT_VERSION, EventBusEvents } from './types.js';
 import type {
   Event,
@@ -120,7 +121,7 @@ function createSubscriptionEntry(
                     timedOut = true;
                     resolve();
                   }, timeoutMs);
-                  (timer as unknown as { unref?: () => void }).unref?.();
+                  unrefTimer(timer);
                 })
               : undefined;
 

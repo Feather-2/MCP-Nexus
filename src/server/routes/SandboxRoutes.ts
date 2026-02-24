@@ -2,6 +2,7 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseRouteHandler, RouteContext } from './RouteContext.js';
 import { join } from 'path';
 import { z } from 'zod';
+import { unrefTimer } from '../../utils/async.js';
 
 /**
  * Sandbox runtime installation and management routes
@@ -229,7 +230,7 @@ export class SandboxRoutes extends BaseRouteHandler {
             try { child.kill('SIGKILL'); } catch { /* ignored */ }
             resolve(undefined);
           }, timeoutMs);
-          (timer as unknown as { unref?: () => void }).unref?.();
+          unrefTimer(timer);
           child.stdout?.on('data', (d) => { out += d.toString(); });
           child.stderr?.on('data', (d) => { err += d.toString(); });
           child.on('close', () => {

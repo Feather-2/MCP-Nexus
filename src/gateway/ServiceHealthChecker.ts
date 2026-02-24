@@ -1,5 +1,6 @@
 import { HealthCheckResult, Logger, Disposable } from '../types/index.js';
 import type { ServiceObservationStore } from './service-state.js';
+import { unrefTimer } from '../utils/async.js';
 
 export class ServiceHealthChecker implements Disposable {
   private static readonly MAX_MONITORED = 500;
@@ -23,7 +24,7 @@ export class ServiceHealthChecker implements Disposable {
       void this.performPeriodicChecks();
     }, this.checkInterval);
     // Don't keep the process alive solely for background health probes (important for tests/CLI).
-    (this.periodicTimer as unknown as { unref?: () => void }).unref?.();
+    unrefTimer(this.periodicTimer);
   }
 
   destroy(): void {

@@ -2,6 +2,8 @@ import { spawn } from 'node:child_process';
 
 import type { HookEventType, HookPayload, HookResult, ShellHook } from './types.js';
 
+import { unrefTimer } from '../utils/async.js';
+
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 /** Env keys that could be used for process injection; filtered from hook env. */
@@ -254,7 +256,7 @@ export class HookExecutor {
         const stderrWithTimeout = `${stderr || 'err'}${stderr ? '\n' : ''}${err.message}`;
         finalize({ decision: 'error', exitCode: -1, stdout, stderr: stderrWithTimeout }, err);
       }, timeoutMs);
-      (timer as unknown as { unref?: () => void }).unref?.();
+      unrefTimer(timer);
 
       child.on('close', (code: number | null, signal: NodeJS.Signals | null) => {
         if (settled) return;

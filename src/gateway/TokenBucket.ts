@@ -1,3 +1,5 @@
+import { unrefTimer } from '../utils/async.js';
+
 /**
  * Token Bucket rate limiter for backpressure control.
  */
@@ -60,7 +62,7 @@ export class TokenBucket {
 
       await new Promise(resolve => {
         const t = setTimeout(resolve, waitMs);
-        (t as unknown as { unref?: () => void }).unref?.();
+        unrefTimer(t);
       });
     }
 

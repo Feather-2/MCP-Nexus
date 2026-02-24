@@ -20,6 +20,7 @@ import type { AdapterPool } from '../../adapters/AdapterPool.js';
  * Context shared across all route handlers
  */
 export interface RouteContext {
+  // --- Core (required by all routes) ---
   server: FastifyInstance;
   logger: Logger;
   serviceRegistry: ServiceRegistryImpl;
@@ -27,28 +28,34 @@ export interface RouteContext {
   router: GatewayRouterImpl;
   protocolAdapters: ProtocolAdaptersImpl;
   configManager: ConfigManagerImpl;
+
+  // --- Orchestrator (OrchestratorRoutes, SkillRoutes) ---
   orchestratorManager?: OrchestratorManager;
   orchestratorEngine?: OrchestratorEngine;
   subagentLoader?: SubagentLoader;
   getOrchestratorStatus?: () => OrchestratorStatus | null;
   getOrchestratorEngine?: () => OrchestratorEngine | undefined;
   getSubagentLoader?: () => SubagentLoader | undefined;
+
+  // --- Middleware (ToolRoutes, RoutingRoutes) ---
   middlewares?: Middleware[];
   middlewareChain?: MiddlewareChain;
+
+  // --- Extensions (MonitoringRoutes, DeploymentRoutes) ---
   eventBus?: EventBus;
   instancePersistence?: InstancePersistence;
   deploymentPolicy?: DeploymentPolicy;
   toolListCache?: ToolListCache;
   adapterPool?: AdapterPool;
 
-  // Shared state
+  // --- Shared state (LogRoutes, SandboxRoutes) ---
   logBuffer: Array<{ timestamp: string; level: string; message: string; service?: string; data?: unknown }>;
   logStreamClients: Set<FastifyReply>;
   sandboxStreamClients: Set<FastifyReply>;
   sandboxStatus: { nodeReady: boolean; pythonReady: boolean; goReady: boolean; packagesReady: boolean; details: Record<string, unknown> };
   sandboxInstalling: boolean;
 
-  // Utility functions
+  // --- Utility functions ---
   addLogEntry: (level: string, message: string, service?: string, data?: unknown) => void;
   respondError: (reply: FastifyReply, status: number, message: string, opts?: { code?: string; recoverable?: boolean; meta?: unknown }) => unknown;
   canAcceptSseClient: () => boolean;

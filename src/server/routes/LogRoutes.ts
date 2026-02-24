@@ -1,6 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { BaseRouteHandler, RouteContext } from './RouteContext.js';
 import { z } from 'zod';
+import { unrefTimer } from '../../utils/async.js';
 
 /**
  * Log management and streaming routes
@@ -48,7 +49,7 @@ export class LogRoutes extends BaseRouteHandler {
         const heartbeat = setInterval(() => {
           try { reply.raw.write(': heartbeat\n\n'); } catch { clearInterval(heartbeat); }
         }, 30000);
-        (heartbeat as unknown as { unref?: () => void }).unref?.();
+        unrefTimer(heartbeat);
 
         // Send recent logs
         for (const log of this.ctx.logBuffer.slice(-10)) {

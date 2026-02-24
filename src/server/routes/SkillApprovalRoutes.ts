@@ -45,13 +45,19 @@ export class SkillApprovalRoutes extends BaseRouteHandler {
   }
 
   private async listAll(_request: FastifyRequest, reply: FastifyReply): Promise<void> {
-    if (!this.approver) return this.respondError(reply, 503, 'Approval subsystem not initialized', { code: 'NOT_READY' }) as unknown as void;
+    if (!this.approver) {
+      this.respondError(reply, 503, 'Approval subsystem not initialized', { code: 'NOT_READY' });
+      return;
+    }
     const records = await this.approver.list();
     return reply.send({ records });
   }
 
   private async listPending(_request: FastifyRequest, reply: FastifyReply): Promise<void> {
-    if (!this.approver) return this.respondError(reply, 503, 'Approval subsystem not initialized', { code: 'NOT_READY' }) as unknown as void;
+    if (!this.approver) {
+      this.respondError(reply, 503, 'Approval subsystem not initialized', { code: 'NOT_READY' });
+      return;
+    }
     const records = await this.approver.list('pending');
     return reply.send({ records });
   }
@@ -61,14 +67,23 @@ export class SkillApprovalRoutes extends BaseRouteHandler {
     reply: FastifyReply
   ): Promise<void> {
     const paramsParsed = ApprovalIdParam.safeParse(request.params);
-    if (!paramsParsed.success) return reply.status(400).send({ error: 'Invalid approval id', details: paramsParsed.error.issues }) as unknown as void;
+    if (!paramsParsed.success) {
+      reply.status(400).send({ error: 'Invalid approval id', details: paramsParsed.error.issues });
+      return;
+    }
     const bodyParsed = ApprovalActionBody.safeParse(request.body);
-    if (!bodyParsed.success) return reply.status(400).send({ error: 'Invalid body', details: bodyParsed.error.issues }) as unknown as void;
+    if (!bodyParsed.success) {
+      reply.status(400).send({ error: 'Invalid body', details: bodyParsed.error.issues });
+      return;
+    }
 
     const { id } = paramsParsed.data;
     const { userId, reason } = bodyParsed.data;
 
-    if (!this.approver) return this.respondError(reply, 503, 'Approval subsystem not initialized', { code: 'NOT_READY' }) as unknown as void;
+    if (!this.approver) {
+      this.respondError(reply, 503, 'Approval subsystem not initialized', { code: 'NOT_READY' });
+      return;
+    }
     const record = await this.approver.approve(id, userId, reason);
     if (!record) {
       return reply.status(404).send({ error: 'Record not found' });
@@ -82,14 +97,23 @@ export class SkillApprovalRoutes extends BaseRouteHandler {
     reply: FastifyReply
   ): Promise<void> {
     const paramsParsed = ApprovalIdParam.safeParse(request.params);
-    if (!paramsParsed.success) return reply.status(400).send({ error: 'Invalid approval id', details: paramsParsed.error.issues }) as unknown as void;
+    if (!paramsParsed.success) {
+      reply.status(400).send({ error: 'Invalid approval id', details: paramsParsed.error.issues });
+      return;
+    }
     const bodyParsed = ApprovalActionBody.safeParse(request.body);
-    if (!bodyParsed.success) return reply.status(400).send({ error: 'Invalid body', details: bodyParsed.error.issues }) as unknown as void;
+    if (!bodyParsed.success) {
+      reply.status(400).send({ error: 'Invalid body', details: bodyParsed.error.issues });
+      return;
+    }
 
     const { id } = paramsParsed.data;
     const { userId, reason } = bodyParsed.data;
 
-    if (!this.approver) return this.respondError(reply, 503, 'Approval subsystem not initialized', { code: 'NOT_READY' }) as unknown as void;
+    if (!this.approver) {
+      this.respondError(reply, 503, 'Approval subsystem not initialized', { code: 'NOT_READY' });
+      return;
+    }
     const record = await this.approver.reject(id, userId, reason);
     if (!record) {
       return reply.status(404).send({ error: 'Record not found' });

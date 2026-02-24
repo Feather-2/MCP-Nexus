@@ -8,6 +8,7 @@ import type { AuditDecomposer } from '../security/AuditDecomposer.js';
 import type { AuditSkillRouter } from '../security/AuditSkillRouter.js';
 import { setupCanaries, checkCanaryAccess } from '../security/CanarySystem.js';
 import { HardRuleEngine } from '../security/HardRuleEngine.js';
+import { unrefTimer } from '../utils/async.js';
 import { RiskScorer } from '../security/RiskScorer.js';
 import { EntropyAnalyzer } from '../security/analyzers/EntropyAnalyzer.js';
 import { PermissionAnalyzer } from '../security/analyzers/PermissionAnalyzer.js';
@@ -73,7 +74,7 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
     timer = setTimeout(() => {
       reject(new Error(`${label} timed out after ${timeoutMs}ms`));
     }, timeoutMs);
-    (timer as unknown as { unref?: () => void }).unref?.();
+    unrefTimer(timer);
   });
   try {
     return await Promise.race([promise, timeout]);

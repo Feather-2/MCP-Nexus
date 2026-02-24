@@ -79,7 +79,7 @@ class AsyncSemaphore {
         if (idx !== -1) this.waiters.splice(idx, 1);
         reject(new Error(`semaphore acquire timed out after ${timeoutMs}ms`));
       }, timeoutMs);
-      (timer as unknown as { unref?: () => void }).unref?.();
+      unrefTimer(timer);
     });
   }
 

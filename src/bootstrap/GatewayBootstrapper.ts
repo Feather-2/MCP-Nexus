@@ -8,6 +8,7 @@ import type {
 } from '../types/index.js';
 import { ConfigManagerImpl } from '../config/ConfigManagerImpl.js';
 import { AdapterPool } from '../adapters/AdapterPool.js';
+import { unrefTimer } from '../utils/async.js';
 import { ProtocolAdaptersImpl } from '../adapters/ProtocolAdaptersImpl.js';
 import { ToolListCache } from '../gateway/ToolListCache.js';
 import { ServiceRegistryImpl } from '../gateway/ServiceRegistryImpl.js';
@@ -273,7 +274,7 @@ export class GatewayBootstrapper {
             () => reject(new Error(`Stopping service ${service.id} timed out`)),
             STOP_TIMEOUT_MS
           );
-          (timer as unknown as { unref?: () => void }).unref?.();
+          unrefTimer(timer);
         });
         return Promise.race([stopPromise, timeoutPromise]);
       })

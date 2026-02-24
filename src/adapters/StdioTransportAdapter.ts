@@ -6,6 +6,8 @@ import { EventEmitter } from 'events';
 import { JsonRpcStreamParser } from '../core/JsonRpcStreamParser.js';
 import { CommandValidator } from '../security/command-validator.js';
 import { stripNpmVersion, extractNpmExecPackage, extractNpxPackage, inferPortablePackagesDir } from '../utils/npm-helpers.js';
+import { unrefTimer } from '../utils/async.js';
+import { isJsonRpcMessage } from '../core/jsonrpc-guard.js';
 
 function isWithinPath(targetPath: string, rootPath: string): boolean {
   const rel = path.relative(rootPath, targetPath);
@@ -310,7 +312,7 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
         }
       }, 5000);
       // Don't keep the Node process alive solely for this fallback kill timer
-      (forceKillTimeout as unknown as { unref?: () => void }).unref?.();
+      unrefTimer(forceKillTimeout);
 
       await new Promise<void>((resolve) => {
         if (!this.process || this.process.killed || this.process.exitCode != null) {
@@ -481,7 +483,7 @@ export class StdioTransportAdapter extends EventEmitter implements TransportAdap
 
   private handleMessage(message: McpMessage): void {
     // Validate JSON-RPC envelope before processing
-    if (!message || typeof message !== 'object' || (message as unknown as Record<string, unknown>).jsonrpc !== '2.0') {
+    if (!isJsonRpcMessage(message)) {
       this.logger.warn('Invalid JSON-RPC response: missing or invalid jsonrpc field');
       return;
     }

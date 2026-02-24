@@ -4,6 +4,7 @@ import { McpServiceConfig, Logger, McpVersion } from '../types/index.js';
 
 type SourceName = 'VSCode' | 'Cursor' | 'Windsurf' | 'Claude' | 'Cline';
 
+// Guard: prevent prototype pollution from external config files
 const DANGEROUS_KEYS = ['__proto__', 'constructor', 'prototype'];
 
 function sanitizeParsed(obj: unknown): Record<string, unknown> | null {
